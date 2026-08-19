@@ -23,7 +23,7 @@ body:
     attributes:
       label: What did you expect to happen?
     validations:
-      required: true
+      required: false
   - type: textarea
     id: reproduction
     attributes:
@@ -33,7 +33,7 @@ body:
         2. Run ...
         3. Observe ...
     validations:
-      required: true
+      required: false
   - type: input
     id: pi-version
     attributes:
