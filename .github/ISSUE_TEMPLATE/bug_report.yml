@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible problem with pi-open-tui.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Is there an existing issue for this?
+      description: Please search the existing issues before submitting a new report.
+      options:
+        - label: I have searched the existing issues.
+          required: true
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Install or run pi-open-tui with ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: pi-version
+    attributes:
+      label: Pi version
+      description: Run `pi --version`.
+      placeholder: "e.g. 0.84.2"
+    validations:
+      required: true
+  - type: input
+    id: open-tui-version
+    attributes:
+      label: pi-open-tui version
+      placeholder: "e.g. 0.2.14"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include your OS, terminal, and shell.
+      placeholder: "e.g. Windows 11, Windows Terminal, PowerShell 7"
+    validations:
+      required: true
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Relevant configuration
+      description: Paste the relevant parts of `~/.pi/agent/open-tui.json`. Remove sensitive values first.
+      render: json
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Paste logs or drag files here. Remove sensitive values first.
+      render: shell
+    validations:
+      required: false
