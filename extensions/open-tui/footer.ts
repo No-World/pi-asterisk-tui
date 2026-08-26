@@ -14,6 +14,7 @@ import {
 	fmtTokens,
 	formatCwd,
 	formatDuration,
+	formatInputBreakdown,
 	formatProviderLabel,
 	providerColor,
 	sanitizeStatus,
@@ -158,7 +159,7 @@ function renderStatsBlock(
 ): string {
 	const stats: string[] = [];
 	if (segments.tokens) {
-		stats.push(theme.fg("accent", `${glyphs.input} ${fmtTokens(totals.input)}`));
+		stats.push(theme.fg("accent", `${glyphs.input} ${formatInputBreakdown(totals.input, totals.cacheRead)}`));
 		stats.push(theme.fg("success", `${glyphs.output} ${fmtTokens(totals.output)}`));
 		// ponytail: hide cache-hit rate when the provider never reported cache
 		// tokens — avoids a misleading "0%" on providers without prompt caching.

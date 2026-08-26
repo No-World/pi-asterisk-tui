@@ -196,6 +196,29 @@ test("normalizes invalid usage totals", () => {
 	invalidateUsageCache();
 });
 
+test("usage totals count cache-write tokens as input, matching /session's uncached figure", () => {
+	// cacheWrite is fresh, near-full-price content; cacheRead is discounted repeat
+	// content and stays out of "input".
+	const usage = {
+		input: 90,
+		output: 12,
+		cacheRead: 5000,
+		cacheWrite: 27009,
+		cost: { total: 0.01 },
+	};
+	const ctx = {
+		sessionManager: {
+			getEntries: () => [{ id: "cache-write", timestamp: 1, type: "message", message: { role: "assistant", usage } }],
+		},
+	} as unknown as ExtensionContext;
+
+	invalidateUsageCache();
+	const totals = getUsageTotals(ctx);
+	assert.equal(totals.input, 27099);
+	assert.equal(totals.cacheRead, 5000);
+	invalidateUsageCache();
+});
+
 test("ASCII footer renders icons as semantic labels", () => {
 	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
 	const entries = [{
@@ -205,11 +228,11 @@ test("ASCII footer renders icons as semantic labels", () => {
 		message: {
 			role: "assistant",
 			usage: {
-				input: 100,
-				output: 40,
-				cacheRead: 100,
-				cacheWrite: 0,
-				cost: { total: 0.125 },
+				input: 90,
+				output: 12,
+				cacheRead: 5000,
+				cacheWrite: 27009,
+				cost: { total: 0.01 },
 			},
 		},
 	}];
@@ -270,10 +293,10 @@ test("ASCII footer renders icons as semantic labels", () => {
 		"#",
 		"M",
 		"~ high",
-		"↑ 100",
-		"↓ 40",
-		"c 50.0%",
-		"$ $0.125",
+		"↑ 32k (U 27k + R 5.0k)",
+		"↓ 12",
+		"c 15.6%",
+		"$ $0.010",
 		"& goal active",
 	]) {
 		assert.ok(output.includes(expected), `missing ${expected}\n${output}`);
