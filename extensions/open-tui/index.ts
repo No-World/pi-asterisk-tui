@@ -317,7 +317,10 @@ export default function (pi: ExtensionAPI) {
 					pendingUiChange = "reinstall";
 				}
 			}
-			const gitNeeded = newConfig.footerSegments.gitBranch || newConfig.footerSegments.gitStatus || newConfig.footerSegments.gitCommit;
+			const gitNeeded =
+				newConfig.footerStyle === "hud"
+					? newConfig.hud.git
+					: newConfig.footerSegments.gitBranch || newConfig.footerSegments.gitStatus || newConfig.footerSegments.gitCommit;
 			if (lastCtx && gitNeeded) {
 				void scheduleGitRefresh(lastCtx);
 			} else {

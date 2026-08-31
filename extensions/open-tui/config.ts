@@ -14,6 +14,64 @@ export type { IconMode } from "./icons.ts";
 
 export type FooterStyle = "hud" | "classic";
 
+/** Fine-grained HUD-style footer options (one per visible detail). */
+export interface HudConfig {
+	model: boolean;
+	modelContextWindow: boolean;
+	modelThinking: boolean;
+	git: boolean;
+	gitDir: boolean;
+	gitBranch: boolean;
+	gitDiffTotals: boolean;
+	sessionName: boolean;
+	time: boolean;
+	cost: boolean;
+	contextBar: boolean;
+	contextPercent: boolean;
+	contextTokens: boolean;
+	runtime: boolean;
+	tokens: boolean;
+	tokenBreakdown: boolean;
+	cacheHit: boolean;
+	tools: boolean;
+	toolsRunning: boolean;
+	toolsMax: number;
+	files: boolean;
+	filesUntracked: boolean;
+	filesMax: number;
+}
+
+export const DEFAULT_HUD_CONFIG: HudConfig = {
+	model: true,
+	modelContextWindow: true,
+	modelThinking: true,
+	git: true,
+	gitDir: true,
+	gitBranch: true,
+	gitDiffTotals: true,
+	sessionName: true,
+	time: true,
+	cost: true,
+	contextBar: true,
+	contextPercent: true,
+	contextTokens: true,
+	runtime: true,
+	tokens: true,
+	tokenBreakdown: true,
+	cacheHit: true,
+	tools: true,
+	toolsRunning: true,
+	toolsMax: 4,
+	files: true,
+	filesUntracked: true,
+	filesMax: 4,
+};
+
+export function normalizeHudConfig(hud: HudConfig): HudConfig {
+	const clamp = (n: number) => (Number.isFinite(n) && n >= 1 ? Math.min(10, Math.floor(n)) : 4);
+	return { ...hud, toolsMax: clamp(hud.toolsMax), filesMax: clamp(hud.filesMax) };
+}
+
 export interface FooterSegments {
 	cwd: boolean;
 	sessionName: boolean;
@@ -25,12 +83,6 @@ export interface FooterSegments {
 	tokens: boolean;
 	cost: boolean;
 	extensionStatuses: boolean;
-	/** HUD style: ⏱ working time (agent turns only) */
-	time: boolean;
-	/** HUD style: ✓ tool usage counts line */
-	tools: boolean;
-	/** HUD style: per-file diff stats and [+a -d] totals */
-	gitDiff: boolean;
 }
 
 export interface TelemetryConfig {
@@ -57,6 +109,7 @@ export interface OpenTuiConfig {
 	};
 	footerStyle: FooterStyle;
 	footerSegments: FooterSegments;
+	hud: HudConfig;
 	telemetry: TelemetryConfig;
 }
 
@@ -82,10 +135,8 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		tokens: true,
 		cost: true,
 		extensionStatuses: true,
-		time: true,
-		tools: true,
-		gitDiff: true,
 	},
+	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	telemetry: {
 		enabled: true,
 		tps: true,
@@ -156,6 +207,7 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		if (config.footerStyle !== "hud" && config.footerStyle !== "classic") {
 			config.footerStyle = DEFAULT_CONFIG.footerStyle;
 		}
+		config.hud = normalizeHudConfig(deepMerge(DEFAULT_HUD_CONFIG, config.hud));
 		config.fullscreen.wheelScrollLines = normalizeFullscreenWheelScrollLines(
 			config.fullscreen.wheelScrollLines,
 			DEFAULT_CONFIG.fullscreen.wheelScrollLines,

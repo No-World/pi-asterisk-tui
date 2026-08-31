@@ -9,7 +9,7 @@ import {
 	type TUI,
 	Text,
 } from "@earendil-works/pi-tui";
-import type { CursorStyle, FooterStyle, IconMode, OpenTuiConfig, SettingsLanguage } from "./config.ts";
+import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SettingsLanguage } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -47,9 +47,29 @@ const COPY = {
 			cost: "Cost",
 			extensionStatuses: "Extension status line",
 			footerStyle: "Footer style",
-			time: "Working time",
-			tools: "Tool usage",
-			gitDiff: "File diffs",
+			hudModel: "Model",
+			hudModelContextWindow: "Model · context window",
+			hudModelThinking: "Model · thinking level",
+			hudGit: "Git segment",
+			hudGitDir: "Git · directory",
+			hudGitBranch: "Git · branch",
+			hudGitDiffTotals: "Git · [+a -d] totals",
+			hudSessionName: "Session name",
+			hudTime: "Working time",
+			hudCost: "Cost",
+			hudContextBar: "Context bar",
+			hudContextPercent: "Context · percent",
+			hudContextTokens: "Context · tokens",
+			hudRuntime: "Runtime",
+			hudTokens: "Tokens",
+			hudTokenBreakdown: "Tokens · cache read",
+			hudCacheHit: "Tokens · cache hit rate",
+			hudTools: "Tool usage",
+			hudToolsRunning: "Tools · running",
+			hudToolsMax: "Tools · max visible",
+			hudFiles: "File diffs",
+			hudFilesUntracked: "Files · untracked count",
+			hudFilesMax: "Files · max visible",
 			totalDuration: "Total duration",
 			tokenCounts: "Token counts",
 			stallDetails: "Stall details",
@@ -63,6 +83,8 @@ const COPY = {
 			wheelPrompt: (count: number) => `Wheel scroll lines per notch, 1-10 (current: ${count}). Enter: apply · Esc: cancel`,
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
 			footerStyles: { hud: "HUD", classic: "Classic" },
+			count: (n: number) => `${n}`,
+			countPrompt: (label: string, current: number) => `${label}, 1-10 (current: ${current}). Enter: apply · Esc: cancel`,
 			icons: { auto: "Auto", nerd: "Nerd", ascii: "ASCII" },
 		},
 	},
@@ -87,9 +109,29 @@ const COPY = {
 			cost: "费用",
 			extensionStatuses: "扩展状态行",
 			footerStyle: "Footer 样式",
-			time: "工作时长",
-			tools: "工具调用",
-			gitDiff: "文件增删",
+			hudModel: "模型",
+			hudModelContextWindow: "模型 · 上下文窗口",
+			hudModelThinking: "模型 · 思考档位",
+			hudGit: "Git 段",
+			hudGitDir: "Git · 目录名",
+			hudGitBranch: "Git · 分支",
+			hudGitDiffTotals: "Git · [+a -d] 统计",
+			hudSessionName: "会话名",
+			hudTime: "工作时长",
+			hudCost: "费用",
+			hudContextBar: "上下文进度条",
+			hudContextPercent: "上下文 · 百分比",
+			hudContextTokens: "上下文 · Token 数",
+			hudRuntime: "运行时",
+			hudTokens: "Token 统计",
+			hudTokenBreakdown: "Token · 缓存读",
+			hudCacheHit: "Token · 缓存命中率",
+			hudTools: "工具调用",
+			hudToolsRunning: "工具 · 执行中",
+			hudToolsMax: "工具 · 最多显示",
+			hudFiles: "文件增删",
+			hudFilesUntracked: "文件 · 未跟踪数",
+			hudFilesMax: "文件 · 最多显示",
 			totalDuration: "总耗时",
 			tokenCounts: "Token 数量",
 			stallDetails: "停顿详情",
@@ -103,6 +145,8 @@ const COPY = {
 			wheelPrompt: (count: number) => `滚轮每格滚动行数（当前 ${count}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
 			footerStyles: { hud: "HUD 风格", classic: "经典风格" },
+			count: (n: number) => `${n}`,
+			countPrompt: (label: string, current: number) => `${label}（当前 ${current}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
 			icons: { auto: "自动", nerd: "Nerd", ascii: "ASCII" },
 		},
 	},
@@ -117,6 +161,20 @@ function toggleSetting(config: OpenTuiConfig, key: keyof OpenTuiConfig["footerSe
 			...config.footerSegments,
 			[key]: !config.footerSegments[key],
 		},
+	};
+}
+
+function setHudNumber(
+	config: OpenTuiConfig,
+	key: "toolsMax" | "filesMax",
+	raw: string,
+): OpenTuiConfig | undefined {
+	if (!/^\d+$/.test(raw)) return undefined;
+	const parsed = Number(raw);
+	if (parsed < 1) return undefined;
+	return {
+		...config,
+		hud: { ...config.hud, [key]: Math.min(10, Math.floor(parsed)) },
 	};
 }
 
@@ -188,24 +246,78 @@ function buildIconsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingItem
 	];
 }
 
+function toggleHud(config: OpenTuiConfig, key: keyof HudConfig): OpenTuiConfig {
+	return {
+		...config,
+		hud: {
+			...config.hud,
+			[key]: !config.hud[key],
+		},
+	};
+}
+
+const HUD_TOGGLE_ITEMS: Array<{ id: string; key: keyof HudConfig; label: string }> = [
+	{ id: "model", key: "model", label: "hudModel" },
+	{ id: "modelContextWindow", key: "modelContextWindow", label: "hudModelContextWindow" },
+	{ id: "modelThinking", key: "modelThinking", label: "hudModelThinking" },
+	{ id: "git", key: "git", label: "hudGit" },
+	{ id: "gitDir", key: "gitDir", label: "hudGitDir" },
+	{ id: "gitBranch", key: "gitBranch", label: "hudGitBranch" },
+	{ id: "gitDiffTotals", key: "gitDiffTotals", label: "hudGitDiffTotals" },
+	{ id: "sessionName", key: "sessionName", label: "hudSessionName" },
+	{ id: "time", key: "time", label: "hudTime" },
+	{ id: "cost", key: "cost", label: "hudCost" },
+	{ id: "contextBar", key: "contextBar", label: "hudContextBar" },
+	{ id: "contextPercent", key: "contextPercent", label: "hudContextPercent" },
+	{ id: "contextTokens", key: "contextTokens", label: "hudContextTokens" },
+	{ id: "runtime", key: "runtime", label: "hudRuntime" },
+	{ id: "tokens", key: "tokens", label: "hudTokens" },
+	{ id: "tokenBreakdown", key: "tokenBreakdown", label: "hudTokenBreakdown" },
+	{ id: "cacheHit", key: "cacheHit", label: "hudCacheHit" },
+	{ id: "tools", key: "tools", label: "hudTools" },
+	{ id: "toolsRunning", key: "toolsRunning", label: "hudToolsRunning" },
+	{ id: "files", key: "files", label: "hudFiles" },
+	{ id: "filesUntracked", key: "filesUntracked", label: "hudFilesUntracked" },
+];
+
+function copyLabels(): unknown {
+	return COPY.en.labels;
+}
+
 function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingItem[] {
-	const segs = config.footerSegments;
 	const flag = (value: boolean) => value ? copy.values.on : copy.values.off;
+	const styleItem: SettingItem = {
+		id: "footerStyle",
+		label: copy.labels.footerStyle,
+		currentValue: copy.values.footerStyles[config.footerStyle],
+	};
+	if (config.footerStyle === "classic") {
+		const segs = config.footerSegments;
+		return [
+			styleItem,
+			{ id: "cwd", label: copy.labels.cwd, currentValue: flag(segs.cwd) },
+			{ id: "sessionName", label: copy.labels.sessionName, currentValue: flag(segs.sessionName) },
+			{ id: "gitBranch", label: copy.labels.gitBranch, currentValue: flag(segs.gitBranch) },
+			{ id: "gitStatus", label: copy.labels.gitStatus, currentValue: flag(segs.gitStatus) },
+			{ id: "gitCommit", label: copy.labels.gitCommit, currentValue: flag(segs.gitCommit) },
+			{ id: "runtime", label: copy.labels.runtime, currentValue: flag(segs.runtime) },
+			{ id: "context", label: copy.labels.context, currentValue: flag(segs.context) },
+			{ id: "tokens", label: copy.labels.tokens, currentValue: flag(segs.tokens) },
+			{ id: "cost", label: copy.labels.cost, currentValue: flag(segs.cost) },
+			{ id: "extensionStatuses", label: copy.labels.extensionStatuses, currentValue: flag(segs.extensionStatuses) },
+		];
+	}
+	const hud = config.hud;
+	const labels = copy.labels as Record<string, string>;
 	return [
-		{ id: "cwd", label: copy.labels.cwd, currentValue: flag(segs.cwd) },
-		{ id: "sessionName", label: copy.labels.sessionName, currentValue: flag(segs.sessionName) },
-		{ id: "gitBranch", label: copy.labels.gitBranch, currentValue: flag(segs.gitBranch) },
-		{ id: "gitStatus", label: copy.labels.gitStatus, currentValue: flag(segs.gitStatus) },
-		{ id: "gitCommit", label: copy.labels.gitCommit, currentValue: flag(segs.gitCommit) },
-		{ id: "runtime", label: copy.labels.runtime, currentValue: flag(segs.runtime) },
-		{ id: "context", label: copy.labels.context, currentValue: flag(segs.context) },
-		{ id: "tokens", label: copy.labels.tokens, currentValue: flag(segs.tokens) },
-		{ id: "cost", label: copy.labels.cost, currentValue: flag(segs.cost) },
-		{ id: "extensionStatuses", label: copy.labels.extensionStatuses, currentValue: flag(segs.extensionStatuses) },
-		{ id: "footerStyle", label: copy.labels.footerStyle, currentValue: copy.values.footerStyles[config.footerStyle] },
-		{ id: "time", label: copy.labels.time, currentValue: flag(segs.time) },
-		{ id: "tools", label: copy.labels.tools, currentValue: flag(segs.tools) },
-		{ id: "gitDiff", label: copy.labels.gitDiff, currentValue: flag(segs.gitDiff) },
+		styleItem,
+		...HUD_TOGGLE_ITEMS.map(({ id, key, label }) => ({
+			id,
+			label: labels[label],
+			currentValue: flag(hud[key] as boolean),
+		})),
+		{ id: "toolsMax", label: labels.hudToolsMax, currentValue: copy.values.count(hud.toolsMax) },
+		{ id: "filesMax", label: labels.hudFilesMax, currentValue: copy.values.count(hud.filesMax) },
 	];
 }
 
@@ -248,6 +360,10 @@ function handleSettingChange(
 	}
 	if (tab === "segments") {
 		if (itemId === "footerStyle") return cycleFooterStyle(config);
+		if (itemId === "toolsMax" || itemId === "filesMax") return config; // numeric, via input
+		if (config.footerStyle === "hud" && itemId in config.hud) {
+			return toggleHud(config, itemId as keyof HudConfig);
+		}
 		return toggleSetting(config, itemId as keyof OpenTuiConfig["footerSegments"]);
 	}
 	if (tab === "telemetry") {
@@ -274,7 +390,7 @@ class SettingsUi implements SettingsUiHandle {
 	private cachedWidth: number | undefined;
 	private cachedLines: string[] | undefined;
 	private compact = false;
-	private wheelInput: Input | undefined;
+	private numberInput: { itemId: string; input: Input } | undefined;
 
 	constructor(
 		theme: Theme,
@@ -299,8 +415,11 @@ class SettingsUi implements SettingsUiHandle {
 
 	private applySetting(itemId: string): void {
 		this.selectedItemByTab[this.tab] = itemId;
-		if (this.tab === "features" && itemId === "wheelScrollLines") {
-			this.openWheelInput();
+		const numericItem =
+			(this.tab === "features" && itemId === "wheelScrollLines") ||
+			(this.tab === "segments" && (itemId === "toolsMax" || itemId === "filesMax"));
+		if (numericItem) {
+			this.openNumberInput(itemId);
 			this.invalidate();
 			return;
 		}
@@ -309,23 +428,28 @@ class SettingsUi implements SettingsUiHandle {
 		this.rebuild(itemId);
 	}
 
-	private openWheelInput(): void {
+	private openNumberInput(itemId: string): void {
 		const input = new Input();
 		input.onSubmit = (value) => {
-			const next = setWheelScrollLines(this.config, value);
-			this.wheelInput = undefined;
+			let next: OpenTuiConfig | undefined;
+			if (itemId === "wheelScrollLines") {
+				next = setWheelScrollLines(this.config, value);
+			} else {
+				next = setHudNumber(this.config, itemId as "toolsMax" | "filesMax", value);
+			}
+			this.numberInput = undefined;
 			if (next) {
 				this.config = next;
 				this.onChange(this.config);
 			}
-			this.rebuild("wheelScrollLines");
+			this.rebuild(itemId);
 		};
 		input.onEscape = () => {
-			this.wheelInput = undefined;
-			this.rebuild("wheelScrollLines");
+			this.numberInput = undefined;
+			this.rebuild(itemId);
 		};
-		this.wheelInput = input;
-		this.rebuild("wheelScrollLines");
+		this.numberInput = { itemId, input };
+		this.rebuild(itemId);
 	}
 
 	private switchTab(offset: number): void {
@@ -347,9 +471,9 @@ class SettingsUi implements SettingsUiHandle {
 		this.container.addChild(new Text(tabBar, 1, 0));
 		this.container.addChild(new Text(this.theme.fg("dim", copy.hint), 1, 0));
 
-		const editingWheel = this.tab === "features" && this.wheelInput !== undefined;
+		const editingId = this.numberInput?.itemId;
 		const items = buildItems(this.tab, this.config).map((item) => {
-			const editing = editingWheel && item.id === "wheelScrollLines";
+			const editing = item.id === editingId;
 			return {
 				value: item.id,
 				label: editing
@@ -380,16 +504,24 @@ class SettingsUi implements SettingsUiHandle {
 			this.onClose();
 		};
 		this.container.addChild(this.selectList);
-		if (editingWheel) {
-			this.wheelInput!.focused = true;
-			const wheelInputGroup = new Box(4, 0);
-			wheelInputGroup.addChild(new Text(
-				this.theme.fg("muted", copy.values.wheelPrompt(this.config.fullscreen.wheelScrollLines)),
+		if (this.numberInput && editingId !== undefined) {
+			const input = this.numberInput.input;
+			input.focused = true;
+			const labels = copy.labels as Record<string, string>;
+			const prompt =
+				editingId === "wheelScrollLines"
+					? copy.values.wheelPrompt(this.config.fullscreen.wheelScrollLines)
+					: editingId === "toolsMax"
+						? copy.values.countPrompt(labels.hudToolsMax ?? editingId, this.config.hud.toolsMax)
+						: copy.values.countPrompt(labels.hudFilesMax ?? editingId, this.config.hud.filesMax);
+			const inputGroup = new Box(4, 0);
+			inputGroup.addChild(new Text(
+				this.theme.fg("muted", prompt),
 				0,
 				0,
 			));
-			wheelInputGroup.addChild(this.wheelInput!);
-			this.container.addChild(wheelInputGroup);
+			inputGroup.addChild(input);
+			this.container.addChild(inputGroup);
 		}
 
 		this.cachedWidth = undefined;
@@ -397,8 +529,8 @@ class SettingsUi implements SettingsUiHandle {
 	}
 
 	handleInput(data: string): void {
-		if (this.wheelInput && this.tab === "features") {
-			this.wheelInput.handleInput(data);
+		if (this.numberInput) {
+			this.numberInput.input.handleInput(data);
 			this.invalidate();
 			return;
 		}

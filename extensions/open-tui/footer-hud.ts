@@ -9,7 +9,7 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { OpenTuiConfig } from "./config.ts";
+import type { OpenTuiConfig, HudConfig } from "./config.ts";
 import { runtimeSymbol, type IconGlyphs, resolveGlyphs } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
 import type { RuntimeInfo } from "./runtime.ts";
@@ -84,7 +84,7 @@ async function collectDiffStats(cwd: string): Promise<DiffStats> {
 	};
 }
 
-function renderContextBar(theme: Theme, ctx: ExtensionContext): string {
+function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig): string {
 	const usage = ctx.getContextUsage();
 	const ctxWin = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
 	if (ctxWin <= 0) return "";
@@ -92,13 +92,14 @@ function renderContextBar(theme: Theme, ctx: ExtensionContext): string {
 	const pct = usage?.percent ?? 0;
 	const filled = Math.round((pct / 100) * 10);
 	const color = stressColor(pct);
-	return (
-		theme.fg("dim", "上下文 ") +
+	let bar = theme.fg("dim", "上下文 ") +
 		theme.fg(color, "█".repeat(filled)) +
-		theme.fg("dim", "░".repeat(10 - filled)) +
-		theme.fg("muted", ` ${Math.floor(pct)}%`) +
-		theme.fg("dim", ` (${fmtTokens(tokens)}/${fmtTokens(ctxWin)})`)
-	);
+		theme.fg("dim", "░".repeat(10 - filled));
+	if (hud.contextPercent) bar += theme.fg("muted", ` ${Math.floor(pct)}%`);
+	if (hud.contextTokens) {
+		bar += theme.fg("dim", ` (${fmtTokens(tokens)}/${fmtTokens(ctxWin)})`);
+	}
+	return bar;
 }
 
 export interface FooterHooks {
@@ -151,7 +152,7 @@ export function installHudFooter(
 				const state = getState();
 				const config = getConfig();
 				const glyphs: IconGlyphs = resolveGlyphs(config.icons.mode);
-				const segments = config.footerSegments;
+				const hud = config.hud;
 				const meta = getModelMeta();
 				const sep = theme.fg("dim", " │ ");
 
@@ -196,73 +197,80 @@ export function installHudFooter(
 				// ---- line 1: [model[ctx] ◕ level] │ dir git:(…) │ name │ ⏱ time │ $cost ----
 				const usage = ctx.getContextUsage();
 				const ctxWin = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
-				let modelBlock =
-					theme.fg("dim", "[") +
-					theme.fg("accent", meta.model) +
-					(ctxWin > 0
-						? theme.fg("dim", "[") + theme.fg("muted", fmtTokens(ctxWin)) + theme.fg("dim", "]")
-						: "");
-				if (meta.effort && meta.effort !== "off") {
-					const icon = THINKING_ICONS[meta.effort] ?? "○";
-					modelBlock +=
-						" " +
-						theme.fg(effortColor(meta.effort), icon) +
-						theme.fg("muted", ` ${meta.effort}`);
+				let modelBlock = "";
+				if (hud.model) {
+					modelBlock =
+						theme.fg("dim", "[") +
+						theme.fg("accent", meta.model) +
+						(hud.modelContextWindow && ctxWin > 0
+							? theme.fg("dim", "[") + theme.fg("muted", fmtTokens(ctxWin)) + theme.fg("dim", "]")
+							: "");
+					if (hud.modelThinking && meta.effort && meta.effort !== "off") {
+						const icon = THINKING_ICONS[meta.effort] ?? "○";
+						modelBlock +=
+							" " +
+							theme.fg(effortColor(meta.effort), icon) +
+							theme.fg("muted", ` ${meta.effort}`);
+					}
+					modelBlock += theme.fg("dim", "]");
 				}
-				modelBlock += theme.fg("dim", "]");
 
-				const left1: string[] = [modelBlock];
+				const left1: string[] = [];
+				if (modelBlock) left1.push(modelBlock);
 
 				const git: GitStatus = state.git;
 				const cwd = formatCwd(ctx.sessionManager.getCwd());
 				const dir = basenamePath(cwd) || cwd;
-				let gitStr = theme.fg("dim", dir);
-				if (git.branch) {
-					const dirty =
-						git.modified + git.staged + git.untracked + git.conflicted + git.renamed + git.deleted >
-						0;
-					const ab = git.ahead > 0 ? ` ↑${git.ahead}` : "";
-					const bb = git.behind > 0 ? ` ↓${git.behind}` : "";
-					const dd =
-						segments.gitDiff && diff.addTotal + diff.delTotal > 0
-							? ` ${theme.fg("warning", `[+${diff.addTotal} -${diff.delTotal}]`)}`
-							: "";
-					gitStr =
-						theme.fg("dim", `${dir} git:(`) +
-						theme.fg("mdLink", truncateBranch(git.branch, 24)) +
-						(dirty ? theme.fg("warning", "*") : "") +
-						theme.fg("muted", ab + bb) +
-						dd +
-						theme.fg("dim", ")");
+				if (hud.git) {
+					let gitStr = hud.gitDir ? theme.fg("dim", dir) : "";
+					if (hud.gitBranch && git.branch) {
+						const dirty =
+							git.modified + git.staged + git.untracked + git.conflicted + git.renamed + git.deleted >
+							0;
+						const ab = git.ahead > 0 ? ` ↑${git.ahead}` : "";
+						const bb = git.behind > 0 ? ` ↓${git.behind}` : "";
+						const dd =
+							hud.gitDiffTotals && diff.addTotal + diff.delTotal > 0
+								? ` ${theme.fg("warning", `[+${diff.addTotal} -${diff.delTotal}]`)}`
+								: "";
+						gitStr +=
+							(gitStr ? " " : "") +
+							theme.fg("dim", "git:(") +
+							theme.fg("mdLink", truncateBranch(git.branch, 24)) +
+							(dirty ? theme.fg("warning", "*") : "") +
+							theme.fg("muted", ab + bb) +
+							dd +
+							theme.fg("dim", ")");
+					}
+					if (gitStr) left1.push(gitStr);
 				}
-				left1.push(gitStr);
 
-				if (segments.sessionName) {
+				if (hud.sessionName) {
 					const name = ctx.sessionManager.getSessionName();
 					if (name) left1.push(theme.fg("success", truncateToWidth(name, 24, "…")));
 				}
 
 				const right1: string[] = [];
-				if (segments.time) {
+				if (hud.time) {
 					right1.push(theme.fg("muted", `⏱️ ${formatDuration(workingMs)}`));
 				}
-				if (segments.cost) right1.push(theme.fg("muted", `费用 $${totals.cost.toFixed(2)}`));
+				if (hud.cost) right1.push(theme.fg("muted", `费用 $${totals.cost.toFixed(2)}`));
 				const line1 = alignRight(left1.join(sep), right1.join(sep), width, theme);
 
 				// ---- line 2: context bar … runtime │ cache-hit │ tokens ----
 				let line2 = "";
-				if (segments.context) line2 = renderContextBar(theme, ctx);
+				if (hud.contextBar) line2 = renderContextBar(theme, ctx, hud);
 				const right2: string[] = [];
-				if (segments.runtime && state.runtime) {
+				if (hud.runtime && state.runtime) {
 					const rt: RuntimeInfo = state.runtime;
 					const sym = runtimeSymbol(rt.name, config.icons.mode);
 					right2.push(
 						theme.fg("success", sym) + theme.fg("muted", rt.version ? ` ${rt.version}` : "")
 					);
 				}
-				if (segments.tokens) {
+				if (hud.tokens) {
 					const cachedPart =
-						totals.cacheRead > 0
+						hud.tokenBreakdown && totals.cacheRead > 0
 							? theme.fg("dim", `·缓存读 ${fmtTokens(totals.cacheRead)}`)
 							: "";
 					right2.push(
@@ -270,7 +278,7 @@ export function installHudFooter(
 						cachedPart
 					);
 					right2.push(theme.fg("success", `↓输出 ${fmtTokens(totals.output)}`));
-					if (totals.latestCacheHitRate !== undefined) {
+					if (hud.cacheHit && totals.latestCacheHitRate !== undefined) {
 						right2.push(
 							theme.fg(
 								cacheHitColor(totals.latestCacheHitRate),
@@ -285,32 +293,36 @@ export function installHudFooter(
 
 				// ---- line 3: tool usage ----
 				let line3 = "";
-				if (segments.tools) {
+				if (hud.tools) {
 					const parts: string[] = [];
-					for (const name of running) {
-						parts.push(theme.fg("warning", "◐") + theme.fg("mdLink", ` ${name}`));
+					if (hud.toolsRunning) {
+						for (const name of running) {
+							parts.push(theme.fg("warning", "◐") + theme.fg("mdLink", ` ${name}`));
+						}
 					}
 					const sorted = [...toolCounts.entries()].sort((a, b) => b[1] - a[1]);
-					for (const [name, count] of sorted.slice(0, 4)) {
+					for (const [name, count] of sorted.slice(0, hud.toolsMax)) {
 						parts.push(
 							theme.fg("success", "✓") + theme.fg("muted", ` ${name} ×${count}`)
 						);
 					}
-					const hidden = sorted.length - 4;
+					const hidden = sorted.length - hud.toolsMax;
 					if (hidden > 0) parts.push(theme.fg("dim", `+${hidden} more`));
 					if (parts.length) line3 = parts.join(sep);
 				}
 
 				// ---- line 4: changed files ----
 				let line4 = "";
-				if (segments.gitDiff) {
-					const parts: string[] = diff.files.slice(0, 4).map((f) =>
+				if (hud.files) {
+					const parts: string[] = diff.files.slice(0, hud.filesMax).map((f) =>
 						theme.fg(
 							"muted",
 							`${f.path}(+${f.add}${f.del ? ` -${f.del}` : ""})`
 						)
 					);
-					if (git.untracked > 0) parts.push(theme.fg("warning", `?${git.untracked}`));
+					if (hud.filesUntracked && git.untracked > 0) {
+						parts.push(theme.fg("warning", `?${git.untracked}`));
+					}
 					if (parts.length) line4 = parts.join(theme.fg("dim", "  "));
 				}
 
