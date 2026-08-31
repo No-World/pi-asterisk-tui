@@ -31,13 +31,12 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
-// moon-phase icons: fill grows with thinking intensity (xhigh = ◕)
+// thinking-level icons aligned with claude-hud (off is not displayed)
 const THINKING_ICONS: Record<string, string> = {
-	off: "○",
 	minimal: "◌",
-	low: "◔",
-	medium: "◑",
-	high: "◒",
+	low: "○",
+	medium: "◔",
+	high: "◑",
 	xhigh: "◕",
 	max: "●",
 };
