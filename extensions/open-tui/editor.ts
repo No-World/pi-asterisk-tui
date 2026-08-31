@@ -120,6 +120,12 @@ export class OpenTuiEditor extends CustomEditor {
 	}
 
 	render(width: number): string[] {
+		// Self-heal after /reload: pi resets UI state (hardware cursor back to
+		// hidden) when extensions reload, but the editor only reconfigures the
+		// cursor on install or style change. Re-assert it when we notice it's off.
+		if (this.cursorStyle !== "block" && !this.tui.getShowHardwareCursor()) {
+			configureCursor(this.tui, this.cursorStyle);
+		}
 		if (width < 4) return this.renderBase(width);
 
 		const rail = this.getRail();

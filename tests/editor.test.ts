@@ -49,6 +49,7 @@ test("uses the terminal hardware cursor for non-block styles", () => {
 				rows: 24,
 				write: (data: string) => writes.push(data),
 			},
+			getShowHardwareCursor: () => hardwareCursor ?? false,
 			setShowHardwareCursor: (enabled: boolean) => {
 				hardwareCursor = enabled;
 			},
