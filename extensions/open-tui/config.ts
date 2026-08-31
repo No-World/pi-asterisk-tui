@@ -152,6 +152,34 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	},
 };
 
+function stableStringify(value: unknown): string {
+	if (typeof value !== "object" || value === null) return JSON.stringify(value) ?? "";
+	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+	const entries = Object.entries(value as Record<string, unknown>)
+		.filter(([, v]) => v !== undefined)
+		.sort(([a], [b]) => a.localeCompare(b));
+	return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
+}
+
+/**
+ * The style preset is derived from the actual configuration, never stored:
+ * HUD/Classic when the config matches that preset's defaults, else Custom.
+ * Manual footer edits therefore show up as Custom immediately, and reloads
+ * can never leave a stale preset label behind.
+ */
+export function deriveStylePreset(config: OpenTuiConfig): StylePreset {
+	if (config.footerStyle === "hud" && stableStringify(config.hud) === stableStringify(DEFAULT_HUD_CONFIG)) {
+		return "hud";
+	}
+	if (
+		config.footerStyle === "classic" &&
+		stableStringify(config.footerSegments) === stableStringify(DEFAULT_CONFIG.footerSegments)
+	) {
+		return "classic";
+	}
+	return "custom";
+}
+
 export function applyStylePreset(config: OpenTuiConfig, preset: StylePreset): OpenTuiConfig {
 	if (preset === "hud") {
 		return {
@@ -235,6 +263,7 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 			config.stylePreset = "custom";
 		}
 		config.hud = normalizeHudConfig(deepMerge(DEFAULT_HUD_CONFIG, config.hud));
+		config.stylePreset = deriveStylePreset(config);
 		config.fullscreen.wheelScrollLines = normalizeFullscreenWheelScrollLines(
 			config.fullscreen.wheelScrollLines,
 			DEFAULT_CONFIG.fullscreen.wheelScrollLines,

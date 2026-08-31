@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset } from "./config.ts";
+import { applyStylePreset, deriveStylePreset } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -248,7 +248,7 @@ function buildIconsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingItem
 	return [
 		{ id: "mode", label: copy.labels.iconMode, currentValue: copy.values.icons[config.icons.mode] },
 		{ id: "cursorStyle", label: copy.labels.cursorStyle, currentValue: copy.values.cursorStyles[config.cursorStyle] },
-		{ id: "stylePreset", label: copy.labels.stylePreset, currentValue: copy.values.stylePresets[config.stylePreset] },
+		{ id: "stylePreset", label: copy.labels.stylePreset, currentValue: copy.values.stylePresets[deriveStylePreset(config)] },
 	];
 }
 
@@ -343,7 +343,7 @@ function buildTelemetryItems(config: OpenTuiConfig, copy: SettingsCopy): Setting
 
 function cycleStylePreset(config: OpenTuiConfig): OpenTuiConfig {
 	const order: StylePreset[] = ["hud", "classic", "custom"];
-	const currentIdx = order.indexOf(config.stylePreset);
+	const currentIdx = order.indexOf(deriveStylePreset(config));
 	const next = order[(currentIdx + 1) % order.length]!;
 	return applyStylePreset(config, next);
 }
@@ -373,12 +373,17 @@ function handleSettingChange(
 		if (itemId === "stylePreset") return cycleStylePreset(config);
 	}
 	if (tab === "segments") {
-		if (itemId === "footerStyle") return cycleFooterStyle(config);
 		if (itemId === "toolsMax" || itemId === "filesMax") return config; // numeric, via input
-		if (config.footerStyle === "hud" && itemId in config.hud) {
-			return toggleHud(config, itemId as keyof HudConfig);
+		let next: OpenTuiConfig;
+		if (itemId === "footerStyle") {
+			next = cycleFooterStyle(config);
+		} else if (config.footerStyle === "hud" && itemId in config.hud) {
+			next = toggleHud(config, itemId as keyof HudConfig);
+		} else {
+			next = toggleSetting(config, itemId as keyof OpenTuiConfig["footerSegments"]);
 		}
-		return toggleSetting(config, itemId as keyof OpenTuiConfig["footerSegments"]);
+		// preset label always reflects the actual config
+		return { ...next, stylePreset: deriveStylePreset(next) };
 	}
 	if (tab === "telemetry") {
 		return toggleTelemetry(config, itemId as keyof OpenTuiConfig["telemetry"]);
@@ -454,8 +459,7 @@ class SettingsUi implements SettingsUiHandle {
 			this.numberInput = undefined;
 			if (next) {
 				if (itemId === "toolsMax" || itemId === "filesMax") {
-					// manual footer edit downgrades the active preset
-					next = this.config.stylePreset === "custom" ? next : { ...next, stylePreset: "custom" };
+					next = { ...next, stylePreset: deriveStylePreset(next) };
 				}
 				this.config = next;
 				this.onChange(this.config);
