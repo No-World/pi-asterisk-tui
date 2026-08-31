@@ -30,8 +30,7 @@
   },
   "pi": {
     "extensions": [
-      "./extensions/open-tui/index.ts",
-      "./extensions/subagent/index.ts"
+      "./extensions/open-tui/index.ts"
     ],
     "image": "https://raw.githubusercontent.com/OldSuns/pi-open-tui/main/assets/preview_dashboard_1.png"
   },
