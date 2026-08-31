@@ -55,27 +55,8 @@ interface DiffStats {
 
 async function collectDiffStats(cwd: string): Promise<DiffStats> {
 	const empty: DiffStats = { files: [], addTotal: 0, delTotal: 0 };
-	let top: string | null = null;
-	try {
-		const { stdout } = await exec("git", ["rev-parse", "--show-toplevel"], {
-			cwd,
-			timeout: 3000,
-		});
-		top = stdout.trim() || null;
-	} catch {
-		return empty; // not a git repo
-	}
-	if (!top) return empty;
-
-	const home = process.env.HOME ?? "";
-	// numstat paths are repo-root-relative — resolve to a friendly display path
-	const toDisplay = (p: string): string => {
-		const abs = p.startsWith("/") ? p : `${top}/${p}`;
-		if (home && (abs === home || abs.startsWith(home + "/"))) {
-			return "~" + abs.slice(home.length);
-		}
-		return abs;
-	};
+	// "~name.ts" — basename only; "~" is a modified-file marker (claude-hud style)
+	const toDisplay = (p: string): string => "~" + (p.split("/").pop() ?? p);
 
 	const byPath = new Map<string, FileStat>();
 	for (const args of [["diff", "--numstat"], ["diff", "--cached", "--numstat"]]) {
