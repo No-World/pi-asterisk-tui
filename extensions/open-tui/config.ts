@@ -13,6 +13,7 @@ export type CursorStyle = "block" | "bar" | "underline";
 export type { IconMode } from "./icons.ts";
 
 export type FooterStyle = "hud" | "classic";
+export type StylePreset = "hud" | "classic" | "custom";
 
 /** Fine-grained HUD-style footer options (one per visible detail). */
 export interface HudConfig {
@@ -110,6 +111,8 @@ export interface OpenTuiConfig {
 	footerStyle: FooterStyle;
 	footerSegments: FooterSegments;
 	hud: HudConfig;
+	/** Which named style is active; manual footer edits downgrade it to "custom". */
+	stylePreset: StylePreset;
 	telemetry: TelemetryConfig;
 }
 
@@ -124,6 +127,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		mode: "auto",
 	},
 	footerStyle: "hud",
+	stylePreset: "hud",
 	footerSegments: {
 		cwd: true,
 		sessionName: false,
@@ -147,6 +151,26 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		cost: true,
 	},
 };
+
+export function applyStylePreset(config: OpenTuiConfig, preset: StylePreset): OpenTuiConfig {
+	if (preset === "hud") {
+		return {
+			...config,
+			footerStyle: "hud",
+			stylePreset: "hud",
+			hud: structuredClone(DEFAULT_HUD_CONFIG),
+		};
+	}
+	if (preset === "classic") {
+		return {
+			...config,
+			footerStyle: "classic",
+			stylePreset: "classic",
+			footerSegments: structuredClone(DEFAULT_CONFIG.footerSegments),
+		};
+	}
+	return { ...config, stylePreset: "custom" };
+}
 
 export function getConfigPath(): string {
 	const agentDir = getAgentDir();
@@ -206,6 +230,9 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		}
 		if (config.footerStyle !== "hud" && config.footerStyle !== "classic") {
 			config.footerStyle = DEFAULT_CONFIG.footerStyle;
+		}
+		if (!["hud", "classic", "custom"].includes(config.stylePreset)) {
+			config.stylePreset = "custom";
 		}
 		config.hud = normalizeHudConfig(deepMerge(DEFAULT_HUD_CONFIG, config.hud));
 		config.fullscreen.wheelScrollLines = normalizeFullscreenWheelScrollLines(

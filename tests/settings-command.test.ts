@@ -276,6 +276,7 @@ test("remembers the selection for each tab", async () => {
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
 
 	assert.match(selectedLine(settings.component), /Git branch/);
 });

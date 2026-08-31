@@ -10,6 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SettingsLanguage } from "./config.ts";
+import { applyStylePreset } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -21,14 +22,14 @@ interface SettingItem {
 	currentValue: string;
 }
 
-type Tab = "features" | "icons" | "segments" | "telemetry";
+type Tab = "features" | "icons" | "segments" | "telemetry" | "style";
 
-const TABS: Tab[] = ["features", "icons", "segments", "telemetry"];
+const TABS: Tab[] = ["features", "icons", "segments", "telemetry", "style"];
 
 const COPY = {
 	en: {
 		title: "Open TUI Settings",
-		tabs: { features: "General", icons: "Appearance", segments: "Footer", telemetry: "Telemetry" },
+		tabs: { features: "General", icons: "Appearance", segments: "Footer", telemetry: "Telemetry", style: "Style" },
 		hint: "Tab/Shift+Tab/←/→: tabs · ↑/↓: move · Enter/Space: change · Enter on wheel speed: type 1-10 · Esc/q: close",
 		labels: {
 			enabled: "Enabled",
@@ -47,6 +48,9 @@ const COPY = {
 			cost: "Cost",
 			extensionStatuses: "Extension status line",
 			footerStyle: "Footer style",
+			presetHud: "HUD (preset)",
+			presetClassic: "Classic (preset)",
+			presetCustom: "Custom (current)",
 			hudModel: "Model",
 			hudModelContextWindow: "Model · context window",
 			hudModelThinking: "Model · thinking level",
@@ -90,7 +94,7 @@ const COPY = {
 	},
 	zh: {
 		title: "Open TUI 设置",
-		tabs: { features: "常规", icons: "外观", segments: "Footer", telemetry: "遥测" },
+		tabs: { features: "常规", icons: "外观", segments: "Footer", telemetry: "遥测", style: "风格" },
 		hint: "Tab/Shift+Tab/←/→：切页 · ↑/↓：移动 · Enter/Space：更改 · 滚轮速度项 Enter 输入 1-10 · Esc/q：关闭",
 		labels: {
 			enabled: "启用",
@@ -109,6 +113,9 @@ const COPY = {
 			cost: "费用",
 			extensionStatuses: "扩展状态行",
 			footerStyle: "Footer 样式",
+			presetHud: "HUD 风格（预设）",
+			presetClassic: "经典风格（预设）",
+			presetCustom: "自定义（当前配置）",
 			hudModel: "模型",
 			hudModelContextWindow: "模型 · 上下文窗口",
 			hudModelThinking: "模型 · 思考档位",
@@ -335,12 +342,22 @@ function buildTelemetryItems(config: OpenTuiConfig, copy: SettingsCopy): Setting
 	];
 }
 
+function buildStyleItems(config: OpenTuiConfig, copy: SettingsCopy): SettingItem[] {
+	const flag = (value: boolean) => value ? copy.values.on : copy.values.off;
+	return [
+		{ id: "presetHud", label: copy.labels.presetHud, currentValue: flag(config.stylePreset === "hud") },
+		{ id: "presetClassic", label: copy.labels.presetClassic, currentValue: flag(config.stylePreset === "classic") },
+		{ id: "presetCustom", label: copy.labels.presetCustom, currentValue: flag(config.stylePreset === "custom") },
+	];
+}
+
 function buildItems(tab: Tab, config: OpenTuiConfig): SettingItem[] {
 	const copy = COPY[config.settingsLanguage];
 	switch (tab) {
 		case "features": return buildFeaturesItems(config, copy);
 		case "icons": return buildIconsItems(config, copy);
 		case "segments": return buildSegmentsItems(config, copy);
+		case "style": return buildStyleItems(config, copy);
 		case "telemetry": return buildTelemetryItems(config, copy);
 	}
 }
@@ -439,6 +456,10 @@ class SettingsUi implements SettingsUiHandle {
 			}
 			this.numberInput = undefined;
 			if (next) {
+				if (itemId === "toolsMax" || itemId === "filesMax") {
+					// manual footer edit downgrades the active preset
+					next = this.config.stylePreset === "custom" ? next : { ...next, stylePreset: "custom" };
+				}
 				this.config = next;
 				this.onChange(this.config);
 			}
