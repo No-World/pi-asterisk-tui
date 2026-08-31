@@ -14,6 +14,7 @@ import {
 	invalidateUsageCache,
 	type FooterState,
 } from "./state.ts";
+import { formatDuration } from "./utils.ts";
 
 function isInteractiveLaunch(): boolean {
 	if (!process.stdout.isTTY) return false;
@@ -163,6 +164,30 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
+	// "⠴ Working... 42s" — per-turn timer appended to the working indicator.
+	// setWorkingMessage only swaps the label; pi's spinner frames stay untouched.
+	let workingLabelTimer: ReturnType<typeof setInterval> | undefined;
+	const updateWorkingLabel = () => {
+		const ctx = lastCtx;
+		if (!ctx?.ui?.setWorkingMessage) return;
+		if (state.workingSince === undefined) return;
+		const elapsed = formatDuration(Date.now() - state.workingSince);
+		ctx.ui.setWorkingMessage(`Working... ${elapsed}`);
+	};
+	const startWorkingLabel = () => {
+		stopWorkingLabel();
+		updateWorkingLabel();
+		workingLabelTimer = setInterval(updateWorkingLabel, 1000);
+		workingLabelTimer.unref?.();
+	};
+	const stopWorkingLabel = () => {
+		if (workingLabelTimer) {
+			clearInterval(workingLabelTimer);
+			workingLabelTimer = undefined;
+		}
+		lastCtx?.ui?.setWorkingMessage?.(); // restore default "Working..."
+	};
+
 	pi.on("session_start", async (_event, ctx) => {
 		sessionLifecycle.start();
 		lastCtx = ctx;
@@ -186,6 +211,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		sessionLifecycle.shutdown();
 		stopWorkingTimer();
+		stopWorkingLabel();
 		if (active) {
 			uninstallUi(ctx);
 		}
@@ -198,11 +224,13 @@ export default function (pi: ExtensionAPI) {
 		state.workingSince = Date.now();
 		state.lastDoneIn = undefined;
 		startWorkingTimer();
+		startWorkingLabel();
 	});
 
 	pi.on("agent_end", (_event, _ctx) => {
 		if (!sessionLifecycle.isCurrent()) return;
 		stopWorkingTimer();
+		stopWorkingLabel();
 		if (state.workingSince !== undefined) {
 			state.lastDoneIn = Date.now() - state.workingSince;
 			state.workingSince = undefined;

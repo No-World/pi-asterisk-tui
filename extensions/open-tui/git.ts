@@ -1,6 +1,4 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -59,10 +57,8 @@ export async function readGitStatus(
 	cwd: string,
 	options: { readCommit?: boolean; readTag?: boolean; readCounts?: boolean } = {},
 ): Promise<GitStatus> {
-	if (!existsSync(join(cwd, ".git"))) {
-		return emptyGitStatus();
-	}
-
+	// No .git existence check: git resolves the enclosing repo from any
+	// subdirectory, and returns empty status when there is none.
 	const stdout = await gitExec(
 		["status", "--porcelain=v1", "--branch", "--show-stash"],
 		cwd,
@@ -83,11 +79,16 @@ export async function readGitStatus(
 				status.branch = undefined;
 				status.commit = { oid: null, detached: true, tag: null };
 			} else {
-				const branchMatch = branchPart.match(/^(\S+?)(?:\.\.\.(\S+))?(?:\s+\[(ahead|behind) (\d+)\])?$/);
+				const branchMatch = branchPart.match(/^(\S+?)(?:\.\.\.(\S+))?(?:\s+\[(.+)\])?$/);
 				if (branchMatch) {
 					status.branch = branchMatch[1];
-					if (branchMatch[3] === "ahead") status.ahead = parseInt(branchMatch[4]!, 10);
-					if (branchMatch[3] === "behind") status.behind = parseInt(branchMatch[4]!, 10);
+					const ab = branchMatch[3];
+					if (ab) {
+						const ahead = ab.match(/ahead (\d+)/);
+						const behind = ab.match(/behind (\d+)/);
+						if (ahead) status.ahead = parseInt(ahead[1]!, 10);
+						if (behind) status.behind = parseInt(behind[1]!, 10);
+					}
 				}
 			}
 			continue;
