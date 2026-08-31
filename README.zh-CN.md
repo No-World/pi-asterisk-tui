@@ -6,6 +6,23 @@
 
 ![pi-open-tui 预览](https://raw.githubusercontent.com/OldSuns/pi-open-tui/main/assets/preview_dashboard_1.png)
 
+> [!IMPORTANT]
+> **这是个人 Fork**（[No-World/pi-open-tui](https://github.com/No-World/pi-open-tui)），将 footer 改成了
+> [claude-hud](https://github.com/jarrodwatts/claude-hud) 风格：四行布局，包含模型与思考强度（月相图标）、
+> git 状态与增删统计、会话名、纯 agent 工作时长（不含空闲）、费用、上下文进度条、中文 token 统计、
+> 工具调用计数、逐文件 diff。同时修复了 pi 在仓库子目录启动时无法显示分支的问题，并在 Working
+> 指示器后追加本轮执行耗时。
+>
+> 安装 **本 Fork**：
+>
+> ```bash
+> pi install git:github.com/No-World/pi-open-tui
+> ```
+>
+> 上游：[OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui)
+
+
+
 ## 功能亮点
 
 - **Pi 顶栏**：显示模型、思考等级、当前目录和常用斜杠命令提示
@@ -27,13 +44,13 @@
 安装扩展：
 
 ```bash
-pi install npm:pi-open-tui
+pi install git:github.com/No-World/pi-open-tui
 ```
 
 也可以只在当前会话中试用：
 
 ```bash
-pi -e npm:pi-open-tui
+pi -e git:github.com/No-World/pi-open-tui
 ```
 
 ## 字体与图标

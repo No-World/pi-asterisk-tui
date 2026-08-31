@@ -4,7 +4,25 @@
 
 A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brings the strongest ideas from pi-haiku, pi-claude-code-tui, and pi-zentui into one configurable extension.
 
-![pi-open-tui preview](https://raw.githubusercontent.com/OldSuns/pi-open-tui/main/assets/preview_dashboard_1.png)
+![pi-open-tui preview]
+
+> [!IMPORTANT]
+> **This is a fork** ([No-World/pi-open-tui](https://github.com/No-World/pi-open-tui)) with a
+> [claude-hud](https://github.com/jarrodwatts/claude-hud) style footer: 4-line layout with
+> model + thinking level, git state with diff stats, session name, agent working time, cost,
+> context bar, Chinese token stats, tool usage counts, and per-file diff. It also fixes git
+> detection when pi starts inside a repository subdirectory, and shows a per-turn timer next
+> to the working indicator.
+>
+> Install **this fork** with:
+>
+> ```bash
+> pi install git:github.com/No-World/pi-open-tui
+> ```
+>
+> Upstream: [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui)
+
+(https://raw.githubusercontent.com/OldSuns/pi-open-tui/main/assets/preview_dashboard_1.png)
 
 ## Highlights
 
@@ -27,13 +45,13 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 Install the extension:
 
 ```bash
-pi install npm:pi-open-tui
+pi install git:github.com/No-World/pi-open-tui
 ```
 
 Or try it for one session:
 
 ```bash
-pi -e npm:pi-open-tui
+pi -e git:github.com/No-World/pi-open-tui
 ```
 
 ## Font and icons
