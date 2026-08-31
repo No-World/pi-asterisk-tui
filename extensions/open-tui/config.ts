@@ -12,6 +12,8 @@ export type CursorStyle = "block" | "bar" | "underline";
 
 export type { IconMode } from "./icons.ts";
 
+export type FooterStyle = "hud" | "classic";
+
 export interface FooterSegments {
 	cwd: boolean;
 	sessionName: boolean;
@@ -23,6 +25,12 @@ export interface FooterSegments {
 	tokens: boolean;
 	cost: boolean;
 	extensionStatuses: boolean;
+	/** HUD style: ⏱ working time (agent turns only) */
+	time: boolean;
+	/** HUD style: ✓ tool usage counts line */
+	tools: boolean;
+	/** HUD style: per-file diff stats and [+a -d] totals */
+	gitDiff: boolean;
 }
 
 export interface TelemetryConfig {
@@ -47,6 +55,7 @@ export interface OpenTuiConfig {
 	icons: {
 		mode: IconMode;
 	};
+	footerStyle: FooterStyle;
 	footerSegments: FooterSegments;
 	telemetry: TelemetryConfig;
 }
@@ -61,6 +70,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	icons: {
 		mode: "auto",
 	},
+	footerStyle: "hud",
 	footerSegments: {
 		cwd: true,
 		sessionName: false,
@@ -72,6 +82,9 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		tokens: true,
 		cost: true,
 		extensionStatuses: true,
+		time: true,
+		tools: true,
+		gitDiff: true,
 	},
 	telemetry: {
 		enabled: true,
@@ -139,6 +152,9 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		}
 		if (config.cursorStyle !== "block" && config.cursorStyle !== "bar" && config.cursorStyle !== "underline") {
 			config.cursorStyle = DEFAULT_CONFIG.cursorStyle;
+		}
+		if (config.footerStyle !== "hud" && config.footerStyle !== "classic") {
+			config.footerStyle = DEFAULT_CONFIG.footerStyle;
 		}
 		config.fullscreen.wheelScrollLines = normalizeFullscreenWheelScrollLines(
 			config.fullscreen.wheelScrollLines,

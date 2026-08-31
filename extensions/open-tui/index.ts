@@ -27,7 +27,7 @@ function isInteractiveLaunch(): boolean {
 	return true;
 }
 
-type PendingUiChange = "install" | "uninstall";
+type PendingUiChange = "install" | "uninstall" | "reinstall";
 
 export function getPendingUiChange(enabled: boolean, active: boolean): PendingUiChange | undefined {
 	if (enabled === active) return undefined;
@@ -302,6 +302,7 @@ export default function (pi: ExtensionAPI) {
 		onConfigChanged: (newConfig) => {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
 			const wheelScrollLinesChanged = config.fullscreen.wheelScrollLines !== newConfig.fullscreen.wheelScrollLines;
+			const footerStyleChanged = config.footerStyle !== newConfig.footerStyle;
 			saveConfig(newConfig);
 			config = newConfig;
 			if (cursorStyleChanged && active && editor) {
@@ -312,6 +313,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (lastCtx) {
 				pendingUiChange = getPendingUiChange(newConfig.enabled, active);
+				if (!pendingUiChange && footerStyleChanged && active) {
+					pendingUiChange = "reinstall";
+				}
 			}
 			const gitNeeded = newConfig.footerSegments.gitBranch || newConfig.footerSegments.gitStatus || newConfig.footerSegments.gitCommit;
 			if (lastCtx && gitNeeded) {
@@ -328,6 +332,7 @@ export default function (pi: ExtensionAPI) {
 			if (!config.enabled || change === "uninstall") {
 				uninstallUi(lastCtx);
 			} else {
+				if (change === "reinstall") uninstallUi(lastCtx);
 				applyUi(lastCtx);
 			}
 		},

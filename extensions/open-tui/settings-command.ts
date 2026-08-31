@@ -9,7 +9,7 @@ import {
 	type TUI,
 	Text,
 } from "@earendil-works/pi-tui";
-import type { CursorStyle, IconMode, OpenTuiConfig, SettingsLanguage } from "./config.ts";
+import type { CursorStyle, FooterStyle, IconMode, OpenTuiConfig, SettingsLanguage } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -46,6 +46,10 @@ const COPY = {
 			tokens: "Tokens",
 			cost: "Cost",
 			extensionStatuses: "Extension status line",
+			footerStyle: "Footer style",
+			time: "Working time",
+			tools: "Tool usage",
+			gitDiff: "File diffs",
 			totalDuration: "Total duration",
 			tokenCounts: "Token counts",
 			stallDetails: "Stall details",
@@ -58,6 +62,7 @@ const COPY = {
 			wheelLines: (count: number) => `${count} ${count === 1 ? "line" : "lines"} / notch`,
 			wheelPrompt: (count: number) => `Wheel scroll lines per notch, 1-10 (current: ${count}). Enter: apply · Esc: cancel`,
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
+			footerStyles: { hud: "HUD", classic: "Classic" },
 			icons: { auto: "Auto", nerd: "Nerd", ascii: "ASCII" },
 		},
 	},
@@ -81,6 +86,10 @@ const COPY = {
 			tokens: "Token",
 			cost: "费用",
 			extensionStatuses: "扩展状态行",
+			footerStyle: "Footer 样式",
+			time: "工作时长",
+			tools: "工具调用",
+			gitDiff: "文件增删",
 			totalDuration: "总耗时",
 			tokenCounts: "Token 数量",
 			stallDetails: "停顿详情",
@@ -93,6 +102,7 @@ const COPY = {
 			wheelLines: (count: number) => `每格 ${count} 行`,
 			wheelPrompt: (count: number) => `滚轮每格滚动行数（当前 ${count}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
+			footerStyles: { hud: "HUD 风格", classic: "经典风格" },
 			icons: { auto: "自动", nerd: "Nerd", ascii: "ASCII" },
 		},
 	},
@@ -108,6 +118,13 @@ function toggleSetting(config: OpenTuiConfig, key: keyof OpenTuiConfig["footerSe
 			[key]: !config.footerSegments[key],
 		},
 	};
+}
+
+function cycleFooterStyle(config: OpenTuiConfig): OpenTuiConfig {
+	const order: FooterStyle[] = ["hud", "classic"];
+	const currentIdx = order.indexOf(config.footerStyle);
+	const next = order[(currentIdx + 1) % order.length]!;
+	return { ...config, footerStyle: next };
 }
 
 function cycleIconMode(config: OpenTuiConfig): OpenTuiConfig {
@@ -185,6 +202,10 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 		{ id: "tokens", label: copy.labels.tokens, currentValue: flag(segs.tokens) },
 		{ id: "cost", label: copy.labels.cost, currentValue: flag(segs.cost) },
 		{ id: "extensionStatuses", label: copy.labels.extensionStatuses, currentValue: flag(segs.extensionStatuses) },
+		{ id: "footerStyle", label: copy.labels.footerStyle, currentValue: copy.values.footerStyles[config.footerStyle] },
+		{ id: "time", label: copy.labels.time, currentValue: flag(segs.time) },
+		{ id: "tools", label: copy.labels.tools, currentValue: flag(segs.tools) },
+		{ id: "gitDiff", label: copy.labels.gitDiff, currentValue: flag(segs.gitDiff) },
 	];
 }
 
@@ -226,6 +247,7 @@ function handleSettingChange(
 		if (itemId === "cursorStyle") return cycleCursorStyle(config);
 	}
 	if (tab === "segments") {
+		if (itemId === "footerStyle") return cycleFooterStyle(config);
 		return toggleSetting(config, itemId as keyof OpenTuiConfig["footerSegments"]);
 	}
 	if (tab === "telemetry") {

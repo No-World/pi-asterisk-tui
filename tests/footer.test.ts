@@ -10,7 +10,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/open-tui/config.ts";
-import { installFooter } from "../extensions/open-tui/footer.ts";
+import { installClassicFooter as installFooter } from "../extensions/open-tui/footer-classic.ts";
 import { emptyGitStatus } from "../extensions/open-tui/git.ts";
 import { resolveGlyphs, runtimeSymbol } from "../extensions/open-tui/icons.ts";
 import { clearRuntimeCache, readRuntimeInfo } from "../extensions/open-tui/runtime.ts";
