@@ -284,6 +284,7 @@ const HUD_TOGGLE_ITEMS: Array<{ id: string; key: keyof HudConfig; label: string 
 	{ id: "toolsRunning", key: "toolsRunning", label: "hudToolsRunning" },
 	{ id: "files", key: "files", label: "hudFiles" },
 	{ id: "filesUntracked", key: "filesUntracked", label: "hudFilesUntracked" },
+	{ id: "extensionStatuses", key: "extensionStatuses", label: "extensionStatuses" },
 ];
 
 function copyLabels(): unknown {

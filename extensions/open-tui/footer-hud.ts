@@ -21,6 +21,7 @@ import {
 	fmtTokens,
 	formatCwd,
 	formatDuration,
+	sanitizeStatus,
 	stressColor,
 	truncateBranch,
 } from "./utils.ts";
@@ -326,7 +327,18 @@ export function installHudFooter(
 					if (parts.length) line4 = parts.join(theme.fg("dim", "  "));
 				}
 
-				return [line1, line2, line3, line4]
+				// ---- line 5: extension statuses (e.g. running subagents) ----
+				let line5 = "";
+				if (hud.extensionStatuses) {
+					const statuses = [...footerData.getExtensionStatuses().values()]
+						.map((s) => sanitizeStatus(s))
+						.filter((s) => s.length > 0);
+					if (statuses.length) {
+						line5 = statuses.map((s) => theme.fg("muted", s)).join(theme.fg("dim", " │ "));
+					}
+				}
+
+				return [line1, line2, line3, line4, line5]
 					.filter((l) => l.length > 0)
 					.map((l) => truncateToWidth(l, width, theme.fg("dim", "…")));
 			},

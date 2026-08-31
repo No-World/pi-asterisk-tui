@@ -40,6 +40,7 @@ export interface HudConfig {
 	files: boolean;
 	filesUntracked: boolean;
 	filesMax: number;
+	extensionStatuses: boolean;
 }
 
 export const DEFAULT_HUD_CONFIG: HudConfig = {
@@ -66,6 +67,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	files: true,
 	filesUntracked: true,
 	filesMax: 4,
+	extensionStatuses: true,
 };
 
 export function normalizeHudConfig(hud: HudConfig): HudConfig {
