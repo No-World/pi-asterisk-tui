@@ -11,6 +11,8 @@ export interface FooterState {
 	sessionStartEpoch: number;
 	workingSince: number | undefined;
 	lastDoneIn: number | undefined;
+	/** Output speed (tok/s) of the latest assistant message. */
+	outputTps: number | null;
 }
 
 export interface UsageTotals {
@@ -74,6 +76,7 @@ export function createInitialState(): FooterState {
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
+		outputTps: null,
 	};
 }
 

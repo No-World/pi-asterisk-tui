@@ -69,6 +69,7 @@ test("narrow footer keeps the cwd basename and drops runtime first", () => {
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
+		outputTps: null,
 	};
 	installFooter(
 		ctx,
@@ -118,6 +119,7 @@ test("narrow footer sheds the context bar before left segments", () => {
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
+		outputTps: null,
 	};
 	installFooter(
 		ctx,
@@ -292,6 +294,7 @@ test("ASCII footer renders icons as semantic labels", () => {
 		sessionStartEpoch: Date.now(),
 		workingSince: Date.now() - 2_000,
 		lastDoneIn: undefined,
+		outputTps: null,
 	};
 
 	installFooter(
@@ -381,6 +384,7 @@ function renderFooterWithSession(opts: {
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
+		outputTps: null,
 	};
 	installFooter(
 		ctx,

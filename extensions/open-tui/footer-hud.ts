@@ -200,6 +200,52 @@ async function collectPiVersion(): Promise<string | null> {
 	}
 }
 
+interface RunningCall {
+	name: string;
+	label: string;
+}
+
+function truncateLabel(v: string): string {
+	const one = v.replace(/\s+/g, " ").trim();
+	return one.length <= 36 ? one : `${one.slice(0, 35)}…`;
+}
+
+/** Short human label for a running tool call: "docker compose -f…", "/pattern/", a path… */
+function toolCallLabel(name: string, args: unknown): string {
+	let a: unknown = args;
+	if (typeof a === "string") {
+		try {
+			a = JSON.parse(a);
+		} catch {
+			return truncateLabel(String(args));
+		}
+	}
+	if (!a || typeof a !== "object") return "";
+	const o = a as Record<string, unknown>;
+	let v = "";
+	switch (name) {
+		case "bash":
+			v = String(o.command ?? "");
+			break;
+		case "read":
+		case "edit":
+		case "write":
+			v = String(o.path ?? o.file ?? "");
+			break;
+		case "grep":
+			v = o.pattern ? `/${o.pattern}/` : "";
+			break;
+		case "find":
+			v = String(o.query ?? o.pattern ?? "");
+			break;
+		default: {
+			const first = Object.values(o)[0];
+			v = typeof first === "string" ? first : "";
+		}
+	}
+	return truncateLabel(v);
+}
+
 function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig): string {
 	const usage = ctx.getContextUsage();
 	const ctxWin = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
@@ -297,7 +343,7 @@ export function installHudFooter(
 				// ---- session stats: cost, tool counts, elapsed ----
 				const totals = getUsageTotals(ctx);
 				const toolCounts = new Map<string, number>();
-				const pendingCalls = new Map<string, string>(); // toolCallId -> name
+				const pendingCalls = new Map<string, RunningCall>(); // toolCallId -> running call
 				let turnStartMs: number | null = null;
 				let lastTs: number | null = null;
 				let workingMs = 0;
@@ -319,7 +365,11 @@ export function installHudFooter(
 					if (msg.role === "assistant" && Array.isArray(msg.content)) {
 						for (const block of msg.content) {
 							if (block?.type === "toolCall") {
-								pendingCalls.set(block.id, block.name ?? block.toolName ?? "tool");
+								const name = block.name ?? block.toolName ?? "tool";
+								pendingCalls.set(block.id, {
+									name,
+									label: toolCallLabel(name, block.arguments ?? block.args),
+								});
 							}
 						}
 					} else if (msg.role === "toolResult" && msg.toolName) {
@@ -396,6 +446,9 @@ export function installHudFooter(
 				}
 				if (hud.cost) right1.push(theme.fg("muted", `费用 $${totals.cost.toFixed(2)}`));
 				if (hud.dailyCost) right1.push(theme.fg("muted", `今日 $${dailyCost.toFixed(2)}`));
+				if (hud.outputSpeed && state.outputTps !== null && state.outputTps > 0) {
+					right1.push(theme.fg("accent", `输出: ${state.outputTps.toFixed(1)} tok/s`));
+				}
 				const line1 = alignRight(left1.join(sep), right1.join(sep), width, theme);
 
 				// ---- line 2: context bar … runtime │ cache-hit │ tokens ----
@@ -472,8 +525,11 @@ export function installHudFooter(
 				if (hud.tools) {
 					const parts: string[] = [];
 					if (hud.toolsRunning) {
-						for (const name of running) {
-							parts.push(theme.fg("warning", "◐") + theme.fg("mdLink", ` ${name}`));
+						for (const call of running) {
+							const label = call.label ? `: ${call.label}` : "";
+							parts.push(
+								theme.fg("warning", "◐") + theme.fg("mdLink", ` ${call.name}${label}`)
+							);
 						}
 					}
 					const sorted = [...toolCounts.entries()].sort((a, b) => b[1] - a[1]);

@@ -47,6 +47,8 @@ export interface HudConfig {
 	compactions: boolean;
 	dailyCost: boolean;
 	piVersion: boolean;
+	/** Live output speed (tok/s) — part of the HUD preset */
+	outputSpeed: boolean;
 }
 
 export const DEFAULT_HUD_CONFIG: HudConfig = {
@@ -79,6 +81,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	compactions: false,
 	dailyCost: false,
 	piVersion: false,
+	outputSpeed: true,
 };
 
 export function normalizeHudConfig(hud: HudConfig): HudConfig {

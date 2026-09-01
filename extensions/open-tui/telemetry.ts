@@ -73,9 +73,15 @@ export class TurnTelemetryTracker {
 	private turn: TurnTiming | undefined;
 	private agentStartMs: number | null = null;
 	private agentTurns: TurnTelemetry[] = [];
+	/** Output speed (tok/s) of the most recently completed assistant message. */
+	private lastMessageTps: number | null = null;
 
 	constructor(now: () => number = () => performance.now()) {
 		this.now = now;
+	}
+
+	getOutputTps(): number | null {
+		return this.lastMessageTps;
 	}
 
 	handle(event: TelemetryEvent): TurnTelemetry | undefined {
@@ -171,6 +177,13 @@ export class TurnTelemetryTracker {
 			turn.generationMs = endMs - turn.startMs;
 			if (current.firstOutputMs === null && finiteOrZero(message.usage?.output) > 0) {
 				turn.firstTokenMs ??= endMs;
+			}
+			// per-message output speed: tokens / streaming duration
+			const out = finiteOrZero(message.usage?.output);
+			const firstOutput = current.firstOutputMs;
+			const genMs = firstOutput !== null ? endMs - firstOutput : 0;
+			if (out > 0 && firstOutput !== null && genMs > 0) {
+				this.lastMessageTps = round(out / (genMs / 1000), 1);
 			}
 			turn.currentMessage = null;
 		}

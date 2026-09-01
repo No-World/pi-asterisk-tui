@@ -276,6 +276,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_end", (event, ctx) => {
 		turnTelemetry.handle(event);
+		state.outputTps = turnTelemetry.getOutputTps();
 		if (!sessionLifecycle.isCurrent()) return;
 		invalidateUsageCache();
 		refreshInteractiveState(ctx);
