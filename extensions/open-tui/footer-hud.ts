@@ -465,7 +465,7 @@ export function installHudFooter(
 					let gitStr = hud.gitDir
 						? link(
 							pathToFileURL(ctx.sessionManager.getCwd()).href,
-							theme.underline(theme.fg("mdLink", dir)),
+							theme.underline(theme.fg("mdHeading", dir)),
 						)
 						: "";
 					if (hud.gitBranch && git.branch) {
@@ -480,12 +480,12 @@ export function installHudFooter(
 								: "";
 						gitStr +=
 							(gitStr ? " " : "") +
-							theme.fg("dim", "git:(") +
-							theme.fg("mdLink", truncateBranch(git.branch, 24)) +
-							(dirty ? theme.fg("warning", "*") : "") +
+							theme.fg("customMessageLabel", "git:(") +
+							theme.fg("borderAccent", truncateBranch(git.branch, 24)) +
+							(dirty ? theme.fg("borderAccent", "*") : "") +
 							theme.fg("muted", ab + bb) +
 							dd +
-							theme.fg("dim", ")");
+							theme.fg("customMessageLabel", ")");
 					}
 					if (gitStr) left1.push(gitStr);
 				}
