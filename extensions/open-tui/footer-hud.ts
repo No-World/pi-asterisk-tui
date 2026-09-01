@@ -609,7 +609,8 @@ export function installHudFooter(
 				if (hud.files) {
 					const parts: string[] = diff.files.slice(0, hud.filesMax).map((f) => {
 						const prefix = f.status === "added" ? "+" : f.status === "deleted" ? "-" : "~";
-						const color = f.status === "added" ? "success" : f.status === "deleted" ? "error" : "muted";
+						const color =
+							f.status === "added" ? "success" : f.status === "deleted" ? "error" : "warning";
 						const stats =
 							f.status === "deleted"
 								? `(-${f.del})`
