@@ -465,7 +465,7 @@ export function installHudFooter(
 					let gitStr = hud.gitDir
 						? link(
 							pathToFileURL(ctx.sessionManager.getCwd()).href,
-							theme.underline(theme.fg("dim", dir)),
+							theme.underline(theme.fg("mdLink", dir)),
 						)
 						: "";
 					if (hud.gitBranch && git.branch) {
