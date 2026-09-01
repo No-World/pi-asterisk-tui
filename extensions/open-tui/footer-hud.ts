@@ -471,7 +471,13 @@ export function installHudFooter(
 						theme.fg("accent", `↑输入 ${fmtTokens(totals.input + totals.cacheRead)}`) +
 						cachedPart
 					);
-					right2.push(theme.fg("success", `↓输出 ${fmtTokens(totals.output)}`));
+					const cacheWritePart =
+						hud.tokenBreakdown && totals.cacheWrite > 0
+							? theme.fg("dim", `·缓存 ${fmtTokens(totals.cacheWrite)}`)
+							: "";
+					right2.push(
+						theme.fg("success", `↓输出 ${fmtTokens(totals.output)}`) + cacheWritePart
+					);
 					if (hud.cacheHit && totals.latestCacheHitRate !== undefined) {
 						right2.push(
 							theme.fg(
