@@ -86,6 +86,15 @@ export class TurnTelemetryTracker {
 		return this.lastMessageTps;
 	}
 
+	/** Output tokens accumulated so far in the current turn (completed messages). */
+	getTurnOutputTokens(): number {
+		let sum = 0;
+		for (const message of this.turn?.messages ?? []) {
+			sum += finiteOrZero(message.usage?.output);
+		}
+		return sum;
+	}
+
 	handle(event: TelemetryEvent): TurnTelemetry | undefined {
 		switch (event.type) {
 			case "agent_start":

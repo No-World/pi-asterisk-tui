@@ -14,7 +14,7 @@ import {
 	invalidateUsageCache,
 	type FooterState,
 } from "./state.ts";
-import { formatDuration } from "./utils.ts";
+import { formatDuration, fmtTokens } from "./utils.ts";
 
 function isInteractiveLaunch(): boolean {
 	if (!process.stdout.isTTY) return false;
@@ -164,7 +164,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	// "⠴ Working... 42s" — per-turn timer appended to the working indicator.
+	// "⠴ Working… (7m 57s · ↓ 14.8k tokens)" — per-turn timer + output tokens on the working indicator.
 	// setWorkingMessage only swaps the label; pi's spinner frames stay untouched.
 	let workingLabelTimer: ReturnType<typeof setInterval> | undefined;
 	const updateWorkingLabel = () => {
@@ -172,7 +172,8 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx?.ui?.setWorkingMessage) return;
 		if (state.workingSince === undefined) return;
 		const elapsed = formatDuration(Date.now() - state.workingSince);
-		ctx.ui.setWorkingMessage(`Working... ${elapsed}`);
+		const outTokens = turnTelemetry.getTurnOutputTokens();
+		ctx.ui.setWorkingMessage(`Working… (${elapsed} · ↓ ${fmtTokens(outTokens)} tokens)`);
 	};
 	const startWorkingLabel = () => {
 		stopWorkingLabel();
