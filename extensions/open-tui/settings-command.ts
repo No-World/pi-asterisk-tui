@@ -361,10 +361,11 @@ function buildTelemetryItems(config: OpenTuiConfig, copy: SettingsCopy): Setting
 }
 
 function cycleStylePreset(config: OpenTuiConfig): OpenTuiConfig {
-	const order: StylePreset[] = ["hud", "classic", "custom"];
-	const currentIdx = order.indexOf(deriveStylePreset(config));
-	const next = order[(currentIdx + 1) % order.length]!;
-	return applyStylePreset(config, next);
+	// Custom is a derived state, not a cycle target — otherwise a classic
+	// preset could never cycle back to HUD (custom apply is a no-op).
+	// HUD → Classic → HUD; from Custom, reset to HUD.
+	const current = deriveStylePreset(config);
+	return applyStylePreset(config, current === "hud" ? "classic" : "hud");
 }
 
 function buildItems(tab: Tab, config: OpenTuiConfig): SettingItem[] {
