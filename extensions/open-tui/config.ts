@@ -74,7 +74,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	filesUntracked: true,
 	filesMax: 4,
 	extensionStatuses: true,
-	environment: false,
+	environment: true,
 	memory: false,
 	compactions: false,
 	dailyCost: false,
