@@ -268,6 +268,10 @@ export class TurnTelemetryTracker {
 			? null
 			: round(outputTokens / (measurementMs / 1000), 1);
 		const validRate = costUsd > 0 && totalTokens > 0;
+		const cacheHitRate =
+			cacheReadTokens > 0
+				? round((cacheReadTokens / (inputTokens + cacheReadTokens)) * 100, 1)
+				: null;
 		return {
 			tps,
 			ttftMs: turns[0]!.ttftMs,
@@ -278,6 +282,7 @@ export class TurnTelemetryTracker {
 			stallMs,
 			stallCount,
 			rateUsdPerMTokens: validRate ? round(costUsd / (totalTokens / 1_000_000), 2) : null,
+			cacheHitRate,
 			generationMs,
 			totalTokens,
 			costUsd,
