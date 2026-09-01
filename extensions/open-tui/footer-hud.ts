@@ -13,6 +13,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { OpenTuiConfig, HudConfig } from "./config.ts";
 import { runtimeSymbol, type IconGlyphs, resolveGlyphs } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
@@ -47,7 +48,10 @@ const THINKING_ICONS: Record<string, string> = {
 };
 
 interface FileStat {
+	/** Display name: file basename */
 	path: string;
+	/** Absolute path for OSC 8 hyperlinks */
+	absPath: string;
 	add: number;
 	del: number;
 }
@@ -59,8 +63,17 @@ interface DiffStats {
 
 async function collectDiffStats(cwd: string): Promise<DiffStats> {
 	const empty: DiffStats = { files: [], addTotal: 0, delTotal: 0 };
-	// "~name.ts" — basename only; "~" is a modified-file marker (claude-hud style)
-	const toDisplay = (p: string): string => "~" + (p.split("/").pop() ?? p);
+	let top: string | null = null;
+	try {
+		const { stdout } = await exec("git", ["rev-parse", "--show-toplevel"], {
+			cwd,
+			timeout: 3000,
+		});
+		top = stdout.trim() || null;
+	} catch {
+		return empty; // not a git repo
+	}
+	if (!top) return empty;
 
 	const byPath = new Map<string, FileStat>();
 	for (const args of [["diff", "--numstat"], ["diff", "--cached", "--numstat"]]) {
@@ -71,8 +84,9 @@ async function collectDiffStats(cwd: string): Promise<DiffStats> {
 				const [a, d, ...rest] = line.split("\t");
 				const raw = rest.join("\t");
 				const rp = raw.includes(" => ") ? raw.split(" => ").pop()! : raw;
-				const p = toDisplay(rp);
-				const cur = byPath.get(p) ?? { path: p, add: 0, del: 0 };
+				const abs = rp.startsWith("/") ? rp : `${top}/${rp}`;
+				const p = rp.split("/").pop() ?? rp;
+				const cur = byPath.get(p) ?? { path: p, absPath: abs, add: 0, del: 0 };
 				cur.add += a === "-" ? 0 : Number(a);
 				cur.del += d === "-" ? 0 : Number(d);
 				byPath.set(p, cur);
@@ -198,6 +212,12 @@ async function collectPiVersion(): Promise<string | null> {
 	} catch {
 		return null;
 	}
+}
+
+
+/** OSC 8 hyperlink — Cmd/Ctrl+click opens the target in supporting terminals. */
+function link(url: string, text: string): string {
+	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
 }
 
 interface RunningCall {
@@ -417,7 +437,9 @@ export function installHudFooter(
 				const cwd = formatCwd(ctx.sessionManager.getCwd());
 				const dir = basenamePath(cwd) || cwd;
 				if (hud.git) {
-					let gitStr = hud.gitDir ? theme.fg("dim", dir) : "";
+					let gitStr = hud.gitDir
+						? link(pathToFileURL(ctx.sessionManager.getCwd()).href, theme.fg("dim", dir))
+						: "";
 					if (hud.gitBranch && git.branch) {
 						const dirty =
 							git.modified + git.staged + git.untracked + git.conflicted + git.renamed + git.deleted >
@@ -558,9 +580,9 @@ export function installHudFooter(
 				let line4 = "";
 				if (hud.files) {
 					const parts: string[] = diff.files.slice(0, hud.filesMax).map((f) =>
-						theme.fg(
-							"muted",
-							`${f.path}(+${f.add}${f.del ? ` -${f.del}` : ""})`
+						link(
+							pathToFileURL(f.absPath).href,
+							theme.fg("muted", `~${f.path}(+${f.add}${f.del ? ` -${f.del}` : ""})`)
 						)
 					);
 					if (hud.filesUntracked && git.untracked > 0) {
