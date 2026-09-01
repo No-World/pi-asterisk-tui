@@ -205,9 +205,12 @@ interface RunningCall {
 	label: string;
 }
 
-function truncateLabel(v: string): string {
+function truncateLabel(v: string, mode: "head" | "tail" = "head"): string {
 	const one = v.replace(/\s+/g, " ").trim();
-	return one.length <= 36 ? one : `${one.slice(0, 35)}…`;
+	if (one.length <= 36) return one;
+	// paths keep their tail (.../basename); commands keep their head
+	if (mode === "tail") return `...${one.slice(-33)}`;
+	return `${one.slice(0, 35)}…`;
 }
 
 /** Short human label for a running tool call: "docker compose -f…", "/pattern/", a path… */
@@ -223,6 +226,7 @@ function toolCallLabel(name: string, args: unknown): string {
 	if (!a || typeof a !== "object") return "";
 	const o = a as Record<string, unknown>;
 	let v = "";
+	let mode: "head" | "tail" = "head";
 	switch (name) {
 		case "bash":
 			v = String(o.command ?? "");
@@ -231,6 +235,7 @@ function toolCallLabel(name: string, args: unknown): string {
 		case "edit":
 		case "write":
 			v = String(o.path ?? o.file ?? "");
+			mode = "tail";
 			break;
 		case "grep":
 			v = o.pattern ? `/${o.pattern}/` : "";
@@ -243,7 +248,7 @@ function toolCallLabel(name: string, args: unknown): string {
 			v = typeof first === "string" ? first : "";
 		}
 	}
-	return truncateLabel(v);
+	return truncateLabel(v, mode);
 }
 
 function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig): string {
