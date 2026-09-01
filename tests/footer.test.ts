@@ -227,7 +227,7 @@ test("normalizes invalid usage totals", () => {
 
 	invalidateUsageCache();
 	assert.deepEqual(getUsageTotals(ctx), {
-		input: 0, output: 0, cacheRead: 100, cacheWrite: 0, cost: 0, latestCacheHitRate: 100,
+		input: 0, output: 0, cacheRead: 100, cacheWrite: 0, cost: 0, cacheHitRate: 100,
 	});
 	invalidateUsageCache();
 });

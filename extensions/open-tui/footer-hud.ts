@@ -478,11 +478,11 @@ export function installHudFooter(
 					right2.push(
 						theme.fg("success", `↓输出 ${fmtTokens(totals.output)}`) + cacheWritePart
 					);
-					if (hud.cacheHit && totals.latestCacheHitRate !== undefined) {
+					if (hud.cacheHit && totals.cacheHitRate !== undefined) {
 						right2.push(
 							theme.fg(
-								cacheHitColor(totals.latestCacheHitRate),
-								`缓存命中 ${totals.latestCacheHitRate.toFixed(1)}%`
+								cacheHitColor(totals.cacheHitRate),
+								`缓存命中 ${totals.cacheHitRate.toFixed(1)}%`
 							)
 						);
 					}
