@@ -74,6 +74,33 @@ export function formatInputBreakdown(uncached: number, cacheRead: number): strin
 		: total;
 }
 
+// Code point ranges that tokenize at roughly one token per character on
+// CJK-aware tokenizers (CJK ideographs, kana, Hangul, fullwidth forms).
+const CJK_CODE_POINT_RANGES: ReadonlyArray<readonly [number, number]> = [
+	[0x3000, 0x30ff], // CJK punctuation, kana
+	[0x3400, 0x4dbf], // CJK extension A
+	[0x4e00, 0x9fff], // CJK unified ideographs
+	[0xac00, 0xd7a3], // Hangul syllables
+	[0xf900, 0xfaff], // CJK compatibility ideographs
+	[0xff00, 0xffef], // fullwidth forms
+	[0x20000, 0x2a6df], // CJK extension B
+];
+
+/**
+ * Rough token estimate for streamed text: CJK code points count as ~1 token,
+ * everything else as ~4 characters per token. Used for the live working
+ * indicator; exact usage replaces it when the message completes.
+ */
+export function estimateStreamedTokens(text: string): number {
+	let estimate = 0;
+	for (const char of text) {
+		const code = char.codePointAt(0) ?? 0;
+		const isCjk = CJK_CODE_POINT_RANGES.some(([lo, hi]) => code >= lo && code <= hi);
+		estimate += isCjk ? 1 : 0.25;
+	}
+	return estimate;
+}
+
 export function formatDuration(ms: number): string {
 	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
 	if (totalSeconds < 60) return `${totalSeconds}s`;

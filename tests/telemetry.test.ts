@@ -10,6 +10,7 @@ import type {
 import { DEFAULT_CONFIG } from "../extensions/open-tui/config.ts";
 import openTui from "../extensions/open-tui/index.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker } from "../extensions/open-tui/telemetry.ts";
+import { estimateStreamedTokens } from "../extensions/open-tui/utils.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -406,6 +407,51 @@ test("aggregates all output and generation time across an agent run", () => {
 	assert.equal(telemetry.outputTokens, 55);
 	assert.equal(telemetry.totalTokens, 225);
 	assert.equal(telemetry.rateUsdPerMTokens, 4);
+});
+
+test("estimateStreamedTokens weights CJK and ASCII differently", () => {
+	assert.equal(estimateStreamedTokens(""), 0);
+	assert.equal(estimateStreamedTokens("你好世界"), 4);
+	assert.equal(estimateStreamedTokens("hello"), 1.25);
+	// Mixed content: 2 CJK code points (2) + 12 ASCII code points (3).
+	assert.equal(estimateStreamedTokens("你好hello world!"), 5);
+});
+
+test("working output tokens count the in-flight message while streaming", () => {
+	const tracker = new TurnTelemetryTracker(() => 0);
+	const message = makeMessage(2, 50); // message_start reports a tiny initial output count
+	startTurn(tracker, message);
+	assert.equal(tracker.getTurnOutputTokens(), 2);
+
+	// Deltas without provider usage: estimate takes over (4 CJK tokens > 2).
+	tracker.handle(update(message, { type: "thinking_delta", contentIndex: 0, delta: "你好世界", partial: message }));
+	assert.equal(tracker.getTurnOutputTokens(), 4);
+
+	// More deltas accumulate onto the estimate (4 + floor(3) = 7).
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "hello world!", partial: message }));
+	assert.equal(tracker.getTurnOutputTokens(), 7);
+
+	// Providers that stream cumulative usage win over the estimate.
+	const cumulative = makeMessage(40, 50);
+	tracker.handle(update(cumulative, { type: "text_delta", contentIndex: 0, delta: "x", partial: cumulative }));
+	assert.equal(tracker.getTurnOutputTokens(), 40);
+
+	// Completing the message snaps the counter to exact usage.
+	const final = makeMessage(23, 50);
+	tracker.handle({ type: "message_end", message: final });
+	assert.equal(tracker.getTurnOutputTokens(), 23);
+});
+
+test("working output tokens sum completed messages plus the streaming one", () => {
+	const tracker = new TurnTelemetryTracker(() => 0);
+	const first = makeMessage(20, 50);
+	startTurn(tracker, first);
+	tracker.handle({ type: "message_end", message: first });
+
+	const second = makeMessage(1, 50);
+	tracker.handle({ type: "message_start", message: second });
+	tracker.handle(update(second, { type: "text_delta", contentIndex: 0, delta: "你好世界哈", partial: second }));
+	assert.equal(tracker.getTurnOutputTokens(), 25);
 });
 
 test("open-tui notifies once after a complete agent run", () => {

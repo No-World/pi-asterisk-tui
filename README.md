@@ -11,8 +11,9 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 > [claude-hud](https://github.com/jarrodwatts/claude-hud) style footer: 4-line layout with
 > model + thinking level, git state with diff stats, session name, agent working time, cost,
 > context bar, Chinese token stats, tool usage counts, and per-file diff. It also fixes git
-> detection when pi starts inside a repository subdirectory, and shows a per-turn timer next
-> to the working indicator.
+> detection when pi starts inside a repository subdirectory, and shows a per-turn timer plus
+> a live output-token counter next to the working indicator (estimated from the stream while
+> the model is generating, exact once the message completes).
 >
 > Install **this fork** with:
 >

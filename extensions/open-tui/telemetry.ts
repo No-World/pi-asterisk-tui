@@ -11,7 +11,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { IconMode, TelemetryConfig } from "./config.ts";
 import { resolveGlyphs } from "./icons.ts";
-import { cacheHitColor, finiteOrZero, fmtTokens, formatDuration, formatInputBreakdown } from "./utils.ts";
+import { cacheHitColor, estimateStreamedTokens, finiteOrZero, fmtTokens, formatDuration, formatInputBreakdown } from "./utils.ts";
 
 const STALL_THRESHOLD_MS = 1000;
 
@@ -31,6 +31,10 @@ interface MessageTiming {
 	lastUpdateMs: number;
 	firstOutputMs: number | null;
 	inStall: boolean;
+	/** Largest output-token count reported by provider usage while streaming this message. */
+	liveUsageOutput: number;
+	/** Delta-based token estimate for providers without mid-stream usage (anthropic protocol). */
+	streamedEstimate: number;
 }
 
 interface TurnTiming {
@@ -86,11 +90,21 @@ export class TurnTelemetryTracker {
 		return this.lastMessageTps;
 	}
 
-	/** Output tokens accumulated so far in the current turn (completed messages). */
+	/**
+	 * Output tokens accumulated so far in the current turn: completed messages use
+	 * exact usage; the in-flight message uses provider-reported usage when available
+	 * and a delta-based estimate otherwise (anthropic-protocol backends only send
+	 * usage with the final message_delta, so without this the counter sits at 0
+	 * for the whole stream).
+	 */
 	getTurnOutputTokens(): number {
 		let sum = 0;
 		for (const message of this.turn?.messages ?? []) {
 			sum += finiteOrZero(message.usage?.output);
+		}
+		const current = this.turn?.currentMessage;
+		if (current) {
+			sum += Math.max(current.liveUsageOutput, Math.floor(current.streamedEstimate));
 		}
 		return sum;
 	}
@@ -143,12 +157,24 @@ export class TurnTelemetryTracker {
 			lastUpdateMs: now,
 			firstOutputMs: null,
 			inStall: false,
+			liveUsageOutput: finiteOrZero(message.usage?.output),
+			streamedEstimate: 0,
 		};
 	}
 
 	private updateMessage(event: MessageUpdateEvent): void {
 		const turn = this.turn;
 		const current = turn?.currentMessage;
+		const message = event.message;
+		if (!turn || !current || !isAssistantMessage(message)) return;
+
+		// Providers that report cumulative usage mid-stream update the partial
+		// message in place; keep the largest value seen for the live counter.
+		const reportedOutput = finiteOrZero(message.usage?.output);
+		if (reportedOutput > current.liveUsageOutput) {
+			current.liveUsageOutput = reportedOutput;
+		}
+
 		const streamEvent = event.assistantMessageEvent;
 		if (
 			streamEvent.type !== "text_delta" &&
@@ -156,8 +182,7 @@ export class TurnTelemetryTracker {
 			streamEvent.type !== "toolcall_delta"
 		) return;
 		if (streamEvent.delta.length === 0) return;
-		const message = event.message;
-		if (!turn || !current || !isAssistantMessage(message)) return;
+		current.streamedEstimate += estimateStreamedTokens(streamEvent.delta);
 
 		const now = this.now();
 		if (current.firstOutputMs === null) {
