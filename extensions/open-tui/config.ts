@@ -41,6 +41,12 @@ export interface HudConfig {
 	filesUntracked: boolean;
 	filesMax: number;
 	extensionStatuses: boolean;
+	/** claude-hud style extras — opt-in, off by default */
+	environment: boolean;
+	memory: boolean;
+	compactions: boolean;
+	dailyCost: boolean;
+	piVersion: boolean;
 }
 
 export const DEFAULT_HUD_CONFIG: HudConfig = {
@@ -68,6 +74,11 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	filesUntracked: true,
 	filesMax: 4,
 	extensionStatuses: true,
+	environment: false,
+	memory: false,
+	compactions: false,
+	dailyCost: false,
+	piVersion: false,
 };
 
 export function normalizeHudConfig(hud: HudConfig): HudConfig {

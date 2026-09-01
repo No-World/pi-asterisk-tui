@@ -8,7 +8,11 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { OpenTuiConfig, HudConfig } from "./config.ts";
 import { runtimeSymbol, type IconGlyphs, resolveGlyphs } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
@@ -85,6 +89,117 @@ async function collectDiffStats(cwd: string): Promise<DiffStats> {
 	};
 }
 
+// ---- claude-hud style extras: cached collectors ----
+
+interface EnvInfo {
+	contextFiles: number;
+	skills: number;
+	extensions: number;
+	packages: number;
+}
+
+function fileExists(p: string): boolean {
+	try {
+		return fs.statSync(p).isFile();
+	} catch {
+		return false;
+	}
+}
+
+function collectEnvInfo(cwd: string): EnvInfo {
+	const agentDir = getAgentDir();
+	let contextFiles = 0;
+	if (
+		fileExists(path.join(agentDir, "AGENTS.md")) ||
+		fileExists(path.join(agentDir, "CLAUDE.md"))
+	) {
+		contextFiles++;
+	}
+	let dir = cwd;
+	for (;;) {
+		if (fileExists(path.join(dir, "AGENTS.override.md"))) contextFiles++;
+		else if (fileExists(path.join(dir, "AGENTS.md")) || fileExists(path.join(dir, "CLAUDE.md"))) contextFiles++;
+		const parent = path.dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+
+	let skills = 0;
+	try {
+		for (const entry of fs.readdirSync(path.join(agentDir, "skills"), { withFileTypes: true })) {
+			if (entry.isDirectory() && fileExists(path.join(agentDir, "skills", entry.name, "SKILL.md"))) skills++;
+		}
+	} catch {
+		/* no skills dir */
+	}
+
+	let extensions = 0;
+	try {
+		extensions = fs.readdirSync(path.join(agentDir, "extensions")).length;
+	} catch {
+		/* no extensions dir */
+	}
+
+	let packages = 0;
+	try {
+		const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+		packages = Array.isArray(settings.packages) ? settings.packages.length : 0;
+	} catch {
+		/* ignore */
+	}
+
+	return { contextFiles, skills, extensions, packages };
+}
+
+function todayStartMs(): number {
+	const d = new Date();
+	d.setHours(0, 0, 0, 0);
+	return d.getTime();
+}
+
+/** Sum today's cost across this project's session files (assistant usage). */
+function collectDailyCost(sessionDir: string | null): number {
+	if (!sessionDir) return 0;
+	let total = 0;
+	let files: string[];
+	try {
+		files = fs.readdirSync(sessionDir).filter((f) => f.endsWith(".jsonl"));
+	} catch {
+		return 0;
+	}
+	const start = todayStartMs();
+	for (const f of files) {
+		const p = path.join(sessionDir, f);
+		try {
+			if (fs.statSync(p).mtimeMs < start) continue;
+			const content = fs.readFileSync(p, "utf8");
+			for (const line of content.split("\n")) {
+				if (!line.includes('"assistant"')) continue;
+				try {
+					const e = JSON.parse(line);
+					if (e.type === "message" && e.message?.role === "assistant") {
+						total += e.message.usage?.cost?.total ?? 0;
+					}
+				} catch {
+					/* skip bad line */
+				}
+			}
+		} catch {
+			/* skip unreadable file */
+		}
+	}
+	return total;
+}
+
+async function collectPiVersion(): Promise<string | null> {
+	try {
+		const { stdout } = await exec("pi", ["--version"], { timeout: 3000 });
+		return stdout.trim().split("\n")[0] ?? null;
+	} catch {
+		return null;
+	}
+}
+
 function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig): string {
 	const usage = ctx.getContextUsage();
 	const ctxWin = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
@@ -140,10 +255,32 @@ export function installHudFooter(
 		const diffTimer = setInterval(() => void refreshDiff(), 4000);
 		const tickTimer = setInterval(requestRender, 1000);
 
+		// claude-hud style extras: env info / daily cost / version (60s cache)
+		let envInfo: EnvInfo | null = null;
+		let dailyCost = 0;
+		let piVer: string | null = null;
+		let extrasInflight = false;
+		const refreshExtras = async () => {
+			if (extrasInflight) return;
+			extrasInflight = true;
+			try {
+				envInfo = collectEnvInfo(ctx.sessionManager.getCwd());
+				const sessionFile = ctx.sessionManager.getSessionFile?.();
+				dailyCost = collectDailyCost(sessionFile ? path.dirname(sessionFile) : null);
+				if (piVer === null) piVer = await collectPiVersion();
+			} finally {
+				extrasInflight = false;
+			}
+			tui.requestRender();
+		};
+		void refreshExtras();
+		const extrasTimer = setInterval(() => void refreshExtras(), 60000);
+
 		return {
 			dispose() {
 				clearInterval(diffTimer);
 				clearInterval(tickTimer);
+				clearInterval(extrasTimer);
 				unsubBranch();
 				hooks.setRequestRender(undefined);
 			},
@@ -164,8 +301,10 @@ export function installHudFooter(
 				let turnStartMs: number | null = null;
 				let lastTs: number | null = null;
 				let workingMs = 0;
+				let compactions = 0;
 
 				for (const e of ctx.sessionManager.getBranch() as any[]) {
+					if (e.type === "compaction") compactions++;
 					const ts = e.timestamp ? new Date(e.timestamp).getTime() : null;
 					if (e.type === "message" && e.message?.role === "user") {
 						// close the previous turn with the prior entry's ts, then open a new one
@@ -256,6 +395,7 @@ export function installHudFooter(
 					right1.push(theme.fg("muted", `⏱️ ${formatDuration(workingMs)}`));
 				}
 				if (hud.cost) right1.push(theme.fg("muted", `费用 $${totals.cost.toFixed(2)}`));
+				if (hud.dailyCost) right1.push(theme.fg("muted", `今日 $${dailyCost.toFixed(2)}`));
 				const line1 = alignRight(left1.join(sep), right1.join(sep), width, theme);
 
 				// ---- line 2: context bar … runtime │ cache-hit │ tokens ----
@@ -288,8 +428,43 @@ export function installHudFooter(
 						);
 					}
 				}
+				if (hud.compactions && compactions > 0) {
+				right2.push(theme.fg("muted", `压实 ${compactions}`));
+			}
+				if (hud.piVersion && piVer) right2.push(theme.fg("muted", piVer));
 				if (right2.length) {
 					line2 = alignRight(line2, right2.join(sep), width, theme);
+				}
+
+				// ---- optional: memory usage line (claude-hud expanded style) ----
+				let memLine = "";
+				if (hud.memory) {
+					const totalMem = os.totalmem();
+					const usedMem = totalMem - os.freemem();
+					const memPct = (usedMem / totalMem) * 100;
+					const memFilled = Math.round((memPct / 100) * 10);
+					const fmtGB = (n: number) => `${(n / 1024 ** 3).toFixed(0)}G`;
+					memLine =
+						theme.fg("dim", "内存 ") +
+						theme.fg(stressColor(memPct), "█".repeat(memFilled)) +
+						theme.fg("dim", "░".repeat(10 - memFilled)) +
+						theme.fg("muted", ` ${Math.floor(memPct)}%`) +
+						theme.fg("dim", ` (${fmtGB(usedMem)}/${fmtGB(totalMem)})`);
+				}
+
+				// ---- optional: environment line (context files / skills / extensions / packages) ----
+				let envLine = "";
+				if (hud.environment && envInfo) {
+					const parts: string[] = [];
+					if (envInfo.contextFiles > 0) {
+						parts.push(theme.fg("muted", `${envInfo.contextFiles} AGENTS.md`));
+					}
+					if (envInfo.skills > 0) parts.push(theme.fg("muted", `${envInfo.skills} skills`));
+					if (envInfo.extensions > 0) {
+						parts.push(theme.fg("muted", `${envInfo.extensions} 扩展`));
+					}
+					if (envInfo.packages > 0) parts.push(theme.fg("muted", `${envInfo.packages} 包`));
+					if (parts.length) envLine = parts.join(sep);
 				}
 
 				// ---- line 3: tool usage ----
@@ -338,7 +513,7 @@ export function installHudFooter(
 					}
 				}
 
-				return [line1, line2, line3, line4, line5]
+				return [line1, line2, memLine, envLine, line3, line4, line5]
 					.filter((l) => l.length > 0)
 					.map((l) => truncateToWidth(l, width, theme.fg("dim", "…")));
 			},
