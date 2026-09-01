@@ -47,11 +47,14 @@ const THINKING_ICONS: Record<string, string> = {
 	max: "●",
 };
 
+type FileStatus = "added" | "modified" | "deleted";
+
 interface FileStat {
 	/** Display name: file basename */
 	path: string;
 	/** Absolute path for OSC 8 hyperlinks */
 	absPath: string;
+	status: FileStatus;
 	add: number;
 	del: number;
 }
@@ -75,6 +78,22 @@ async function collectDiffStats(cwd: string): Promise<DiffStats> {
 	}
 	if (!top) return empty;
 
+	// per-file status codes (A/M/D/…) from git status, keyed by repo-relative path
+	const statusMap = new Map<string, string>();
+	try {
+		const { stdout } = await exec("git", ["status", "--porcelain"], { cwd, timeout: 3000 });
+		for (const line of stdout.split("\n")) {
+			if (line.length < 4) continue;
+			const xy = line.slice(0, 2);
+			let sp = line.slice(3).trim();
+			if (sp.startsWith('"') && sp.endsWith('"')) sp = sp.slice(1, -1);
+			if (sp.includes(" -> ")) sp = sp.split(" -> ").pop()!;
+			statusMap.set(sp, xy);
+		}
+	} catch {
+		/* ignore */
+	}
+
 	const byPath = new Map<string, FileStat>();
 	for (const args of [["diff", "--numstat"], ["diff", "--cached", "--numstat"]]) {
 		try {
@@ -86,7 +105,13 @@ async function collectDiffStats(cwd: string): Promise<DiffStats> {
 				const rp = raw.includes(" => ") ? raw.split(" => ").pop()! : raw;
 				const abs = rp.startsWith("/") ? rp : `${top}/${rp}`;
 				const p = rp.split("/").pop() ?? rp;
-				const cur = byPath.get(p) ?? { path: p, absPath: abs, add: 0, del: 0 };
+				const xy = statusMap.get(rp) ?? "";
+				const status: FileStatus = xy.includes("A")
+					? "added"
+					: xy.includes("D")
+						? "deleted"
+						: "modified";
+				const cur = byPath.get(p) ?? { path: p, absPath: abs, status, add: 0, del: 0 };
 				cur.add += a === "-" ? 0 : Number(a);
 				cur.del += d === "-" ? 0 : Number(d);
 				byPath.set(p, cur);
@@ -582,14 +607,18 @@ export function installHudFooter(
 				// ---- line 4: changed files ----
 				let line4 = "";
 				if (hud.files) {
-					const parts: string[] = diff.files.slice(0, hud.filesMax).map((f) =>
-						link(
+					const parts: string[] = diff.files.slice(0, hud.filesMax).map((f) => {
+						const prefix = f.status === "added" ? "+" : f.status === "deleted" ? "-" : "~";
+						const color = f.status === "added" ? "success" : f.status === "deleted" ? "error" : "muted";
+						const stats =
+							f.status === "deleted"
+								? `(-${f.del})`
+								: `(+${f.add}${f.del ? ` -${f.del}` : ""})`;
+						return link(
 							pathToFileURL(f.absPath).href,
-							theme.underline(
-								theme.fg("muted", `~${f.path}(+${f.add}${f.del ? ` -${f.del}` : ""})`)
-							)
-						)
-					);
+							theme.underline(theme.fg(color, `${prefix}${f.path}${stats}`))
+						);
+					});
 					if (hud.filesUntracked && git.untracked > 0) {
 						parts.push(theme.fg("warning", `+${git.untracked}`));
 					}
