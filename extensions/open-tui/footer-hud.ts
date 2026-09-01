@@ -497,7 +497,7 @@ export function installHudFooter(
 						)
 					);
 					if (hud.filesUntracked && git.untracked > 0) {
-						parts.push(theme.fg("warning", `?${git.untracked}`));
+						parts.push(theme.fg("warning", `+${git.untracked}`));
 					}
 					if (parts.length) line4 = parts.join(theme.fg("dim", "  "));
 				}
