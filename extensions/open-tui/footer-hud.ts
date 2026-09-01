@@ -465,7 +465,7 @@ export function installHudFooter(
 				if (hud.tokens) {
 					const cachedPart =
 						hud.tokenBreakdown && totals.cacheRead > 0
-							? theme.fg("dim", `·缓存读 ${fmtTokens(totals.cacheRead)}`)
+							? theme.fg("dim", `·缓存 ${fmtTokens(totals.cacheRead)}`)
 							: "";
 					right2.push(
 						theme.fg("accent", `↑输入 ${fmtTokens(totals.input + totals.cacheRead)}`) +
