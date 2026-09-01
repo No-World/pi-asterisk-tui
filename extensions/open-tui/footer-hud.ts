@@ -135,6 +135,7 @@ interface EnvInfo {
 	skills: number;
 	extensions: number;
 	packages: number;
+	mcp: number;
 }
 
 function fileExists(p: string): boolean {
@@ -187,7 +188,33 @@ function collectEnvInfo(cwd: string): EnvInfo {
 		/* ignore */
 	}
 
-	return { contextFiles, skills, extensions, packages };
+	// enabled MCP servers across pi-mcp-adapter's config chain (highest precedence first)
+	const mcpNames = new Map<string, boolean>(); // name -> disabled
+	const mcpFiles = [
+		path.join(os.homedir(), ".config", "mcp", "mcp.json"),
+		path.join(os.homedir(), ".agents", "mcp.json"),
+		path.join(os.homedir(), ".agents", "mcp", "mcp.json"),
+		path.join(agentDir, "mcp.json"),
+		path.join(cwd, ".mcp.json"),
+		path.join(cwd, ".pi", "mcp.json"),
+	];
+	for (const f of mcpFiles) {
+		try {
+			const cfg = JSON.parse(fs.readFileSync(f, "utf8"));
+			const servers = cfg?.mcpServers;
+			if (!servers || typeof servers !== "object") continue;
+			for (const [name, entry] of Object.entries(servers as Record<string, unknown>)) {
+				if (!mcpNames.has(name)) {
+					mcpNames.set(name, Boolean((entry as Record<string, unknown> | null)?.disabled));
+				}
+			}
+		} catch {
+			/* ignore */
+		}
+	}
+	const mcp = [...mcpNames.values()].filter((d) => !d).length;
+
+	return { contextFiles, skills, extensions, packages, mcp };
 }
 
 function todayStartMs(): number {
@@ -578,6 +605,7 @@ export function installHudFooter(
 						parts.push(theme.fg("muted", `${envInfo.extensions} 扩展`));
 					}
 					if (envInfo.packages > 0) parts.push(theme.fg("muted", `${envInfo.packages} 包`));
+					if (envInfo.mcp > 0) parts.push(theme.fg("muted", `${envInfo.mcp} MCP`));
 					if (parts.length) envLine = parts.join(sep);
 				}
 
