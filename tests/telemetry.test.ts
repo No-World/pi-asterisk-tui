@@ -85,7 +85,7 @@ test("uses total output over full generation time", () => {
 		stallCount: 0,
 		rateUsdPerMTokens: 4,
 		generationMs: 5_000,
-		totalTokens: 70,
+		totalTokens: 70, cacheHitRate: null,
 		costUsd: 0.00028,
 		measurementMs: 5_000,
 	});
@@ -155,7 +155,7 @@ test("uses footer semantics and respects telemetry segment settings", () => {
 		stallCount: 1,
 		rateUsdPerMTokens: 4,
 		generationMs: 700,
-		totalTokens: 70,
+		totalTokens: 70, cacheHitRate: null,
 		costUsd: 0.00028,
 		measurementMs: 400,
 	};

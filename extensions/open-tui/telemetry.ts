@@ -11,7 +11,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { IconMode, TelemetryConfig } from "./config.ts";
 import { resolveGlyphs } from "./icons.ts";
-import { finiteOrZero, fmtTokens, formatDuration, formatInputBreakdown } from "./utils.ts";
+import { cacheHitColor, finiteOrZero, fmtTokens, formatDuration, formatInputBreakdown } from "./utils.ts";
 
 const STALL_THRESHOLD_MS = 1000;
 
@@ -55,6 +55,8 @@ export interface TurnTelemetry {
 	rateUsdPerMTokens: number | null;
 	generationMs: number;
 	totalTokens: number;
+	/** Turn cache hit rate: cacheRead / (input + cacheWrite + cacheRead), null when no cache tokens. */
+	cacheHitRate: number | null;
 	costUsd: number;
 	measurementMs: number | null;
 }
@@ -237,6 +239,10 @@ export class TurnTelemetryTracker {
 				: null,
 			generationMs: turn.generationMs,
 			totalTokens,
+			cacheHitRate:
+				cacheReadTokens > 0
+					? round((cacheReadTokens / (inputTokens + cacheReadTokens)) * 100, 1)
+					: null,
 			costUsd: validCost ? costUsd : 0,
 			measurementMs,
 		};
@@ -305,6 +311,11 @@ export function formatTurnTelemetry(
 	if (config.tokens) {
 		parts.push(theme.fg("accent", `${glyphs.input} ${formatInputBreakdown(telemetry.inputTokens, telemetry.cacheReadTokens)}`));
 		parts.push(theme.fg("success", `${glyphs.output} ${fmtTokens(telemetry.outputTokens)}`));
+		if (telemetry.cacheHitRate !== null) {
+			parts.push(
+				theme.fg(cacheHitColor(telemetry.cacheHitRate), `${glyphs.cacheHit} ${telemetry.cacheHitRate.toFixed(1)}%`),
+			);
+		}
 	}
 	if (config.stalls && telemetry.stallMs > 0) {
 		parts.push(theme.fg("warning", `${glyphs.stall} stall ${telemetry.stallCount}x / ${formatTurnDuration(telemetry.stallMs)}`));
