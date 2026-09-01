@@ -181,23 +181,27 @@ function collectEnvInfo(cwd: string): EnvInfo {
 	}
 
 	let packages = 0;
+	let hasMcpAdapter = false;
 	try {
 		const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
-		packages = Array.isArray(settings.packages) ? settings.packages.length : 0;
+		const pkgs: unknown = settings.packages;
+		packages = Array.isArray(pkgs) ? pkgs.length : 0;
+		hasMcpAdapter = Array.isArray(pkgs) && pkgs.some((p) => String(p).includes("pi-mcp-adapter"));
 	} catch {
 		/* ignore */
 	}
 
-	// enabled MCP servers across pi-mcp-adapter's config chain (highest precedence first)
+	// enabled MCP servers across pi-mcp-adapter's config chain (highest precedence first);
+	// only counted when pi-mcp-adapter is actually installed
 	const mcpNames = new Map<string, boolean>(); // name -> disabled
-	const mcpFiles = [
+	const mcpFiles = hasMcpAdapter ? [
 		path.join(os.homedir(), ".config", "mcp", "mcp.json"),
 		path.join(os.homedir(), ".agents", "mcp.json"),
 		path.join(os.homedir(), ".agents", "mcp", "mcp.json"),
 		path.join(agentDir, "mcp.json"),
 		path.join(cwd, ".mcp.json"),
 		path.join(cwd, ".pi", "mcp.json"),
-	];
+	] : [];
 	for (const f of mcpFiles) {
 		try {
 			const cfg = JSON.parse(fs.readFileSync(f, "utf8"));
