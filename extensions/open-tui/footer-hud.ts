@@ -438,7 +438,10 @@ export function installHudFooter(
 				const dir = basenamePath(cwd) || cwd;
 				if (hud.git) {
 					let gitStr = hud.gitDir
-						? link(pathToFileURL(ctx.sessionManager.getCwd()).href, theme.fg("dim", dir))
+						? link(
+							pathToFileURL(ctx.sessionManager.getCwd()).href,
+							theme.underline(theme.fg("dim", dir)),
+						)
 						: "";
 					if (hud.gitBranch && git.branch) {
 						const dirty =
@@ -582,7 +585,9 @@ export function installHudFooter(
 					const parts: string[] = diff.files.slice(0, hud.filesMax).map((f) =>
 						link(
 							pathToFileURL(f.absPath).href,
-							theme.fg("muted", `~${f.path}(+${f.add}${f.del ? ` -${f.del}` : ""})`)
+							theme.underline(
+								theme.fg("muted", `~${f.path}(+${f.add}${f.del ? ` -${f.del}` : ""})`)
+							)
 						)
 					);
 					if (hud.filesUntracked && git.untracked > 0) {
