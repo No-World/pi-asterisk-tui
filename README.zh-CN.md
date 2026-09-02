@@ -147,7 +147,8 @@ pi -e git:github.com/No-World/pi-open-tui
 - 思考按消息折叠在可点击的 `✻ Thought…` 标签后。
 - **连续的**已完成工具调用合并为一行可点击摘要：相邻的两个 bash 折成
   `✻ ran 2 shell commands`，中间隔着内容的各自成行 `✻ ran 1 shell command` /
-  `✻ called playwright`。点击组行打开这些工具的完整输出盒，再点收回。
+  `✻ called playwright`。点击组行打开这些工具的完整输出盒——组行被盒子**替换**（与思考块
+  一致）——点击盒子任意行收回成单行。
 - 运行中的工具渲染为带动画的单行（`⠋ bash · $ echo hi`），下方实时流式输出。
 
 在 open-tui 配置中设 `"turnCollapse": false` 可关闭分组。与点击展开一样需要全屏 TUI。

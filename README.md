@@ -155,7 +155,8 @@ There is no turn-level folding line. Instead the transcript reads like Claude Co
 - Consecutive completed tool calls collapse together into one clickable line:
   `✻ ran 2 shell commands` for adjacent shells; groups separated by text each get
   their own `✻ ran 1 shell command` / `✻ called playwright` line. Click a group line
-  to open those tools' full bordered output, click again to close.
+  to open those tools' full bordered output — the line itself is replaced by the boxes,
+  like thinking blocks — and click any box line to collapse back to the single line.
 - A running tool renders as an animated one-liner (`⠋ bash · $ echo hi`) with the live
   box streaming below it.
 
