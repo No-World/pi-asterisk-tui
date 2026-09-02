@@ -1,17 +1,18 @@
-import type { TUI } from "@earendil-works/pi-tui";
-
 /**
  * Click-to-expand for hidden thinking blocks (fullscreen TUI only).
  *
  * pi renders hidden thinking as a static label line; there is no per-message
- * expansion or component-level mouse routing. This module pokes two runtime
- * details, both version-guarded and inert on mismatch (same policy as
+ * expansion or component-level mouse routing. Two runtime details make it
+ * work anyway (both version-guarded, inert on mismatch — same policy as
  * fullscreen-scroll.ts):
  *
- * 1. TuiAltScreen.handleViewportInput — instance-level wrap so an expanding
- *    click is consumed before the alt-screen turns it into text selection.
- * 2. TuiAltScreen.currentLayout — layout boxes carry screen-space rects
- *    (scroll already applied) plus the rendered lines of opaque leaves.
+ * 1. TuiAltScreen.prototype.handleViewportInput — wrapped once per process.
+ *    The extension resolves the SAME pi-tui module instance pi core uses,
+ *    so the wrap survives switchTuiMode instance swaps and applies even
+ *    before the first fullscreen instance exists (sessions that start in
+ *    regular mode and switch later via /settings).
+ * 2. currentLayout — layout boxes carry screen-space rects (scroll already
+ *    applied) plus the rendered lines of opaque leaves.
  *
  * pi-tui only puts Stack/ScrollView components into the box tree; plain
  * Containers (pi's chat container, and every AssistantMessageComponent inside
@@ -67,14 +68,10 @@ interface ThinkingHost {
 	hideThinkingBlock?: boolean;
 }
 
-type ViewportTui = TUI & {
-	mode?: unknown;
+/** Live instance fields the wrapped handler needs (TuiAltScreen). */
+interface ViewportInstance {
 	currentLayout?: { root?: LayoutBox } | undefined;
-	handleViewportInput?: (data: string) => unknown;
-};
-
-export function isFullscreenTui(tui: TUI): boolean {
-	return (tui as ViewportTui).mode === "fullscreen";
+	requestRender: () => void;
 }
 
 function isThinkingHost(component: unknown): component is ThinkingHost {
@@ -162,77 +159,97 @@ export function labelSpan(line: string): { start: number; end: number } | undefi
 	return { start, end: plain.trimEnd().length };
 }
 
-/**
- * Installs the click handler on a fullscreen TUI. Returns a cleanup function;
- * silently no-ops when the runtime shape is not recognized.
- */
-export function installThinkingClickExpand(tui: TUI): () => void {
-	const target = tui as ViewportTui;
-	debug(`install: mode=${String(target.mode)} hasInput=${typeof target.handleViewportInput}`);
-	if (!isFullscreenTui(tui) || typeof target.handleViewportInput !== "function") {
-		debug("install: unsupported shape, no-op");
-		return () => {};
+const INSTALLED = Symbol.for("open-tui.thinkingClickExpand");
+const expanded = new WeakSet<object>();
+
+const handleClickOn = (instance: ViewportInstance, data: string): boolean => {
+	const press = parseSgrPrimaryPress(data);
+	if (!press) return false;
+	const root = instance.currentLayout?.root;
+	if (!root) {
+		debug(`click(${press.x},${press.y}): no layout`);
+		return false;
+	}
+	const hit = hitTestLeaf(root, press.x, press.y);
+	if (!hit) {
+		debug(`click(${press.x},${press.y}): no leaf hit`);
+		return false;
+	}
+	const chat = hit.box.component as { children?: unknown[] } | null;
+	if (typeof chat !== "object" || chat === null || !Array.isArray(chat.children)) {
+		debug(`click(${press.x},${press.y}): leaf is not a container`);
+		return false;
+	}
+	const host = findThinkingHostAtLine(chat, hit.lineIndex, hit.box.rect.width);
+	if (!host) {
+		debug(
+			`click(${press.x},${press.y}): no host, line=${JSON.stringify(hit.line.slice(0, 60))} ` +
+				`lineIndex=${hit.lineIndex}`,
+		);
+		return false;
 	}
 
-	const expanded = new WeakSet<object>();
-	const hadOwn = Object.prototype.hasOwnProperty.call(target, "handleViewportInput");
+	const span = labelSpan(hit.line);
+	const onLabel = span !== undefined && press.x >= span.start && press.x < span.end;
+	debug(`click(${press.x},${press.y}): host=true onLabel=${onLabel} line=${JSON.stringify(hit.line.slice(0, 60))}`);
+	if (onLabel && host.hideThinkingBlock !== false) {
+		host.setHideThinkingBlock(false);
+		expanded.add(host);
+		instance.requestRender();
+		return true;
+	}
+	if (!onLabel && expanded.has(host)) {
+		host.setHideThinkingBlock(true);
+		expanded.delete(host);
+		instance.requestRender();
+		return true;
+	}
+	return false;
+};
+
+type MutablePrototype = {
+	handleViewportInput?: (this: ViewportInstance, data: string) => unknown;
+	[INSTALLED]?: boolean;
+};
+
+/** Wraps handleViewportInput on a viewport prototype; returns a cleanup function. */
+export function wrapViewportPrototype(proto: object | null | undefined): () => void {
+	const target = proto as MutablePrototype | null | undefined;
+	if (!target || typeof target.handleViewportInput !== "function") {
+		debug("install: prototype without handleViewportInput, no-op");
+		return () => {};
+	}
+	if (target[INSTALLED] === true) {
+		debug("install: already wrapped");
+		return () => {};
+	}
 	const original = target.handleViewportInput;
-
-	const handleClick = (data: string): boolean => {
-		const press = parseSgrPrimaryPress(data);
-		if (!press) return false;
-		const root = target.currentLayout?.root;
-		if (!root) {
-			debug(`click(${press.x},${press.y}): no layout`);
-			return false;
-		}
-		const hit = hitTestLeaf(root, press.x, press.y);
-		if (!hit) {
-			debug(`click(${press.x},${press.y}): no leaf hit`);
-			return false;
-		}
-		const chat = hit.box.component as { children?: unknown[] } | null;
-		if (typeof chat !== "object" || chat === null || !Array.isArray(chat.children)) {
-			debug(`click(${press.x},${press.y}): leaf is not a container`);
-			return false;
-		}
-		const host = findThinkingHostAtLine(chat, hit.lineIndex, hit.box.rect.width);
-		if (!host) {
-			debug(
-				`click(${press.x},${press.y}): no host, line=${JSON.stringify(hit.line.slice(0, 60))} ` +
-					`lineIndex=${hit.lineIndex}`,
-			);
-			return false;
-		}
-
-		const span = labelSpan(hit.line);
-		const onLabel = span !== undefined && press.x >= span.start && press.x < span.end;
-		debug(`click(${press.x},${press.y}): host=true onLabel=${onLabel} line=${JSON.stringify(hit.line.slice(0, 60))}`);
-		if (onLabel && host.hideThinkingBlock !== false) {
-			host.setHideThinkingBlock(false);
-			expanded.add(host);
-			tui.requestRender();
-			return true;
-		}
-		if (!onLabel && expanded.has(host)) {
-			host.setHideThinkingBlock(true);
-			expanded.delete(host);
-			tui.requestRender();
-			return true;
-		}
-		return false;
+	target.handleViewportInput = function (data) {
+		if (handleClickOn(this as ViewportInstance, data)) return { consume: true };
+		return original.call(this, data);
 	};
-
-	target.handleViewportInput = (data: string) => {
-		if (handleClick(data)) return { consume: true };
-		return original.call(target, data);
-	};
-
+	target[INSTALLED] = true;
+	debug("install: wrapped viewport prototype");
 	return () => {
-		if (hadOwn) {
-			target.handleViewportInput = original;
-		} else {
-			delete target.handleViewportInput;
-		}
+		delete target[INSTALLED];
+		target.handleViewportInput = original;
 	};
+}
+
+/**
+ * Installs the click handler for the whole process by wrapping the shared
+ * TuiAltScreen prototype — the extension resolves the SAME pi-tui module
+ * instance pi core uses, so the wrap survives switchTuiMode instance swaps
+ * and covers sessions that start in regular mode and switch later via
+ * /settings. Silently no-ops when the runtime shape is not recognized.
+ */
+export function installThinkingClickExpand(): () => void {
+	try {
+		// eslint-disable-next-line @typescript-eslint/no-require-imports
+		const piTui = require("@earendil-works/pi-tui") as { TuiAltScreen?: { prototype?: object } };
+		return wrapViewportPrototype(piTui?.TuiAltScreen?.prototype);
+	} catch (error) {
+		debug(`install: require failed: ${error instanceof Error ? error.message : String(error)}`);
+		return () => {};
+	}
 }

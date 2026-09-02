@@ -9,7 +9,7 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -348,8 +348,6 @@ function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig): 
 export interface FooterHooks {
 	setRequestRender: (fn: (() => void) | undefined) => void;
 	scheduleGitRefresh: () => void;
-	/** Fired once with the TUI instance when the footer factory first runs. */
-	onTui?: (tui: TUI) => void;
 }
 
 export function installHudFooter(
@@ -361,7 +359,6 @@ export function installHudFooter(
 ): () => void {
 	ctx.ui.setFooter((tui, theme, footerData) => {
 		hooks.setRequestRender(() => tui.requestRender());
-		hooks.onTui?.(tui);
 		const requestRender = () => tui.requestRender();
 		const unsubBranch = footerData.onBranchChange(() => {
 			hooks.scheduleGitRefresh();

@@ -54,19 +54,18 @@ label by clicking requires Pi's fullscreen mode**. Pi only captures mouse events
 fullscreen TUI; in regular mode the terminal handles clicks itself (native text selection) and
 the extension never sees them — clicks on ✻ labels silently do nothing.
 
-To enable:
+To enable, either:
 
-```json
-// ~/.pi/agent/settings.json
-{
-  "tuiMode": "fullscreen"
-}
-```
+- run `/settings` → **TUI mode** → `fullscreen` (applies immediately, no restart; close open
+  overlays first), or
+- set `"tuiMode": "fullscreen"` in `~/.pi/agent/settings.json` and restart Pi.
 
-Restart Pi afterwards. Note that fullscreen mode changes mouse behavior everywhere: dragging
-selects text with Pi's own selection highlight instead of the terminal's native selection, and
-the wheel scrolls the transcript viewport. Also make sure no multiplexer intercepts the mouse
-(e.g. tmux's `set -g mouse on` swallows clicks before Pi sees them).
+Switching modes mid-session is fine: the click handler wraps the shared viewport prototype, so
+newly created fullscreen UIs pick it up right away. Note that fullscreen mode changes mouse
+behavior everywhere: dragging selects text with Pi's own selection highlight instead of the
+terminal's native selection, and the wheel scrolls the transcript viewport. Also make sure no
+multiplexer intercepts the mouse (e.g. tmux's `set -g mouse on` swallows clicks before Pi sees
+them).
 
 ## Install
 

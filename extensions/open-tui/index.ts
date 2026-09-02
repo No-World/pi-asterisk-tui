@@ -89,10 +89,6 @@ export default function (pi: ExtensionAPI) {
 					scheduleGitRefresh: () => {
 						void scheduleGitRefresh(ctx);
 					},
-					onTui: (tui) => {
-						cleanupThinkingClick?.();
-						cleanupThinkingClick = installThinkingClickExpand(tui);
-					},
 				},
 			);
 			editor = installEditor(pi, ctx, config.cursorStyle, config.fullscreen.wheelScrollLines);
@@ -223,6 +219,10 @@ export default function (pi: ExtensionAPI) {
 
 		if (isInteractiveLaunch() && config.enabled) {
 			clearVisibleScreen();
+			// Wrap the shared TuiAltScreen prototype once per process — covers
+			// mode switches and sessions that start in regular mode.
+			cleanupThinkingClick?.();
+			cleanupThinkingClick = installThinkingClickExpand();
 			// Fresh installs: default pi to collapsed thinking so ✻ labels (and
 			// click-to-expand in the fullscreen TUI) work everywhere. Existing
 			// choices (ctrl+t) are left untouched.

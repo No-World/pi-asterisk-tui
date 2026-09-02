@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TUI } from "@earendil-works/pi-tui";
 import {
 	findThinkingHostAtLine,
 	hitTestLeaf,
-	installThinkingClickExpand,
 	labelSpan,
 	parseSgrPrimaryPress,
+	wrapViewportPrototype,
 } from "../extensions/open-tui/thinking-click.ts";
 
 interface LayoutBox {
@@ -125,6 +124,26 @@ test("findThinkingHostAtLine descends through nested wrappers", () => {
 	assert.equal(findThinkingHostAtLine(outer, 1, 80), undefined, "banner line has no host");
 });
 
+/** Fake viewport whose handleViewportInput lives on the prototype, like TuiAltScreen. */
+class FakeViewport {
+	currentLayout: { root: LayoutBox } | undefined;
+	renders = 0;
+	calls: string[] = [];
+
+	constructor(root?: LayoutBox) {
+		this.currentLayout = root ? { root } : undefined;
+	}
+
+	requestRender(): void {
+		this.renders++;
+	}
+
+	handleViewportInput(data: string): { consume: boolean } {
+		this.calls.push(data);
+		return { consume: true };
+	}
+}
+
 function makeChatLeaf(chat: { children: unknown[] }, lines: string[], y = 2): LayoutBox {
 	return {
 		component: chat,
@@ -132,23 +151,6 @@ function makeChatLeaf(chat: { children: unknown[] }, lines: string[], y = 2): La
 		children: [],
 		lines,
 	};
-}
-
-function makeTui(root: LayoutBox | undefined) {
-	const calls: string[] = [];
-	let renders = 0;
-	const tui = {
-		mode: "fullscreen",
-		currentLayout: root ? { root } : undefined,
-		requestRender: () => {
-			renders++;
-		},
-		handleViewportInput(data: string) {
-			calls.push(data);
-			return { consume: true };
-		},
-	};
-	return { tui: tui as unknown as TUI & Record<string, unknown>, calls, getRenders: () => renders };
 }
 
 test("clicking the label expands, clicking the message collapses", () => {
@@ -161,23 +163,27 @@ test("clicking the label expands, clicking the message collapses", () => {
 		children: [makeChatLeaf(chat, lines)],
 	};
 
-	const { tui, calls, getRenders } = makeTui(root);
-	const cleanup = installThinkingClickExpand(tui);
-	const input = (tui as unknown as { handleViewportInput: (data: string) => unknown }).handleViewportInput;
+	const cleanup = wrapViewportPrototype(FakeViewport.prototype);
+	const tui = new FakeViewport(root);
 
 	// Click the label (row y=3 → lineIndex 1) → expand.
-	assert.deepEqual(input("\x1b[<0;5;4M"), { consume: true });
+	assert.deepEqual(tui.handleViewportInput("\x1b[<0;5;4M"), { consume: true });
 	assert.equal(message.hideThinkingBlock, false);
-	assert.ok(getRenders() > 0);
-	assert.equal(calls.length, 0, "click should not reach selection handling");
+	assert.ok(tui.renders > 0);
+	assert.equal(tui.calls.length, 0, "click should not reach selection handling");
 
 	// Click the expanded thinking (y=4 → lineIndex 2) → collapse.
-	input("\x1b[<0;5;5M");
+	tui.handleViewportInput("\x1b[<0;5;5M");
 	assert.equal(message.hideThinkingBlock, true);
 
 	// Clicking the label again re-expands.
-	input("\x1b[<0;5;4M");
+	tui.handleViewportInput("\x1b[<0;5;4M");
 	assert.equal(message.hideThinkingBlock, false);
+
+	// A fresh instance (e.g. after a TUI mode switch) inherits the wrap.
+	const next = new FakeViewport(root);
+	next.handleViewportInput("\x1b[<0;5;5M");
+	assert.equal(message.hideThinkingBlock, true, "second instance should collapse via shared prototype");
 
 	cleanup();
 });
@@ -192,43 +198,37 @@ test("non-label clicks fall through untouched", () => {
 		children: [makeChatLeaf(chat, lines)],
 	};
 
-	const { tui, calls } = makeTui(root);
-	const cleanup = installThinkingClickExpand(tui);
-	const input = (tui as unknown as { handleViewportInput: (data: string) => unknown }).handleViewportInput;
+	const cleanup = wrapViewportPrototype(FakeViewport.prototype);
+	const tui = new FakeViewport(root);
 
 	// Click the label's columns but on the answer row (y=3 → lineIndex 1) → not a label.
-	assert.deepEqual(input("\x1b[<0;5;4M"), { consume: true });
-	assert.equal(calls.length, 1, "falls through to the original handler");
+	assert.deepEqual(tui.handleViewportInput("\x1b[<0;5;4M"), { consume: true });
+	assert.equal(tui.calls.length, 1, "falls through to the original handler");
 	assert.equal(message.hideThinkingBlock, true);
 
 	// Non-mouse input passes through.
-	input("j");
-	assert.equal(calls.length, 2);
+	tui.handleViewportInput("j");
+	assert.equal(tui.calls.length, 2);
 
 	cleanup();
 });
 
-test("install no-ops outside fullscreen mode and cleanup restores the original", () => {
-	const { tui, calls } = makeTui(undefined);
-	(tui as unknown as { mode: string }).mode = "regular";
-	const cleanup = installThinkingClickExpand(tui);
-	cleanup();
-	assert.equal(calls.length, 0);
+test("wrap guards, restores, and no-ops on foreign prototypes", () => {
+	const original = FakeViewport.prototype.handleViewportInput;
 
-	const root: LayoutBox = {
-		component: { root: true },
-		rect: { x: 0, y: 0, width: 80, height: 0 },
-		children: [],
-	};
-	const full = makeTui(root);
-	const original = (full.tui as unknown as { handleViewportInput: unknown }).handleViewportInput;
-	const cleanupFull = installThinkingClickExpand(full.tui);
-	const patched = (full.tui as unknown as { handleViewportInput: unknown }).handleViewportInput;
-	assert.notEqual(patched, original);
-	cleanupFull();
-	assert.equal(
-		(full.tui as unknown as { handleViewportInput: unknown }).handleViewportInput,
-		original,
-		"cleanup should restore the original method",
-	);
+	const cleanup = wrapViewportPrototype(FakeViewport.prototype);
+	assert.notEqual(FakeViewport.prototype.handleViewportInput, original, "prototype should be wrapped");
+
+	// Second wrap is a guarded no-op and must not unwrap on its cleanup.
+	const noopCleanup = wrapViewportPrototype(FakeViewport.prototype);
+	noopCleanup();
+	assert.notEqual(FakeViewport.prototype.handleViewportInput, original, "guarded wrap must not unwrap");
+
+	cleanup();
+	assert.equal(FakeViewport.prototype.handleViewportInput, original, "cleanup should restore the original");
+
+	// Foreign shapes are no-ops, not throws.
+	assert.doesNotThrow(() => wrapViewportPrototype(undefined)());
+	assert.doesNotThrow(() => wrapViewportPrototype(null)());
+	assert.doesNotThrow(() => wrapViewportPrototype({})());
 });
