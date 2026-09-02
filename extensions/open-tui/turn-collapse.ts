@@ -28,10 +28,6 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
-interface TurnSummaryData {
-	thinkingMs: number | null;
-}
-
 interface Child {
 	render?: (width: number) => string[];
 	children?: unknown[];
@@ -68,8 +64,6 @@ function debug(message: string): void {
 	}
 }
 
-/** Turns the user explicitly expanded (everything else collapses when idle). */
-const expandedTurns = new WeakSet<object>();
 /** Tool groups the user expanded to their full bordered output. Keyed by head tool. */
 const expandedGroups = new WeakSet<object>();
 /** head tool -> members of the collapsed group rendered last frame. */
@@ -123,12 +117,12 @@ function renderGroupLine(group: unknown[], expanded: boolean): string {
 	const parts = summarizeTools(group);
 	const text = parts.length > 0 ? parts.join(" · ") : "tools";
 	const arrow = expanded ? " ▾" : "";
-	return ` ${fg("accent", "⏺")} ${fg("muted", `${text}${arrow}`)}`;
+	return ` ${fg("accent", "✻")} ${fg("muted", `${text}${arrow}`)}`;
 }
 
-/** Click routing for tool group lines inside expanded turns. */
+/** Click routing for tool group lines (segment-authoritative). */
 export function handleToolLineClick(lineIndex: number, line: string): boolean {
-	if (!line.includes("⏺")) return false;
+	void line;
 	for (const segment of childSegments) {
 		if (lineIndex >= segment.start && lineIndex < segment.end && isToolBox(segment.child)) {
 			if (expandedGroups.has(segment.child)) {
@@ -142,10 +136,6 @@ export function handleToolLineClick(lineIndex: number, line: string): boolean {
 	}
 	return false;
 }
-/** Live thinking duration per turn, keyed by the turn's user message component. */
-const liveSummaries = new WeakMap<object, TurnSummaryData>();
-/** Line segments (in container render output) covered by summary lines. */
-let summarySegments: Array<{ start: number; end: number; key: object }> = [];
 /** Per-child line segments from the last render — keeps click mapping in sync
  *  with what is actually on screen (re-rendering at click time can skew while
  *  a message streams). */
@@ -178,10 +168,6 @@ export function findThinkingHostViaSegments(lineIndex: number): unknown | undefi
 	}
 	return undefined;
 }
-/** Key of the most recent turn seen while rendering (live summary target). */
-let currentTurnKey: object | undefined;
-
-let agentWorking = false;
 let themeRef: Theme | undefined;
 let requestRenderRef: (() => void) | undefined;
 let enabled = true;
@@ -190,22 +176,12 @@ export function setTurnCollapseEnabled(value: boolean): void {
 	enabled = value;
 }
 
-export function setAgentWorking(working: boolean): void {
-	agentWorking = working;
-}
-
 export function setTurnCollapseTheme(theme: Theme): void {
 	themeRef = theme;
 }
 
 export function setTurnCollapseRender(requestRender: () => void): void {
 	requestRenderRef = requestRender;
-}
-
-/** Feed the settled run's thinking duration onto the turn rendered last. */
-export function attachLiveSummary(data: TurnSummaryData | undefined): void {
-	if (!currentTurnKey || !data) return;
-	liveSummaries.set(currentTurnKey, data);
 }
 
 function fg(color: Parameters<Theme["fg"]>[0], text: string): string {
@@ -284,31 +260,7 @@ function summarizeTools(turnChildren: unknown[]): string[] {
 	return parts;
 }
 
-function renderSummaryLine(key: object, turnChildren: unknown[], showArrow = true): string {
-	const parts: string[] = [];
-	const live = liveSummaries.get(key);
-	if (live && live.thinkingMs !== null && live.thinkingMs >= 1000) {
-		parts.push(`Thought for ${formatDuration(live.thinkingMs)}`);
-	}
-	parts.push(...summarizeTools(turnChildren));
-	const arrow = showArrow ? `${fg("accent", "▸")} ` : "";
-	const text = parts.length > 0 ? parts.join(" · ") : "turn";
-	return ` ${arrow}${fg("muted", `✻ ${text}`)}`;
-}
 
-/** Toggle handler wired into the shared mouse pipeline. */
-export function handleTurnLineClick(lineIndex: number, line: string): boolean {
-	void line; // segments are authoritative; arrow-less meta lines must toggle too
-	const segment = summarySegments.find((s) => lineIndex >= s.start && lineIndex < s.end);
-	if (!segment) return false;
-	if (expandedTurns.has(segment.key)) {
-		expandedTurns.delete(segment.key);
-	} else {
-		expandedTurns.add(segment.key);
-	}
-	requestRenderRef?.();
-	return true;
-}
 
 interface ExpandedWalk {
 	push: (lines: string[]) => void;
@@ -316,9 +268,9 @@ interface ExpandedWalk {
 	renderChild: (child: unknown) => void;
 }
 
-function renderExpandedTurn(turnChildren: unknown[], working: boolean, walk: ExpandedWalk): void {
+function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk): void {
 	const completedTool = (candidate: unknown): boolean =>
-		isToolBox(candidate) && !(working && isToolRunning(candidate));
+		isToolBox(candidate) && !isToolRunning(candidate);
 
 	let index = 0;
 	while (index < turnChildren.length) {
@@ -379,13 +331,12 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	void original;
 	const children = (container.children ?? []) as unknown[];
 	const userCount = children.filter(isUserMessage).length;
-	const renderState = `${children.length}:${userCount}:${agentWorking}:${enabled}`;
+	const renderState = `${children.length}:${userCount}`;
 	if (renderLogState !== renderState) {
 		renderLogState = renderState;
-		debug(`render: children=${children.length} userMsgs=${userCount} working=${agentWorking}`);
+		debug(`render: children=${children.length} userMsgs=${userCount}`);
 	}
 	const out: string[] = [];
-	summarySegments = [];
 	childSegments = [];
 	let cursor = 0;
 
@@ -409,43 +360,18 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	while (i < children.length) {
 		const child = children[i];
 		if (isUserMessage(child)) {
-			const key = child;
-			currentTurnKey = key;
 			let j = i + 1;
 			while (j < children.length && !isUserMessage(children[j])) j++;
 			const turnChildren = children.slice(i + 1, j);
-			const isLast = j >= children.length;
-			const working = agentWorking && isLast;
-			const collapsed = enabled && !working && !expandedTurns.has(key);
-			if (collapsed) {
-				debug(`collapse turn: turnChildren=${turnChildren.length}`);
-				// The prompt itself stays visible; the summary replaces its effects.
-				renderChild(child);
-				push([renderSummaryLine(key, turnChildren)]);
-				summarySegments.push({ start: cursor - 1, end: cursor, key });
-				for (const turnChild of turnChildren) {
-					if (isSpacer(turnChild) || isToolBox(turnChild)) {
-						continue; // hidden while collapsed
-					}
-					if (isAssistantMessage(turnChild) && turnChild.hideThinkingBlock !== true) {
-						turnChild.setHideThinkingBlock(true);
-					}
-					renderChild(turnChild);
-				}
-			} else {
-				renderChild(child);
-				if (enabled) {
-					// Plain meta line (no arrows) — reads as transcript content,
-					// clicking it re-collapses the turn.
-					push([renderSummaryLine(key, turnChildren, false)]);
-					summarySegments.push({ start: cursor - 1, end: cursor, key });
-				}
-				renderExpandedTurn(turnChildren, working, {
-					push,
-					pushChild,
-					renderChild,
-				});
-			}
+			// Claude-Code style: no turn-level line at all. The prompt, the
+			// messages (thinking behind ✻ labels), and per-group tool lines
+			// render directly.
+			renderChild(child);
+			renderExpandedTurn(turnChildren, {
+				push,
+				pushChild,
+				renderChild,
+			});
 			i = j;
 		} else {
 			renderChild(child);

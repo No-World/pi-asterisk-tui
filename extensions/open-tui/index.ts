@@ -2,9 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, saveConfig } from "./config.ts";
 import { ensureHideThinkingDefault } from "./pi-settings.ts";
 import {
-	attachLiveSummary,
 	installTurnCollapse,
-	setAgentWorking,
 	setTurnCollapseEnabled,
 	setTurnCollapseTheme,
 } from "./turn-collapse.ts";
@@ -263,7 +261,6 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_start", (event, ctx) => {
 		turnTelemetry.handle(event);
-		setAgentWorking(true);
 		if (!sessionLifecycle.isCurrent()) return;
 		state.workingSince = Date.now();
 		state.lastDoneIn = undefined;
@@ -304,8 +301,6 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_settled", (event, ctx) => {
 		const telemetry = turnTelemetry.handle(event);
-		setAgentWorking(false);
-		attachLiveSummary(turnTelemetry.getLastTurnSummary());
 		state.lastTurnSummary = turnTelemetry.getLastTurnSummary();
 		requestFooterRender?.();
 		if (telemetry && config.enabled && config.telemetry.enabled && isTuiContext(ctx)) {

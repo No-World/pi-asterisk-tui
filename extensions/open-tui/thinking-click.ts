@@ -1,6 +1,5 @@
 import {
 	handleToolLineClick,
-	handleTurnLineClick,
 	findThinkingHostViaSegments,
 	lineIndexInAttachedContainer,
 } from "./turn-collapse.ts";
@@ -186,17 +185,12 @@ const handleClickOn = (instance: ViewportInstance, data: string): boolean => {
 		debug(`click(${press.x},${press.y}): leaf is not a container`);
 		return false;
 	}
-	// Turn summary lines come first: they cover whole-turn collapsing. Segment
-	// lookups are in the attached container's coordinates — translate from the
-	// hit leaf (pi's opaque wrapper) first.
+	// Segment lookups are in the attached container's coordinates — translate
+	// from the hit leaf (pi's opaque wrapper) first.
 	const localIndex = lineIndexInAttachedContainer(chat, hit.lineIndex, hit.box.rect.width);
-	if (localIndex !== undefined && handleTurnLineClick(localIndex, hit.line)) {
-		debug(`click(${press.x},${press.y}): toggled turn summary`);
-		return true;
-	}
-	// Then per-tool one-liners inside expanded turns.
+	// Tool group lines first: they sit above the thinking-label flow.
 	if (localIndex !== undefined && handleToolLineClick(localIndex, hit.line)) {
-		debug(`click(${press.x},${press.y}): toggled tool box`);
+		debug(`click(${press.x},${press.y}): toggled tool group`);
 		return true;
 	}
 	// Segment lookup first: the recorded per-child ranges match what is on

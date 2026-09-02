@@ -140,23 +140,17 @@ pi -e git:github.com/No-World/pi-open-tui
 
 全屏滚轮速度通过隔离的兼容层写入 Pi 0.84.2 的运行时字段，因为 Pi 尚未提供公开 setter。若后续 Pi 版本不再包含兼容字段，该设置会被忽略并继续使用 Pi 的默认滚动行为。
 
-## 轮次折叠
+## 工具分组（Claude Code 风格）
 
-完成的 agent 运行会折叠成一行可点击的摘要（Claude Code 风格）：
+没有整轮折叠行，对话记录直接呈现为：
 
-```
-▸ ✻ Thought for 11s · called playwright ×3 · ran 1 shell command
-```
+- 思考按消息折叠在可点击的 `✻ Thought…` 标签后。
+- **连续的**已完成工具调用合并为一行可点击摘要：相邻的两个 bash 折成
+  `✻ ran 2 shell commands`，中间隔着内容的各自成行 `✻ ran 1 shell command` /
+  `✻ called playwright`。点击组行打开这些工具的完整输出盒，再点收回。
+- 运行中的工具渲染为带动画的单行（`⠋ bash · $ echo hi`），下方实时流式输出。
 
-回答文本保持可见；思考块、工具执行及其间隔在点击该行前全部隐藏（再点一次收回，展开时行首为
-`▾`）。当前轮次正常流式显示，agent 落定后自动折叠。工具数从渲染组件现场统计（历史轮次同样折
-叠）；思考时长来自实时遥测，旧会话加载的轮次不带时长。展开后的轮次中，**连续的**已完成工具调用合并为一行组摘要——相邻的两个 bash 折成
-`⏺ ran 2 shell commands`，中间隔着内容的各自成行 `⏺ ran 1 shell command`。点击组行打开这些
-工具的完整输出盒，再点收回。运行中的工具渲染为带动画的单行（`⠋ bash · $ echo hi`），下方
-实时流式输出。展开后消息内的 ✻ 标签仍可单独点击。
-展开后消息内的 ✻ 标签仍可单独点击——流式输出中的消息也一样。标签按消息区分：历史显示
-`✻ Thought…`，正在流式的消息显示 `✻ Thinking…`。在 open-tui 配置中设 `"turnCollapse": false`
-可关闭。与点击展开一样需要全屏 TUI。
+在 open-tui 配置中设 `"turnCollapse": false` 可关闭分组。与点击展开一样需要全屏 TUI。
 
 ## 单轮遥测
 

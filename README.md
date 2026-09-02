@@ -147,28 +147,20 @@ Key options:
 
 Fullscreen wheel speed uses an isolated compatibility shim for Pi 0.84.2's runtime field because Pi does not yet expose a public setter. On Pi versions without a compatible field, the setting is ignored and Pi's default scrolling remains active.
 
-## Turn collapsing
+## Tool grouping (Claude Code style)
 
-Finished agent runs collapse into a single clickable line — Claude Code style:
+There is no turn-level folding line. Instead the transcript reads like Claude Code:
 
-```
-▸ ✻ Thought for 11s · called playwright ×3 · ran 1 shell command
-```
+- Thinking collapses per message behind a clickable `✻ Thought…` label.
+- Consecutive completed tool calls collapse together into one clickable line:
+  `✻ ran 2 shell commands` for adjacent shells; groups separated by text each get
+  their own `✻ ran 1 shell command` / `✻ called playwright` line. Click a group line
+  to open those tools' full bordered output, click again to close.
+- A running tool renders as an animated one-liner (`⠋ bash · $ echo hi`) with the live
+  box streaming below it.
 
-Assistant answer text stays visible; thinking blocks, tool executions, and their spacers are
-hidden until you click the line (click again to re-collapse; while expanded the line shows `▾`).
-The current run streams normally and collapses automatically when the agent settles. Tool
-counts come from the rendered components (history turns collapse too); thinking duration comes
-from live telemetry, so turns loaded from an older session show the summary without a duration.
-Inside an expanded turn, consecutive completed tool calls collapse together into one group
-line — `⏺ ran 2 shell commands` for adjacent shells, separate `⏺ ran 1 shell command` lines
-when something sits between them. Click a group line to open those tools' full bordered
-output, click again to close. A running tool renders as an animated one-liner
-(`⠋ bash · $ echo hi`) with the live box streaming below it. Per-message ✻ labels remain
-clickable inside an expanded turn — including while the
-message is still streaming. Labels are per message: history shows `✻ Thought…`, the streaming
-message shows `✻ Thinking…`. Disable via `"turnCollapse":
-false` in the open-tui config. As with click-to-expand, this needs the fullscreen TUI.
+Disable grouping via `"turnCollapse": false` in the open-tui config. As with
+click-to-expand, this needs the fullscreen TUI.
 
 ## Turn telemetry
 
