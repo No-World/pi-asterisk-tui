@@ -3,6 +3,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { GitStatus } from "./git.ts";
 import { emptyGitStatus } from "./git.ts";
 import type { RuntimeInfo } from "./runtime.ts";
+import type { TurnSummary } from "./telemetry.ts";
 import { finiteOrZero, fmtTokens, formatProviderLabel } from "./utils.ts";
 
 export interface FooterState {
@@ -11,6 +12,8 @@ export interface FooterState {
 	sessionStartEpoch: number;
 	workingSince: number | undefined;
 	lastDoneIn: number | undefined;
+	/** Claude-style summary of the most recently settled agent run. */
+	lastTurnSummary: TurnSummary | undefined;
 	/** Output speed (tok/s) of the latest assistant message. */
 	outputTps: number | null;
 }
@@ -80,6 +83,7 @@ export function createInitialState(): FooterState {
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
 		outputTps: null,
 	};
 }

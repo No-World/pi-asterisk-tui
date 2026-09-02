@@ -487,3 +487,48 @@ test("open-tui notifies once after a complete agent run", () => {
 	assert.equal(notifications.length, 1);
 	assert.match(notifications[0]!, /TPS .*TTFT/);
 });
+
+test("turn summary tracks thinking time and tool counts across a run", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" });
+
+	// Turn 1: think for 3s (1s -> 4s), then text; one bash + one read.
+	now = 1_000;
+	const message = makeMessage(20, 50);
+	startTurn(tracker, message);
+	now = 2_000;
+	tracker.handle(update(message, { type: "thinking_delta", contentIndex: 0, delta: "嗯", partial: message }));
+	now = 4_000;
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "hello", partial: message }));
+	tracker.handle({ type: "tool_execution_start", toolCallId: "a", toolName: "bash", args: {} });
+	tracker.handle({ type: "tool_execution_start", toolCallId: "b", toolName: "read", args: {} });
+	assert.equal(tracker.getLiveToolCalls(), 2);
+	now = 5_000;
+	tracker.handle({ type: "message_end", message });
+	tracker.handle({ type: "turn_end", turnIndex: 0, message, toolResults: [] });
+
+	const live = tracker.getLastTurnSummary()!;
+	assert.equal(live.thinkingMs, 3_000);
+	assert.equal(live.toolCalls, 2);
+	assert.equal(live.bashCalls, 1);
+
+	// Turn 2: no thinking, one more bash.
+	now = 6_000;
+	const second = makeMessage(10, 50);
+	startTurn(tracker, second, 1);
+	tracker.handle({ type: "tool_execution_start", toolCallId: "c", toolName: "bash", args: {} });
+	now = 7_000;
+	endTurn(tracker, second, 1);
+
+	tracker.handle({ type: "agent_settled" });
+	const summary = tracker.getLastTurnSummary()!;
+	assert.equal(summary.thinkingMs, 3_000);
+	assert.equal(summary.toolCalls, 3);
+	assert.equal(summary.bashCalls, 2);
+	assert.equal(summary.toolCounts.get("read"), 1);
+
+	// Live counter resets when the next run starts.
+	tracker.handle({ type: "agent_start" });
+	assert.equal(tracker.getLiveToolCalls(), 0);
+});

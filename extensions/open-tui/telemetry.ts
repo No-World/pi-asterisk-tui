@@ -35,6 +35,12 @@ interface MessageTiming {
 	liveUsageOutput: number;
 	/** Delta-based token estimate for providers without mid-stream usage (anthropic protocol). */
 	streamedEstimate: number;
+	/** perf-clock start of the message; anchors thinking-duration measurement. */
+	startMs: number;
+	/** Set once a thinking delta arrives for this message. */
+	sawThinking: boolean;
+	/** When thinking stopped (first non-thinking output); null while still thinking. */
+	thinkingEndMs: number | null;
 }
 
 interface TurnTiming {
@@ -45,6 +51,18 @@ interface TurnTiming {
 	generationMs: number;
 	stallMs: number;
 	stallCount: number;
+	/** Time the model spent thinking before visible output, summed over messages. */
+	thinkingMs: number;
+	/** Tool executions started during this turn, by tool name. */
+	toolCounts: Map<string, number>;
+}
+
+/** Claude-style per-turn summary: thinking time plus tool usage. */
+export interface TurnSummary {
+	thinkingMs: number;
+	toolCalls: number;
+	bashCalls: number;
+	toolCounts: ReadonlyMap<string, number>;
 }
 
 export interface TurnTelemetry {
@@ -81,6 +99,12 @@ export class TurnTelemetryTracker {
 	private agentTurns: TurnTelemetry[] = [];
 	/** Output speed (tok/s) of the most recently completed assistant message. */
 	private lastMessageTps: number | null = null;
+	/** Tool executions started in the current agent run (live, for the working indicator). */
+	private liveToolCalls = 0;
+	/** Per-turn summaries collected during the current agent run. */
+	private agentSummaries: TurnSummary[] = [];
+	/** Merged summary of the most recently settled agent run. */
+	private lastSummary: TurnSummary | undefined;
 
 	constructor(now: () => number = () => performance.now()) {
 		this.now = now;
@@ -88,6 +112,19 @@ export class TurnTelemetryTracker {
 
 	getOutputTps(): number | null {
 		return this.lastMessageTps;
+	}
+
+	/** Tool executions started so far in the current agent run. */
+	getLiveToolCalls(): number {
+		return this.liveToolCalls;
+	}
+
+	/** Summary of the most recently settled agent run, or the live run while it streams. */
+	getLastTurnSummary(): TurnSummary | undefined {
+		if (this.agentSummaries.length > 0) {
+			return mergeSummaries(this.agentSummaries);
+		}
+		return this.lastSummary;
 	}
 
 	/**
@@ -115,6 +152,8 @@ export class TurnTelemetryTracker {
 				if (this.agentStartMs === null) {
 					this.agentStartMs = this.now();
 					this.agentTurns = [];
+					this.liveToolCalls = 0;
+					this.agentSummaries = [];
 				}
 				return;
 			case "agent_settled":
@@ -132,6 +171,10 @@ export class TurnTelemetryTracker {
 				this.endMessage(event.message);
 				return;
 			case "tool_execution_start":
+				this.liveToolCalls++;
+				if (this.turn) {
+					this.turn.toolCounts.set(event.toolName, (this.turn.toolCounts.get(event.toolName) ?? 0) + 1);
+				}
 				return;
 			case "turn_end":
 				return this.endTurnAndCollect();
@@ -147,6 +190,8 @@ export class TurnTelemetryTracker {
 			generationMs: 0,
 			stallMs: 0,
 			stallCount: 0,
+			thinkingMs: 0,
+			toolCounts: new Map(),
 		};
 	}
 
@@ -159,6 +204,9 @@ export class TurnTelemetryTracker {
 			inStall: false,
 			liveUsageOutput: finiteOrZero(message.usage?.output),
 			streamedEstimate: 0,
+			startMs: now,
+			sawThinking: false,
+			thinkingEndMs: null,
 		};
 	}
 
@@ -185,6 +233,12 @@ export class TurnTelemetryTracker {
 		current.streamedEstimate += estimateStreamedTokens(streamEvent.delta);
 
 		const now = this.now();
+		if (streamEvent.type === "thinking_delta") {
+			current.sawThinking = true;
+		} else if (current.sawThinking && current.thinkingEndMs === null) {
+			// First visible output after thinking closes the thinking window.
+			current.thinkingEndMs = now;
+		}
 		if (current.firstOutputMs === null) {
 			current.firstOutputMs = now;
 			turn.firstTokenMs ??= now;
@@ -221,6 +275,9 @@ export class TurnTelemetryTracker {
 			if (out > 0 && firstOutput !== null && genMs > 0) {
 				this.lastMessageTps = round(out / (genMs / 1000), 1);
 			}
+			if (current.sawThinking) {
+				turn.thinkingMs += (current.thinkingEndMs ?? endMs) - current.startMs;
+			}
 			turn.currentMessage = null;
 		}
 		turn.messages.push(message);
@@ -232,10 +289,22 @@ export class TurnTelemetryTracker {
 		return telemetry;
 	}
 
+	private collectTurnSummary(turn: TurnTiming): void {
+		if (this.agentStartMs === null) return;
+		this.agentSummaries.push({
+			thinkingMs: turn.thinkingMs,
+			toolCalls: sumMapValues(turn.toolCounts),
+			bashCalls: turn.toolCounts.get("bash") ?? 0,
+			toolCounts: new Map(turn.toolCounts),
+		});
+	}
+
 	private endTurn(): TurnTelemetry | undefined {
 		const turn = this.turn;
 		this.turn = undefined;
-		if (!turn || turn.firstTokenMs === null || turn.messages.length === 0) return;
+		if (!turn) return;
+		this.collectTurnSummary(turn);
+		if (turn.firstTokenMs === null || turn.messages.length === 0) return;
 
 		const endMs = this.now();
 		let inputTokens = 0;
@@ -287,6 +356,10 @@ export class TurnTelemetryTracker {
 		const turns = this.agentTurns;
 		this.agentStartMs = null;
 		this.agentTurns = [];
+		if (this.agentSummaries.length > 0) {
+			this.lastSummary = mergeSummaries(this.agentSummaries);
+			this.agentSummaries = [];
+		}
 		if (startMs === null || turns.length === 0) return;
 
 		const outputTokens = turns.reduce((sum, turn) => sum + turn.outputTokens, 0);
@@ -323,6 +396,29 @@ export class TurnTelemetryTracker {
 			measurementMs,
 		};
 	}
+}
+
+function sumMapValues(map: ReadonlyMap<string, number>): number {
+	let sum = 0;
+	for (const count of map.values()) sum += count;
+	return sum;
+}
+
+function mergeSummaries(summaries: TurnSummary[]): TurnSummary {
+	const toolCounts = new Map<string, number>();
+	let thinkingMs = 0;
+	for (const summary of summaries) {
+		thinkingMs += summary.thinkingMs;
+		for (const [name, count] of summary.toolCounts) {
+			toolCounts.set(name, (toolCounts.get(name) ?? 0) + count);
+		}
+	}
+	return {
+		thinkingMs,
+		toolCalls: sumMapValues(toolCounts),
+		bashCalls: toolCounts.get("bash") ?? 0,
+		toolCounts,
+	};
 }
 
 function formatTurnDuration(ms: number): string {

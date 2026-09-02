@@ -120,7 +120,21 @@ function renderTimerSegment(theme: Theme, state: FooterState, glyphs: IconGlyphs
 		return `${theme.fg("accent", glyphs.working)} ${theme.fg("dim", "working")} ${theme.fg("accent", formatDuration(Date.now() - state.workingSince))}`;
 	}
 	if (state.lastDoneIn !== undefined) {
-		return `${theme.fg("success", glyphs.done)} ${theme.fg("success", "done")} ${theme.fg("text", formatDuration(state.lastDoneIn))}`;
+		const parts = [`${theme.fg("success", glyphs.done)} ${theme.fg("success", "done")} ${theme.fg("text", formatDuration(state.lastDoneIn))}`];
+		const summary = state.lastTurnSummary;
+		if (summary) {
+			if (summary.thinkingMs > 0) {
+				parts.push(`${theme.fg("thinkingText", "✻")} ${theme.fg("text", formatDuration(summary.thinkingMs))}`);
+			}
+			if (summary.toolCalls > 0) {
+				const allBash = summary.bashCalls === summary.toolCalls;
+				const word = allBash
+					? `shell command${summary.toolCalls > 1 ? "s" : ""}`
+					: `tool${summary.toolCalls > 1 ? "s" : ""}`;
+				parts.push(`${theme.fg("text", String(summary.toolCalls))} ${theme.fg("muted", word)}`);
+			}
+		}
+		return parts.join(` ${theme.fg("dim", "·")} `);
 	}
 	return "";
 }

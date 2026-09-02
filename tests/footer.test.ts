@@ -69,6 +69,7 @@ test("narrow footer keeps the cwd basename and drops runtime first", () => {
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
 		outputTps: null,
 	};
 	installFooter(
@@ -119,6 +120,7 @@ test("narrow footer sheds the context bar before left segments", () => {
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
 		outputTps: null,
 	};
 	installFooter(
@@ -294,6 +296,7 @@ test("ASCII footer renders icons as semantic labels", () => {
 		sessionStartEpoch: Date.now(),
 		workingSince: Date.now() - 2_000,
 		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
 		outputTps: null,
 	};
 
@@ -384,6 +387,7 @@ function renderFooterWithSession(opts: {
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
 		outputTps: null,
 	};
 	installFooter(
@@ -434,4 +438,71 @@ test("session name uses matching glyph in nerd and ascii modes", () => {
 	assert.ok(asciiOut.includes(resolveGlyphs("ascii").session), `ascii glyph missing\n${asciiOut}`);
 	const nerdOut = renderFooterWithSession({ mode: "nerd", sessionName: "sess" });
 	assert.ok(nerdOut.includes(resolveGlyphs("nerd").session), `nerd glyph missing\n${nerdOut}`);
+});
+
+test("done segment summarizes thinking time and tool usage Claude-style", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => [],
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 0, contextWindow: 1_000, percent: 0 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: emptyGitStatus(),
+		runtime: null,
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: 12_000,
+		lastTurnSummary: {
+			thinkingMs: 8_000,
+			toolCalls: 2,
+			bashCalls: 2,
+			toolCounts: new Map([["bash", 2]]),
+		},
+		outputTps: null,
+	};
+	installFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	const component = footerFactory(
+		{ requestRender() {} } as TUI,
+		theme,
+		footerData,
+	) as Component;
+
+	const line = component.render(120).join("\n").split("\n")[0]!;
+	assert.ok(line.includes("done 12s"), `duration missing\n${line}`);
+	assert.ok(line.includes("✻ 8s"), `thinking time missing\n${line}`);
+	assert.ok(line.includes("2 shell commands"), `bash summary missing\n${line}`);
+
+	// Mixed tools collapse to the generic wording.
+	state.lastTurnSummary = {
+		thinkingMs: 0,
+		toolCalls: 3,
+		bashCalls: 1,
+		toolCounts: new Map([["bash", 1], ["read", 2]]),
+	};
+	const mixed = component.render(120).join("\n").split("\n")[0]!;
+	assert.ok(mixed.includes("3 tools"), `generic tool wording missing\n${mixed}`);
+	assert.ok(!mixed.includes("✻"), `thinking marker should be absent when there was none\n${mixed}`);
 });

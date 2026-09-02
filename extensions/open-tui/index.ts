@@ -164,7 +164,8 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	// "⠴ Working… (7m 57s · ↓ 14.8k tokens)" — per-turn timer + output tokens on the working indicator.
+	// "⠴ Working… (7m 57s · ↓ 14.8k tokens · 3 tools)" — per-turn timer, output tokens, and
+	// live tool count on the working indicator.
 	// setWorkingMessage only swaps the label; pi's spinner frames stay untouched.
 	let workingLabelTimer: ReturnType<typeof setInterval> | undefined;
 	const updateWorkingLabel = () => {
@@ -173,7 +174,9 @@ export default function (pi: ExtensionAPI) {
 		if (state.workingSince === undefined) return;
 		const elapsed = formatDuration(Date.now() - state.workingSince);
 		const outTokens = turnTelemetry.getTurnOutputTokens();
-		ctx.ui.setWorkingMessage(`Working… (${elapsed} · ↓ ${fmtTokens(outTokens)} tokens)`);
+		const tools = turnTelemetry.getLiveToolCalls();
+		const toolPart = tools > 0 ? ` · ${tools} tool${tools > 1 ? "s" : ""}` : "";
+		ctx.ui.setWorkingMessage(`Working… (${elapsed} · ↓ ${fmtTokens(outTokens)} tokens${toolPart})`);
 	};
 	const startWorkingLabel = () => {
 		stopWorkingLabel();
@@ -189,12 +192,21 @@ export default function (pi: ExtensionAPI) {
 		lastCtx?.ui?.setWorkingMessage?.(); // restore default "Working..."
 	};
 
+	// Claude-style transcript labels for hidden thinking blocks (ctrl+t toggles
+	// pi's hideThinkingBlock; the label is global, so it stays duration-less —
+	// accurate per-turn numbers live in the footer summary instead).
+	const setThinkingLabel = (ctx: ExtensionContext | undefined, label: string) => {
+		if (!ctx || !isTuiContext(ctx)) return;
+		ctx.ui?.setHiddenThinkingLabel?.(label);
+	};
+
 	pi.on("session_start", async (_event, ctx) => {
 		sessionLifecycle.start();
 		lastCtx = ctx;
 		state.sessionStartEpoch = Date.now();
 		state.workingSince = undefined;
 		state.lastDoneIn = undefined;
+		state.lastTurnSummary = undefined;
 		invalidateUsageCache();
 
 		ensureConfigExists();
@@ -205,6 +217,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		applyUi(ctx);
+		setThinkingLabel(ctx, "✻ Thought…");
 
 		refreshInteractiveState(ctx, true);
 	});
@@ -219,13 +232,14 @@ export default function (pi: ExtensionAPI) {
 		lastCtx = undefined;
 	});
 
-	pi.on("agent_start", (event, _ctx) => {
+	pi.on("agent_start", (event, ctx) => {
 		turnTelemetry.handle(event);
 		if (!sessionLifecycle.isCurrent()) return;
 		state.workingSince = Date.now();
 		state.lastDoneIn = undefined;
 		startWorkingTimer();
 		startWorkingLabel();
+		setThinkingLabel(ctx, "✻ Thinking…");
 	});
 
 	pi.on("agent_end", (_event, _ctx) => {
@@ -261,6 +275,9 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_settled", (event, ctx) => {
 		const telemetry = turnTelemetry.handle(event);
+		state.lastTurnSummary = turnTelemetry.getLastTurnSummary();
+		setThinkingLabel(ctx, "✻ Thought…");
+		requestFooterRender?.();
 		if (telemetry && config.enabled && config.telemetry.enabled && isTuiContext(ctx)) {
 			const message = formatTurnTelemetry(telemetry, ctx.ui.theme, config.telemetry, config.icons.mode);
 			if (message) ctx.ui.notify(message, "info");
