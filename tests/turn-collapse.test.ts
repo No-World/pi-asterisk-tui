@@ -98,19 +98,23 @@ test("consecutive tools collapse into group lines, non-adjacent stay separate", 
 	assert.ok(!out.includes("$ echo one"), `boxes hidden behind group lines\n${out}`);
 	assert.ok(!out.includes("▸"), `no turn summary line\n${out}`);
 
-	// Click the group line → both bash boxes open.
+	// Click the group line → boxes open, group line REPLACED (thinking-block parity).
 	const groupLine = lines.find((l) => l.includes("ran 2 shell commands"));
 	assert.ok(groupLine);
 	assert.equal(handleToolLineClick(lines.indexOf(groupLine), groupLine), true);
-	const opened = container.render(60).join("\n");
+	const openedLines = container.render(60);
+	const opened = openedLines.join("\n");
 	assert.ok(opened.includes("$ echo one") && opened.includes("$ echo two"), `both boxes open\n${opened}`);
+	assert.ok(!opened.includes("ran 2 shell commands"), `group line replaced by boxes\n${opened}`);
 	assert.ok(opened.includes("called playwright"), `other group untouched\n${opened}`);
 
-	// Click again → re-collapsed.
-	const lines2 = container.render(60);
-	const group2 = lines2.find((l) => l.includes("ran 2 shell commands"));
-	handleToolLineClick(lines2.indexOf(group2!), group2!);
-	assert.ok(!container.render(60).join("\n").includes("$ echo one"), "group re-collapsed");
+	// Click a box line → collapse back to the single line.
+	const boxLine = openedLines.findIndex((l) => l.includes("$ echo one"));
+	assert.ok(boxLine >= 0);
+	assert.equal(handleToolLineClick(boxLine, openedLines[boxLine]!), true);
+	const recollapsed = container.render(60).join("\n");
+	assert.ok(recollapsed.includes("ran 2 shell commands"), "group line back");
+	assert.ok(!recollapsed.includes("$ echo one"), "boxes hidden again");
 });
 
 test("tools separated only by empty renders still group together", () => {

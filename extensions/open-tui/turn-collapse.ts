@@ -66,8 +66,8 @@ function debug(message: string): void {
 
 /** Tool groups the user expanded to their full bordered output. Keyed by head tool. */
 const expandedGroups = new WeakSet<object>();
-/** head tool -> members of the collapsed group rendered last frame. */
-const groupHeads = new Map<object, unknown[]>();
+/** member tool -> group head (expanded boxes collapse via any member line). */
+const groupMembership = new Map<object, object>();
 /** Spinner frames for running tool lines. */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -112,23 +112,24 @@ function renderToolLine(child: unknown, marker: string): string {
 	return ` ${marker} ${fg("muted", `${name}${hint}`)}`;
 }
 
-/** Claude-style group line: `⏺ ran 2 shell commands` for consecutive tools. */
-function renderGroupLine(group: unknown[], expanded: boolean): string {
+/** Claude-style group line: `✻ ran 2 shell commands` for consecutive tools. */
+function renderGroupLine(group: unknown[]): string {
 	const parts = summarizeTools(group);
 	const text = parts.length > 0 ? parts.join(" · ") : "tools";
-	const arrow = expanded ? " ▾" : "";
-	return ` ${fg("accent", "✻")} ${fg("muted", `${text}${arrow}`)}`;
+	return ` ${fg("accent", "✻")} ${fg("muted", text)}`;
 }
 
-/** Click routing for tool group lines (segment-authoritative). */
+/** Click routing for tool groups (segment-authoritative). */
 export function handleToolLineClick(lineIndex: number, line: string): boolean {
 	void line;
 	for (const segment of childSegments) {
 		if (lineIndex >= segment.start && lineIndex < segment.end && isToolBox(segment.child)) {
-			if (expandedGroups.has(segment.child)) {
-				expandedGroups.delete(segment.child);
+			if (isToolRunning(segment.child)) return false; // live boxes are not clickable
+			const head = groupMembership.get(segment.child) ?? segment.child;
+			if (expandedGroups.has(head)) {
+				expandedGroups.delete(head);
 			} else {
-				expandedGroups.add(segment.child);
+				expandedGroups.add(head);
 			}
 			requestRenderRef?.();
 			return true;
@@ -296,16 +297,17 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 				}
 				break;
 			}
-			const head = group[0]!;
+			const head = group[0]! as object;
 			if (expandedGroups.has(head)) {
-				walk.pushChild(head, [renderGroupLine(group, true)]);
+				// Expanded: the group line is REPLACED by the boxes, like
+				// thinking blocks — clicking any box line collapses back.
 				for (const member of group) {
 					if (isSpacer(member) || safeRender(member as Child, width).length === 0) continue;
+					groupMembership.set(member as object, head);
 					walk.renderChild(member);
 				}
 			} else {
-				groupHeads.set(head, group);
-				walk.pushChild(head, [renderGroupLine(group, false)]);
+				walk.pushChild(head, [renderGroupLine(group)]);
 			}
 			index = scan;
 			continue;
