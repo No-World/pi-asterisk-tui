@@ -7,6 +7,7 @@ import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
+import { installThinkingClickExpand } from "./thinking-click.ts";
 import { registerThinkingCommand } from "./thinking-viewer.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
 import {
@@ -62,6 +63,7 @@ export default function (pi: ExtensionAPI) {
 	let workingTimer: ReturnType<typeof setInterval> | undefined;
 	let cleanupHeader: (() => void) | undefined;
 	let cleanupFooter: (() => void) | undefined;
+	let cleanupThinkingClick: (() => void) | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
 
@@ -87,6 +89,10 @@ export default function (pi: ExtensionAPI) {
 					scheduleGitRefresh: () => {
 						void scheduleGitRefresh(ctx);
 					},
+					onTui: (tui) => {
+						cleanupThinkingClick?.();
+						cleanupThinkingClick = installThinkingClickExpand(tui);
+					},
 				},
 			);
 			editor = installEditor(pi, ctx, config.cursorStyle, config.fullscreen.wheelScrollLines);
@@ -99,9 +105,11 @@ export default function (pi: ExtensionAPI) {
 		if (active) {
 			cleanupHeader?.();
 			cleanupFooter?.();
+			cleanupThinkingClick?.();
 			editor?.cleanup();
 			cleanupHeader = undefined;
 			cleanupFooter = undefined;
+			cleanupThinkingClick = undefined;
 			editor = undefined;
 			requestFooterRender = undefined;
 			active = false;

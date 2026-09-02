@@ -1,5 +1,5 @@
 import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type TUI } from "@earendil-works/pi-tui";
 import type { OpenTuiConfig } from "./config.ts";
 import type { IconGlyphs } from "./icons.ts";
 import { resolveGlyphs, resolveIconMode, runtimeSymbol } from "./icons.ts";
@@ -210,6 +210,8 @@ function renderExtensionStatusLines(
 export interface FooterHooks {
 	setRequestRender: (fn: (() => void) | undefined) => void;
 	scheduleGitRefresh: () => void;
+	/** Fired once with the TUI instance when the footer factory first runs. */
+	onTui?: (tui: TUI) => void;
 }
 
 export function installClassicFooter(
@@ -221,6 +223,7 @@ export function installClassicFooter(
 ): () => void {
 	ctx.ui.setFooter((tui, theme, footerData) => {
 		hooks.setRequestRender(() => tui.requestRender());
+		hooks.onTui?.(tui);
 		const unsubBranch = footerData.onBranchChange(() => {
 			hooks.scheduleGitRefresh();
 			tui.requestRender();
