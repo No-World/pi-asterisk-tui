@@ -70,6 +70,55 @@ function debug(message: string): void {
 
 /** Turns the user explicitly expanded (everything else collapses when idle). */
 const expandedTurns = new WeakSet<object>();
+/** Tool boxes the user expanded to their full bordered output (within expanded turns). */
+const expandedTools = new WeakSet<object>();
+
+function truncate(text: string, max: number): string {
+	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** Claude-style one-liner for a tool box: `⏺ bash · $ echo hi`. */
+function renderToolLine(child: unknown): string {
+	const marker = fg("accent", "⏺");
+	const bash = (child as { command?: unknown }).command;
+	if (typeof bash === "string") {
+		return ` ${marker} ${fg("muted", `bash · $ ${truncate(bash, 48)}`)}`;
+	}
+	const name = (child as { toolName?: string }).toolName ?? "tool";
+	const args = (child as { args?: Record<string, unknown> }).args;
+	if (name === "bash") {
+		const cmd = (args as { command?: unknown } | undefined)?.command;
+		const command = typeof cmd === "string" ? cmd : "";
+		return ` ${marker} ${fg("muted", `bash · $ ${truncate(command, 48)}`)}`;
+	}
+	let hint = "";
+	if (args !== null && typeof args === "object") {
+		const entries = Object.entries(args as Record<string, unknown>);
+		if (entries.length > 0) {
+			const [key, value] = entries[0]!;
+			const rendered = typeof value === "string" ? value : JSON.stringify(value);
+			hint = ` · ${key}: ${truncate(rendered, 32)}`;
+		}
+	}
+	return ` ${marker} ${fg("muted", `${name}${hint}`)}`;
+}
+
+/** Click routing for tool one-liners inside expanded turns. */
+export function handleToolLineClick(lineIndex: number, line: string): boolean {
+	if (!line.includes("⏺")) return false;
+	for (const segment of childSegments) {
+		if (lineIndex >= segment.start && lineIndex < segment.end && isToolBox(segment.child)) {
+			if (expandedTools.has(segment.child)) {
+				expandedTools.delete(segment.child);
+			} else {
+				expandedTools.add(segment.child);
+			}
+			requestRenderRef?.();
+			return true;
+		}
+	}
+	return false;
+}
 /** Live thinking duration per turn, keyed by the turn's user message component. */
 const liveSummaries = new WeakMap<object, TurnSummaryData>();
 /** Line segments (in container render output) covered by summary lines. */
@@ -246,7 +295,7 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	void original;
 	const children = (container.children ?? []) as unknown[];
 	const userCount = children.filter(isUserMessage).length;
-	const renderState = `${children.length}:${userCount}:${agentWorking}`;
+	const renderState = `${children.length}:${userCount}:${agentWorking}:${enabled}`;
 	if (renderLogState !== renderState) {
 		renderLogState = renderState;
 		debug(`render: children=${children.length} userMsgs=${userCount} working=${agentWorking}`);
@@ -285,6 +334,7 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 			const working = agentWorking && isLast;
 			const collapsed = enabled && !working && !expandedTurns.has(key);
 			if (collapsed) {
+				debug(`collapse turn: turnChildren=${turnChildren.length}`);
 				// The prompt itself stays visible; the summary replaces its effects.
 				renderChild(child);
 				push([renderSummaryLine(key, turnChildren, false)]);
@@ -306,6 +356,19 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 					summarySegments.push({ start: cursor - 1, end: cursor, key });
 				}
 				for (const turnChild of turnChildren) {
+					// Claude-style: completed tool calls render as one-liners;
+					// click to open the full bordered box (header line stays on
+					// top as the collapse handle). Live (working) boxes stream
+					// at full size.
+					if (!working && enabled && isToolBox(turnChild)) {
+						if (expandedTools.has(turnChild)) {
+							const boxLines = safeRender(turnChild as Child, width);
+							pushChild(turnChild, [renderToolLine(turnChild), ...boxLines]);
+						} else {
+							pushChild(turnChild, [renderToolLine(turnChild)]);
+						}
+						continue;
+					}
 					renderChild(turnChild);
 				}
 			}
@@ -316,6 +379,34 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 		}
 	}
 	return out;
+}
+
+let attachedContainer: unknown;
+
+/**
+ * Translate a line index from the hit leaf's coordinate space (pi's opaque
+ * scroll-child wrapper, whose lines include sibling banners before our
+ * container) into our attached container's own render coordinates. Returns
+ * undefined when the leaf is unrelated.
+ */
+export function lineIndexInAttachedContainer(leaf: unknown, leafLineIndex: number, width: number): number | undefined {
+	if (leaf === attachedContainer) return leafLineIndex;
+	if (typeof leaf !== "object" || leaf === null) return undefined;
+	const kids = (leaf as { children?: unknown[] }).children;
+	if (!Array.isArray(kids)) return undefined;
+	let offset = 0;
+	for (const kid of kids) {
+		if (kid === attachedContainer) return leafLineIndex - offset;
+		if (typeof kid !== "object" || kid === null) continue;
+		const renderable = kid as { render?: (width: number) => string[] };
+		if (typeof renderable.render !== "function") continue;
+		try {
+			offset += renderable.render(width).length;
+		} catch {
+			// best-effort
+		}
+	}
+	return undefined;
 }
 
 function attachToContainer(container: unknown): void {
@@ -330,6 +421,7 @@ function attachToContainer(container: unknown): void {
 		return;
 	}
 	target[ATTACHED] = true;
+	attachedContainer = container;
 	debug(`attach: container ctor=${(container as { constructor?: { name?: string } }).constructor?.name} children=${target.children.length}`);
 	const original = target.render;
 	target.render = function (this: ChatContainer, width: number) {

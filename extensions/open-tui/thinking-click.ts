@@ -1,4 +1,9 @@
-import { handleTurnLineClick, findThinkingHostViaSegments } from "./turn-collapse.ts";
+import {
+	handleToolLineClick,
+	handleTurnLineClick,
+	findThinkingHostViaSegments,
+	lineIndexInAttachedContainer,
+} from "./turn-collapse.ts";
 /**
  * Click-to-expand for hidden thinking blocks (fullscreen TUI only).
  *
@@ -181,14 +186,22 @@ const handleClickOn = (instance: ViewportInstance, data: string): boolean => {
 		debug(`click(${press.x},${press.y}): leaf is not a container`);
 		return false;
 	}
-	// Turn summary lines come first: they cover whole-turn collapsing.
-	if (handleTurnLineClick(hit.lineIndex, hit.line)) {
+	// Turn summary lines come first: they cover whole-turn collapsing. Segment
+	// lookups are in the attached container's coordinates — translate from the
+	// hit leaf (pi's opaque wrapper) first.
+	const localIndex = lineIndexInAttachedContainer(chat, hit.lineIndex, hit.box.rect.width);
+	if (localIndex !== undefined && handleTurnLineClick(localIndex, hit.line)) {
 		debug(`click(${press.x},${press.y}): toggled turn summary`);
+		return true;
+	}
+	// Then per-tool one-liners inside expanded turns.
+	if (localIndex !== undefined && handleToolLineClick(localIndex, hit.line)) {
+		debug(`click(${press.x},${press.y}): toggled tool box`);
 		return true;
 	}
 	// Segment lookup first: the recorded per-child ranges match what is on
 	// screen exactly; re-render mapping can skew while a message streams.
-	const host = (findThinkingHostViaSegments(hit.lineIndex) ??
+	const host = ((localIndex !== undefined ? findThinkingHostViaSegments(localIndex) : undefined) ??
 		findThinkingHostAtLine(chat, hit.lineIndex, hit.box.rect.width)) as ThinkingHost | undefined;
 	if (!host) {
 		debug(

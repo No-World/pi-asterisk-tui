@@ -3,6 +3,7 @@ import test from "node:test";
 import {
 	attachLiveSummary,
 	findThinkingHostViaSegments,
+	handleToolLineClick,
 	handleTurnLineClick,
 	renderCollapsedForTest,
 	setAgentWorking,
@@ -136,7 +137,9 @@ test("clicking the summary line toggles the turn", () => {
 	const expanded = expandedLines.join("\n");
 	assert.ok(!expanded.includes("▸"), `collapsed marker gone after expand\n${expanded}`);
 	assert.ok(expanded.includes("▾"), `expanded handle line missing\n${expanded}`);
-	assert.ok(expanded.includes("│ playwright"), `tools visible after expand\n${expanded}`);
+	assert.ok(expanded.includes("⏺ playwright"), `tool one-liner after expand\n${expanded}`);
+
+	assert.ok(expanded.includes("⏺ playwright"), `tool one-liner after expand\n${expanded}`);
 
 	// Click on the ▾ handle → re-collapse.
 	const handleIndex = expandedLines.findIndex((line) => line.includes("▾"));
@@ -199,4 +202,49 @@ test("findThinkingHostViaSegments maps lines recorded during render", () => {
 	const found = findThinkingHostViaSegments(labelIndex) as AssistantChild | undefined;
 	assert.equal(found, assistant);
 	assert.equal(findThinkingHostViaSegments(-1), undefined);
+});
+
+test("expanded turns render tools as one-liners until clicked", () => {
+	setAgentWorking(false);
+	setTurnCollapseEnabled(true);
+	const tool = makeTool("playwright");
+	const bash = makeBash("echo hi");
+	const container = makeContainer([makeUserMessage("go"), tool, bash]);
+
+	// Collapsed by default: no tool content at all.
+	const collapsed = container.render(60).join("\n");
+	assert.ok(!collapsed.includes("⏺"), `no one-liners while turn collapsed\n${collapsed}`);
+
+	// Expand the turn: tools appear as one-liners, not boxes.
+	handleTurnLineClick(collapsed.split("\n").findIndex((l) => l.includes("▸")), collapsed.split("\n").find((l) => l.includes("▸")) ?? "");
+	const expandedLines = container.render(60);
+	const expanded = expandedLines.join("\n");
+	assert.ok(expanded.includes("⏺ playwright"), `tool one-liner missing\n${expanded}`);
+	assert.ok(expanded.includes("bash · $ echo hi"), `bash one-liner missing\n${expanded}`);
+	assert.ok(!expanded.includes("│ playwright"), `box border must be hidden\n${expanded}`);
+
+	// Click the bash one-liner → full box for that tool only.
+	const bashLine = expandedLines.findIndex((l) => l.includes("bash · $"));
+	assert.ok(bashLine >= 0);
+	assert.equal(handleToolLineClick(bashLine, expandedLines[bashLine]!), true);
+	const after = container.render(60).join("\n");
+	assert.ok(after.includes("$ echo hi"), `bash box expanded\n${after}`);
+	assert.ok(after.includes("⏺ playwright"), `other tool stays one-line\n${after}`);
+
+	// Click again → back to one-liner (box-only output line disappears).
+	const lines2 = container.render(60);
+	const bashLine2 = lines2.findIndex((l) => l.includes("bash · $"));
+	handleToolLineClick(bashLine2, lines2[bashLine2]!);
+	const recollapsed = container.render(60).join("\n");
+	assert.ok(!recollapsed.includes("\noutput"), "bash box re-collapsed");
+	assert.ok(recollapsed.includes("bash · $ echo hi"), "one-liner back");
+});
+
+test("working turns stream tool boxes at full size", () => {
+	setAgentWorking(true);
+	const container = makeContainer([makeUserMessage("live"), makeBash("echo hi")]);
+	const text = container.render(60).join("\n");
+	assert.ok(!text.includes("⏺"), `no one-liners while working\n${text}`);
+	assert.ok(text.includes("$ echo hi"), `live box stays full\n${text}`);
+	setAgentWorking(false);
 });
