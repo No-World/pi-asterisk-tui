@@ -1,3 +1,4 @@
+import { handleTurnLineClick } from "./turn-collapse.ts";
 /**
  * Click-to-expand for hidden thinking blocks (fullscreen TUI only).
  *
@@ -179,6 +180,11 @@ const handleClickOn = (instance: ViewportInstance, data: string): boolean => {
 	if (typeof chat !== "object" || chat === null || !Array.isArray(chat.children)) {
 		debug(`click(${press.x},${press.y}): leaf is not a container`);
 		return false;
+	}
+	// Turn summary lines come first: they cover whole-turn collapsing.
+	if (handleTurnLineClick(hit.lineIndex, hit.line)) {
+		debug(`click(${press.x},${press.y}): toggled turn summary`);
+		return true;
 	}
 	const host = findThinkingHostAtLine(chat, hit.lineIndex, hit.box.rect.width);
 	if (!host) {

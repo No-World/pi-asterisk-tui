@@ -147,6 +147,22 @@ Key options:
 
 Fullscreen wheel speed uses an isolated compatibility shim for Pi 0.84.2's runtime field because Pi does not yet expose a public setter. On Pi versions without a compatible field, the setting is ignored and Pi's default scrolling remains active.
 
+## Turn collapsing
+
+Finished agent runs collapse into a single clickable line — Claude Code style:
+
+```
+▸ ✻ Thought for 11s · called playwright ×3 · ran 1 shell command
+```
+
+Assistant answer text stays visible; thinking blocks, tool executions, and their spacers are
+hidden until you click the line (click again to re-collapse; while expanded the line shows `▾`).
+The current run streams normally and collapses automatically when the agent settles. Tool
+counts come from the rendered components (history turns collapse too); thinking duration comes
+from live telemetry, so turns loaded from an older session show the summary without a duration.
+Per-message ✻ labels remain clickable inside an expanded turn. Disable via `"turnCollapse":
+false` in the open-tui config. As with click-to-expand, this needs the fullscreen TUI.
+
 ## Turn telemetry
 
 After each complete agent run, pi-open-tui shows one transient result. Tool-call turns are combined into that result:

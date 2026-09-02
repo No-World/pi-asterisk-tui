@@ -120,6 +120,8 @@ export interface OpenTuiConfig {
 	enabled: boolean;
 	settingsLanguage: SettingsLanguage;
 	cursorStyle: CursorStyle;
+	/** Collapse finished turns into a single clickable summary line (fullscreen TUI). */
+	turnCollapse: boolean;
 	fullscreen: FullscreenConfig;
 	icons: {
 		mode: IconMode;
@@ -136,6 +138,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	enabled: true,
 	settingsLanguage: "en",
 	cursorStyle: "block",
+	turnCollapse: true,
 	fullscreen: {
 		wheelScrollLines: DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	},
@@ -275,6 +278,7 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		if (config.footerStyle !== "hud" && config.footerStyle !== "classic") {
 			config.footerStyle = DEFAULT_CONFIG.footerStyle;
 		}
+		config.turnCollapse = config.turnCollapse !== false;
 		if (!["hud", "classic", "custom"].includes(config.stylePreset)) {
 			config.stylePreset = "custom";
 		}

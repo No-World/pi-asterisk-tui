@@ -1,6 +1,13 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, saveConfig } from "./config.ts";
 import { ensureHideThinkingDefault } from "./pi-settings.ts";
+import {
+	attachLiveSummary,
+	installTurnCollapse,
+	setAgentWorking,
+	setTurnCollapseEnabled,
+	setTurnCollapseTheme,
+} from "./turn-collapse.ts";
 import { installEditor } from "./editor.ts";
 import { installFooter } from "./footer.ts";
 import { installHeader } from "./header.ts";
@@ -64,6 +71,7 @@ export default function (pi: ExtensionAPI) {
 	let cleanupHeader: (() => void) | undefined;
 	let cleanupFooter: (() => void) | undefined;
 	let cleanupThinkingClick: (() => void) | undefined;
+	let cleanupTurnCollapse: (() => void) | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
 
@@ -102,10 +110,12 @@ export default function (pi: ExtensionAPI) {
 			cleanupHeader?.();
 			cleanupFooter?.();
 			cleanupThinkingClick?.();
+			cleanupTurnCollapse?.();
 			editor?.cleanup();
 			cleanupHeader = undefined;
 			cleanupFooter = undefined;
 			cleanupThinkingClick = undefined;
+			cleanupTurnCollapse = undefined;
 			editor = undefined;
 			requestFooterRender = undefined;
 			active = false;
@@ -223,6 +233,10 @@ export default function (pi: ExtensionAPI) {
 			// mode switches and sessions that start in regular mode.
 			cleanupThinkingClick?.();
 			cleanupThinkingClick = installThinkingClickExpand();
+			setTurnCollapseEnabled(config.turnCollapse);
+			setTurnCollapseTheme(ctx.ui.theme);
+			cleanupTurnCollapse?.();
+			cleanupTurnCollapse = installTurnCollapse();
 			// Fresh installs: default pi to collapsed thinking so ✻ labels (and
 			// click-to-expand in the fullscreen TUI) work everywhere. Existing
 			// choices (ctrl+t) are left untouched.
@@ -249,6 +263,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_start", (event, ctx) => {
 		turnTelemetry.handle(event);
+		setAgentWorking(true);
 		if (!sessionLifecycle.isCurrent()) return;
 		state.workingSince = Date.now();
 		state.lastDoneIn = undefined;
@@ -290,6 +305,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_settled", (event, ctx) => {
 		const telemetry = turnTelemetry.handle(event);
+		setAgentWorking(false);
+		attachLiveSummary(turnTelemetry.getLastTurnSummary());
 		state.lastTurnSummary = turnTelemetry.getLastTurnSummary();
 		setThinkingLabel(ctx, "✻ Thought…");
 		requestFooterRender?.();
