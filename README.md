@@ -160,7 +160,9 @@ hidden until you click the line (click again to re-collapse; while expanded the 
 The current run streams normally and collapses automatically when the agent settles. Tool
 counts come from the rendered components (history turns collapse too); thinking duration comes
 from live telemetry, so turns loaded from an older session show the summary without a duration.
-Per-message ✻ labels remain clickable inside an expanded turn. Disable via `"turnCollapse":
+Per-message ✻ labels remain clickable inside an expanded turn — including while the
+message is still streaming. Labels are per message: history shows `✻ Thought…`, the streaming
+message shows `✻ Thinking…`. Disable via `"turnCollapse":
 false` in the open-tui config. As with click-to-expand, this needs the fullscreen TUI.
 
 ## Turn telemetry
