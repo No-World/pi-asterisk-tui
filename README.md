@@ -160,9 +160,11 @@ hidden until you click the line (click again to re-collapse; while expanded the 
 The current run streams normally and collapses automatically when the agent settles. Tool
 counts come from the rendered components (history turns collapse too); thinking duration comes
 from live telemetry, so turns loaded from an older session show the summary without a duration.
-Inside an expanded turn every completed tool call renders as a Claude-style one-liner
-(`⏺ bash · $ echo hi`, `⏺ playwright · url: …`) — click it to open that tool's full bordered
-output, click again to close. Live tool boxes stream at full size. Per-message ✻ labels remain
+Inside an expanded turn, consecutive completed tool calls collapse together into one group
+line — `⏺ ran 2 shell commands` for adjacent shells, separate `⏺ ran 1 shell command` lines
+when something sits between them. Click a group line to open those tools' full bordered
+output, click again to close. A running tool renders as an animated one-liner
+(`⠋ bash · $ echo hi`) with the live box streaming below it. Per-message ✻ labels remain
 clickable inside an expanded turn — including while the
 message is still streaming. Labels are per message: history shows `✻ Thought…`, the streaming
 message shows `✻ Thinking…`. Disable via `"turnCollapse":

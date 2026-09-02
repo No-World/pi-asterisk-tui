@@ -70,16 +70,31 @@ function debug(message: string): void {
 
 /** Turns the user explicitly expanded (everything else collapses when idle). */
 const expandedTurns = new WeakSet<object>();
-/** Tool boxes the user expanded to their full bordered output (within expanded turns). */
-const expandedTools = new WeakSet<object>();
+/** Tool groups the user expanded to their full bordered output. Keyed by head tool. */
+const expandedGroups = new WeakSet<object>();
+/** head tool -> members of the collapsed group rendered last frame. */
+const groupHeads = new Map<object, unknown[]>();
+/** Spinner frames for running tool lines. */
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function spinnerFrame(): string {
+	return SPINNER_FRAMES[Math.floor(Date.now() / 120) % SPINNER_FRAMES.length]!;
+}
+
+function isToolRunning(child: unknown): boolean {
+	const bash = child as { status?: unknown };
+	if (typeof bash.status === "string") return bash.status === "running";
+	const generic = child as { isPartial?: unknown; result?: unknown };
+	if (generic.isPartial === true) return true;
+	return generic.result === undefined;
+}
 
 function truncate(text: string, max: number): string {
 	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-/** Claude-style one-liner for a tool box: `⏺ bash · $ echo hi`. */
-function renderToolLine(child: unknown): string {
-	const marker = fg("accent", "⏺");
+/** One-liner for a tool box: `<marker> bash · $ echo hi`. */
+function renderToolLine(child: unknown, marker: string): string {
 	const bash = (child as { command?: unknown }).command;
 	if (typeof bash === "string") {
 		return ` ${marker} ${fg("muted", `bash · $ ${truncate(bash, 48)}`)}`;
@@ -103,15 +118,23 @@ function renderToolLine(child: unknown): string {
 	return ` ${marker} ${fg("muted", `${name}${hint}`)}`;
 }
 
-/** Click routing for tool one-liners inside expanded turns. */
+/** Claude-style group line: `⏺ ran 2 shell commands` for consecutive tools. */
+function renderGroupLine(group: unknown[], expanded: boolean): string {
+	const parts = summarizeTools(group);
+	const text = parts.length > 0 ? parts.join(" · ") : "tools";
+	const arrow = expanded ? " ▾" : "";
+	return ` ${fg("accent", "⏺")} ${fg("muted", `${text}${arrow}`)}`;
+}
+
+/** Click routing for tool group lines inside expanded turns. */
 export function handleToolLineClick(lineIndex: number, line: string): boolean {
 	if (!line.includes("⏺")) return false;
 	for (const segment of childSegments) {
 		if (lineIndex >= segment.start && lineIndex < segment.end && isToolBox(segment.child)) {
-			if (expandedTools.has(segment.child)) {
-				expandedTools.delete(segment.child);
+			if (expandedGroups.has(segment.child)) {
+				expandedGroups.delete(segment.child);
 			} else {
-				expandedTools.add(segment.child);
+				expandedGroups.add(segment.child);
 			}
 			requestRenderRef?.();
 			return true;
@@ -261,21 +284,21 @@ function summarizeTools(turnChildren: unknown[]): string[] {
 	return parts;
 }
 
-function renderSummaryLine(key: object, turnChildren: unknown[], expanded: boolean): string {
+function renderSummaryLine(key: object, turnChildren: unknown[], showArrow = true): string {
 	const parts: string[] = [];
 	const live = liveSummaries.get(key);
 	if (live && live.thinkingMs !== null && live.thinkingMs >= 1000) {
 		parts.push(`Thought for ${formatDuration(live.thinkingMs)}`);
 	}
 	parts.push(...summarizeTools(turnChildren));
-	const arrow = fg("accent", expanded ? "▾" : "▸");
+	const arrow = showArrow ? `${fg("accent", "▸")} ` : "";
 	const text = parts.length > 0 ? parts.join(" · ") : "turn";
-	return ` ${arrow} ${fg("muted", `✻ ${text}`)}`;
+	return ` ${arrow}${fg("muted", `✻ ${text}`)}`;
 }
 
 /** Toggle handler wired into the shared mouse pipeline. */
 export function handleTurnLineClick(lineIndex: number, line: string): boolean {
-	if (!line.includes("▸") && !line.includes("▾")) return false;
+	void line; // segments are authoritative; arrow-less meta lines must toggle too
 	const segment = summarySegments.find((s) => lineIndex >= s.start && lineIndex < s.end);
 	if (!segment) return false;
 	if (expandedTurns.has(segment.key)) {
@@ -285,6 +308,67 @@ export function handleTurnLineClick(lineIndex: number, line: string): boolean {
 	}
 	requestRenderRef?.();
 	return true;
+}
+
+interface ExpandedWalk {
+	push: (lines: string[]) => void;
+	pushChild: (child: unknown, lines: string[]) => void;
+	renderChild: (child: unknown) => void;
+}
+
+function renderExpandedTurn(turnChildren: unknown[], working: boolean, walk: ExpandedWalk): void {
+	const completedTool = (candidate: unknown): boolean =>
+		isToolBox(candidate) && !(working && isToolRunning(candidate));
+
+	let index = 0;
+	while (index < turnChildren.length) {
+		const current = turnChildren[index];
+		if (completedTool(current) && enabled) {
+			// Consecutive completed tools (+ spacers between) collapse into one
+			// group line: `⏺ ran 2 shell commands`.
+			const group: unknown[] = [current];
+			let scan = index + 1;
+			while (scan < turnChildren.length) {
+				const next = turnChildren[scan];
+				if (completedTool(next)) {
+					group.push(next);
+					scan++;
+					continue;
+				}
+				if (
+					isSpacer(next) &&
+					completedTool(turnChildren[scan + 1])
+				) {
+					group.push(next);
+					scan++;
+					continue;
+				}
+				break;
+			}
+			const head = group[0]!;
+			if (expandedGroups.has(head)) {
+				walk.pushChild(head, [renderGroupLine(group, true)]);
+				for (const member of group) {
+					if (isSpacer(member)) continue;
+					walk.renderChild(member);
+				}
+			} else {
+				groupHeads.set(head, group);
+				walk.pushChild(head, [renderGroupLine(group, false)]);
+			}
+			index = scan;
+			continue;
+		}
+		if (isToolBox(current) && enabled) {
+			// Running tool: animated one-liner + the live box below it.
+			walk.pushChild(current, [renderToolLine(current, fg("accent", spinnerFrame()))]);
+			walk.renderChild(current);
+			index++;
+			continue;
+		}
+		walk.renderChild(current);
+		index++;
+	}
 }
 
 let renderLogState: string | undefined;
@@ -337,7 +421,7 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 				debug(`collapse turn: turnChildren=${turnChildren.length}`);
 				// The prompt itself stays visible; the summary replaces its effects.
 				renderChild(child);
-				push([renderSummaryLine(key, turnChildren, false)]);
+				push([renderSummaryLine(key, turnChildren)]);
 				summarySegments.push({ start: cursor - 1, end: cursor, key });
 				for (const turnChild of turnChildren) {
 					if (isSpacer(turnChild) || isToolBox(turnChild)) {
@@ -350,27 +434,17 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 				}
 			} else {
 				renderChild(child);
-				// Expanded turns keep a ▸/▾ handle so one click re-collapses.
 				if (enabled) {
-					push([renderSummaryLine(key, turnChildren, true)]);
+					// Plain meta line (no arrows) — reads as transcript content,
+					// clicking it re-collapses the turn.
+					push([renderSummaryLine(key, turnChildren, false)]);
 					summarySegments.push({ start: cursor - 1, end: cursor, key });
 				}
-				for (const turnChild of turnChildren) {
-					// Claude-style: completed tool calls render as one-liners;
-					// click to open the full bordered box (header line stays on
-					// top as the collapse handle). Live (working) boxes stream
-					// at full size.
-					if (!working && enabled && isToolBox(turnChild)) {
-						if (expandedTools.has(turnChild)) {
-							const boxLines = safeRender(turnChild as Child, width);
-							pushChild(turnChild, [renderToolLine(turnChild), ...boxLines]);
-						} else {
-							pushChild(turnChild, [renderToolLine(turnChild)]);
-						}
-						continue;
-					}
-					renderChild(turnChild);
-				}
+				renderExpandedTurn(turnChildren, working, {
+					push,
+					pushChild,
+					renderChild,
+				});
 			}
 			i = j;
 		} else {

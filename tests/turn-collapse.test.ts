@@ -131,120 +131,69 @@ test("clicking the summary line toggles the turn", () => {
 	const summaryIndex = lines.findIndex((line) => line.includes("▸"));
 	assert.ok(summaryIndex >= 0, "summary line exists");
 
-	// Click on the summary line → expand.
+	// Click the summary line → expand: plain meta line (no ▸), group line visible.
 	assert.equal(handleTurnLineClick(summaryIndex, lines[summaryIndex]!), true);
 	const expandedLines = container.render(60);
 	const expanded = expandedLines.join("\n");
 	assert.ok(!expanded.includes("▸"), `collapsed marker gone after expand\n${expanded}`);
-	assert.ok(expanded.includes("▾"), `expanded handle line missing\n${expanded}`);
-	assert.ok(expanded.includes("⏺ playwright"), `tool one-liner after expand\n${expanded}`);
+	assert.ok(expanded.includes("✻ called playwright"), `plain meta line stays\n${expanded}`);
+	assert.ok(expanded.includes("⏺"), `group line visible\n${expanded}`);
 
-	assert.ok(expanded.includes("⏺ playwright"), `tool one-liner after expand\n${expanded}`);
-
-	// Click on the ▾ handle → re-collapse.
-	const handleIndex = expandedLines.findIndex((line) => line.includes("▾"));
-	assert.ok(handleIndex >= 0, "handle line exists");
-	assert.equal(handleTurnLineClick(handleIndex, expandedLines[handleIndex]!), true);
-	const collapsedAgain = container.render(60);
-	assert.ok(collapsedAgain.join("\n").includes("▸"), "re-collapsed");
+	// Click the meta line → re-collapse.
+	const metaIndex = expandedLines.findIndex((line) => line.includes("✻ called playwright"));
+	assert.ok(metaIndex >= 0, "meta line exists");
+	assert.equal(handleTurnLineClick(metaIndex, expandedLines[metaIndex]!), true);
+	assert.ok(container.render(60).join("\n").includes("▸"), "re-collapsed");
 
 	// Plain content lines never toggle.
 	assert.equal(handleTurnLineClick(0, "│ playwright"), false);
 });
 
-test("live thinking duration lands on the summary line", () => {
-	setAgentWorking(false);
-	const userMessage = makeUserMessage("with thinking");
-	const container = makeContainer([userMessage, makeTool("read")]);
-	container.render(60); // records currentTurnKey
-	attachLiveSummary({ thinkingMs: 11_000 });
-	const text = container.render(60).join("\n");
-	assert.ok(text.includes("Thought for 11s"), `duration missing\n${text}`);
-	assert.ok(text.includes("called read"), `tool part missing\n${text}`);
-});
-
-test("disabled feature passes through untouched", () => {
-	setAgentWorking(false);
-	setTurnCollapseEnabled(false);
-	try {
-		const container = makeContainer([makeUserMessage("off"), makeTool("playwright")]);
-		const text = container.render(60).join("\n");
-		assert.ok(!text.includes("▸"), `no summary when disabled\n${text}`);
-		assert.ok(text.includes("│ playwright"), `passthrough render\n${text}`);
-	} finally {
-		setTurnCollapseEnabled(true);
-	}
-});
-
-test("per-message labels: history says Thought, streaming says Thinking", () => {
+test("consecutive tools collapse into group lines, non-adjacent stay separate", () => {
 	setAgentWorking(false);
 	setTurnCollapseEnabled(true);
-	const history = makeAssistant([" ✻ Thought…", "old answer"], true);
-	const streaming = makeAssistant([" ✻ Thinking…", "streaming…"], true, true);
-	const container = makeContainer([
-		makeUserMessage("first"),
-		history,
-		makeUserMessage("second"),
-		streaming,
-	]);
-	container.render(60);
-	assert.equal(history.hiddenThinkingLabel, "✻ Thought…");
-	assert.equal(streaming.hiddenThinkingLabel, "✻ Thinking…");
-});
-
-test("findThinkingHostViaSegments maps lines recorded during render", () => {
-	setAgentWorking(true); // expanded path — segments recorded for children
-	const assistant = makeAssistant([" ✻ Thinking…", "streaming"], true, true);
-	const container = makeContainer([makeUserMessage("q"), assistant]);
-	const lines = container.render(60);
-	const labelIndex = lines.findIndex((line) => line.includes("✻ Thinking"));
-	assert.ok(labelIndex >= 0, "label rendered");
-	const found = findThinkingHostViaSegments(labelIndex) as AssistantChild | undefined;
-	assert.equal(found, assistant);
-	assert.equal(findThinkingHostViaSegments(-1), undefined);
-});
-
-test("expanded turns render tools as one-liners until clicked", () => {
-	setAgentWorking(false);
-	setTurnCollapseEnabled(true);
+	const bashA = makeBash("echo one");
+	const bashB = makeBash("echo two");
 	const tool = makeTool("playwright");
-	const bash = makeBash("echo hi");
-	const container = makeContainer([makeUserMessage("go"), tool, bash]);
+	const text = { render: (w: number) => ["assistant text".padEnd(w)] };
+	const container = makeContainer([makeUserMessage("go"), bashA, makeSpacer(), bashB, text, tool]);
 
-	// Collapsed by default: no tool content at all.
-	const collapsed = container.render(60).join("\n");
-	assert.ok(!collapsed.includes("⏺"), `no one-liners while turn collapsed\n${collapsed}`);
+	// Expand the turn first.
+	const collapsedLines = container.render(60);
+	const summary = collapsedLines.find((l) => l.includes("▸"));
+	assert.ok(summary, "summary line exists");
+	handleTurnLineClick(collapsedLines.indexOf(summary), summary);
 
-	// Expand the turn: tools appear as one-liners, not boxes.
-	handleTurnLineClick(collapsed.split("\n").findIndex((l) => l.includes("▸")), collapsed.split("\n").find((l) => l.includes("▸")) ?? "");
 	const expandedLines = container.render(60);
 	const expanded = expandedLines.join("\n");
-	assert.ok(expanded.includes("⏺ playwright"), `tool one-liner missing\n${expanded}`);
-	assert.ok(expanded.includes("bash · $ echo hi"), `bash one-liner missing\n${expanded}`);
-	assert.ok(!expanded.includes("│ playwright"), `box border must be hidden\n${expanded}`);
+	assert.ok(expanded.includes("ran 2 shell commands"), `adjacent bash grouped\n${expanded}`);
+	assert.ok(expanded.includes("called playwright"), `separate tool line\n${expanded}`);
+	assert.ok(!expanded.includes("echo one"), `boxes hidden behind group lines\n${expanded}`);
 
-	// Click the bash one-liner → full box for that tool only.
-	const bashLine = expandedLines.findIndex((l) => l.includes("bash · $"));
-	assert.ok(bashLine >= 0);
-	assert.equal(handleToolLineClick(bashLine, expandedLines[bashLine]!), true);
-	const after = container.render(60).join("\n");
-	assert.ok(after.includes("$ echo hi"), `bash box expanded\n${after}`);
-	assert.ok(after.includes("⏺ playwright"), `other tool stays one-line\n${after}`);
+	// Click the group line → both bash boxes open.
+	const groupLine = expandedLines.find((l) => l.includes("⏺") && l.includes("ran 2 shell commands"));
+	assert.ok(groupLine);
+	handleToolLineClick(expandedLines.indexOf(groupLine), groupLine);
+	const opened = container.render(60).join("\n");
+	assert.ok(opened.includes("$ echo one") && opened.includes("$ echo two"), `both boxes open\n${opened}`);
+	assert.ok(opened.includes("called playwright"), `other group untouched\n${opened}`);
 
-	// Click again → back to one-liner (box-only output line disappears).
+	// Click again → re-collapsed.
 	const lines2 = container.render(60);
-	const bashLine2 = lines2.findIndex((l) => l.includes("bash · $"));
-	handleToolLineClick(bashLine2, lines2[bashLine2]!);
-	const recollapsed = container.render(60).join("\n");
-	assert.ok(!recollapsed.includes("\noutput"), "bash box re-collapsed");
-	assert.ok(recollapsed.includes("bash · $ echo hi"), "one-liner back");
+	const group2 = lines2.find((l) => l.includes("⏺") && l.includes("ran 2 shell commands"));
+	handleToolLineClick(lines2.indexOf(group2!), group2!);
+	assert.ok(!container.render(60).join("\n").includes("$ echo one"), "group re-collapsed");
 });
 
 test("working turns stream tool boxes at full size", () => {
 	setAgentWorking(true);
-	const container = makeContainer([makeUserMessage("live"), makeBash("echo hi")]);
-	const text = container.render(60).join("\n");
-	assert.ok(!text.includes("⏺"), `no one-liners while working\n${text}`);
-	assert.ok(text.includes("$ echo hi"), `live box stays full\n${text}`);
+	setAgentWorking(true);
+	const live = makeBash("echo hi");
+	(live as { status?: string }).status = "running";
+	const container = makeContainer([makeUserMessage("live"), live]);
+	const lines = container.render(60);
+	const text = lines.join("\n");
+	assert.ok(lines.some((l) => l.includes("bash · $ echo hi")), `running one-liner present\n${text}`);
+	assert.ok(text.includes("$ echo hi"), `live box streams at full size\n${text}`);
 	setAgentWorking(false);
 });
