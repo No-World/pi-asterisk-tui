@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	attachLiveSummary,
+	findThinkingHostViaSegments,
 	handleTurnLineClick,
 	renderCollapsedForTest,
 	setAgentWorking,
@@ -24,17 +25,26 @@ function makeUserMessage(text: string): Child & { text: string; rebuild(): void 
 interface AssistantChild extends Child {
 	hideThinkingBlock: boolean;
 	setHideThinkingBlock(hide: boolean): void;
+	isStreaming?: boolean;
+	hiddenThinkingLabel?: string;
+	setHiddenThinkingLabel?(label: string): void;
 }
 
-function makeAssistant(lines: string[], hideThinking: boolean): AssistantChild {
-	return {
+function makeAssistant(lines: string[], hideThinking: boolean, streaming = false): AssistantChild {
+	const assistant: AssistantChild = {
 		hideThinkingBlock: hideThinking,
 		setHideThinkingBlock(hide: boolean) {
 			this.hideThinkingBlock = hide;
 		},
+		isStreaming: streaming,
+		hiddenThinkingLabel: "✻ Thought…",
 		children: [],
 		render: (width: number) => lines.map((line) => line.padEnd(width)),
 	};
+	assistant.setHiddenThinkingLabel = (label: string) => {
+		assistant.hiddenThinkingLabel = label;
+	};
+	return assistant;
 }
 
 function makeTool(toolName: string): Child & { toolName: string; toolCallId: string } {
@@ -161,4 +171,32 @@ test("disabled feature passes through untouched", () => {
 	} finally {
 		setTurnCollapseEnabled(true);
 	}
+});
+
+test("per-message labels: history says Thought, streaming says Thinking", () => {
+	setAgentWorking(false);
+	setTurnCollapseEnabled(true);
+	const history = makeAssistant([" ✻ Thought…", "old answer"], true);
+	const streaming = makeAssistant([" ✻ Thinking…", "streaming…"], true, true);
+	const container = makeContainer([
+		makeUserMessage("first"),
+		history,
+		makeUserMessage("second"),
+		streaming,
+	]);
+	container.render(60);
+	assert.equal(history.hiddenThinkingLabel, "✻ Thought…");
+	assert.equal(streaming.hiddenThinkingLabel, "✻ Thinking…");
+});
+
+test("findThinkingHostViaSegments maps lines recorded during render", () => {
+	setAgentWorking(true); // expanded path — segments recorded for children
+	const assistant = makeAssistant([" ✻ Thinking…", "streaming"], true, true);
+	const container = makeContainer([makeUserMessage("q"), assistant]);
+	const lines = container.render(60);
+	const labelIndex = lines.findIndex((line) => line.includes("✻ Thinking"));
+	assert.ok(labelIndex >= 0, "label rendered");
+	const found = findThinkingHostViaSegments(labelIndex) as AssistantChild | undefined;
+	assert.equal(found, assistant);
+	assert.equal(findThinkingHostViaSegments(-1), undefined);
 });

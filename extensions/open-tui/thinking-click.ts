@@ -1,4 +1,4 @@
-import { handleTurnLineClick } from "./turn-collapse.ts";
+import { handleTurnLineClick, findThinkingHostViaSegments } from "./turn-collapse.ts";
 /**
  * Click-to-expand for hidden thinking blocks (fullscreen TUI only).
  *
@@ -186,7 +186,10 @@ const handleClickOn = (instance: ViewportInstance, data: string): boolean => {
 		debug(`click(${press.x},${press.y}): toggled turn summary`);
 		return true;
 	}
-	const host = findThinkingHostAtLine(chat, hit.lineIndex, hit.box.rect.width);
+	// Segment lookup first: the recorded per-child ranges match what is on
+	// screen exactly; re-render mapping can skew while a message streams.
+	const host = (findThinkingHostViaSegments(hit.lineIndex) ??
+		findThinkingHostAtLine(chat, hit.lineIndex, hit.box.rect.width)) as ThinkingHost | undefined;
 	if (!host) {
 		debug(
 			`click(${press.x},${press.y}): no host, line=${JSON.stringify(hit.line.slice(0, 60))} ` +

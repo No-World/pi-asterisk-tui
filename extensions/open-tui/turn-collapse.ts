@@ -74,6 +74,38 @@ const expandedTurns = new WeakSet<object>();
 const liveSummaries = new WeakMap<object, TurnSummaryData>();
 /** Line segments (in container render output) covered by summary lines. */
 let summarySegments: Array<{ start: number; end: number; key: object }> = [];
+/** Per-child line segments from the last render — keeps click mapping in sync
+ *  with what is actually on screen (re-rendering at click time can skew while
+ *  a message streams). */
+let childSegments: Array<{ start: number; end: number; child: unknown }> = [];
+
+/**
+ * Per-message thinking labels: the label is instance state on each
+ * AssistantMessageComponent, so history can show "✻ Thought…" while the
+ * streaming message shows "✻ Thinking…" — no global label flipping.
+ */
+function syncThinkingLabel(child: unknown): void {
+	const candidate = child as {
+		isStreaming?: unknown;
+		hiddenThinkingLabel?: unknown;
+		setHiddenThinkingLabel?: (label: string) => void;
+	};
+	if (typeof candidate.setHiddenThinkingLabel !== "function") return;
+	const desired = candidate.isStreaming === true ? "✻ Thinking…" : "✻ Thought…";
+	if (candidate.hiddenThinkingLabel !== desired) {
+		candidate.setHiddenThinkingLabel(desired);
+	}
+}
+
+/** Segment lookup for the click pipeline: the child that rendered a line. */
+export function findThinkingHostViaSegments(lineIndex: number): unknown | undefined {
+	for (const segment of childSegments) {
+		if (lineIndex >= segment.start && lineIndex < segment.end) {
+			return isAssistantMessage(segment.child) ? segment.child : undefined;
+		}
+	}
+	return undefined;
+}
 /** Key of the most recent turn seen while rendering (live summary target). */
 let currentTurnKey: object | undefined;
 
@@ -208,7 +240,10 @@ export function handleTurnLineClick(lineIndex: number, line: string): boolean {
 
 let renderLogState: string | undefined;
 
-function renderCollapsed(container: ChatContainer, original: (width: number) => string[], width: number): string[] {	if (!enabled) return original.call(container, width);
+function renderCollapsed(container: ChatContainer, original: (width: number) => string[], width: number): string[] {
+	// The walk below replaces Container.render entirely. Disabling collapse does
+	// not skip it: per-message labels and click segments still need the walk.
+	void original;
 	const children = (container.children ?? []) as unknown[];
 	const userCount = children.filter(isUserMessage).length;
 	const renderState = `${children.length}:${userCount}:${agentWorking}`;
@@ -218,6 +253,7 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	}
 	const out: string[] = [];
 	summarySegments = [];
+	childSegments = [];
 	let cursor = 0;
 
 	const push = (lines: string[]): void => {
@@ -225,6 +261,15 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 			out.push(line);
 			cursor++;
 		}
+	};
+	const pushChild = (child: unknown, lines: string[]): void => {
+		const start = cursor;
+		push(lines);
+		if (cursor > start) childSegments.push({ start, end: cursor, child });
+	};
+	const renderChild = (child: unknown): void => {
+		if (isAssistantMessage(child)) syncThinkingLabel(child);
+		pushChild(child, safeRender(child as Child, width));
 	};
 
 	let i = 0;
@@ -238,34 +283,35 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 			const turnChildren = children.slice(i + 1, j);
 			const isLast = j >= children.length;
 			const working = agentWorking && isLast;
-			const collapsed = !working && !expandedTurns.has(key);
+			const collapsed = enabled && !working && !expandedTurns.has(key);
 			if (collapsed) {
 				// The prompt itself stays visible; the summary replaces its effects.
-				push(safeRender(child as Child, width));
+				renderChild(child);
 				push([renderSummaryLine(key, turnChildren, false)]);
 				summarySegments.push({ start: cursor - 1, end: cursor, key });
 				for (const turnChild of turnChildren) {
-					if (isAssistantMessage(turnChild)) {
-						if (turnChild.hideThinkingBlock !== true) turnChild.setHideThinkingBlock(true);
-						push(safeRender(turnChild as Child, width));
-					} else if (isSpacer(turnChild) || isToolBox(turnChild)) {
+					if (isSpacer(turnChild) || isToolBox(turnChild)) {
 						continue; // hidden while collapsed
-					} else {
-						push(safeRender(turnChild as Child, width));
 					}
+					if (isAssistantMessage(turnChild) && turnChild.hideThinkingBlock !== true) {
+						turnChild.setHideThinkingBlock(true);
+					}
+					renderChild(turnChild);
 				}
 			} else {
-				push(safeRender(child as Child, width));
+				renderChild(child);
 				// Expanded turns keep a ▸/▾ handle so one click re-collapses.
-				push([renderSummaryLine(key, turnChildren, true)]);
-				summarySegments.push({ start: cursor - 1, end: cursor, key });
+				if (enabled) {
+					push([renderSummaryLine(key, turnChildren, true)]);
+					summarySegments.push({ start: cursor - 1, end: cursor, key });
+				}
 				for (const turnChild of turnChildren) {
-					push(safeRender(turnChild as Child, width));
+					renderChild(turnChild);
 				}
 			}
 			i = j;
 		} else {
-			push(safeRender(child as Child, width));
+			renderChild(child);
 			i++;
 		}
 	}

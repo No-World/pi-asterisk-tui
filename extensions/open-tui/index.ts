@@ -269,7 +269,6 @@ export default function (pi: ExtensionAPI) {
 		state.lastDoneIn = undefined;
 		startWorkingTimer();
 		startWorkingLabel();
-		setThinkingLabel(ctx, "✻ Thinking…");
 	});
 
 	pi.on("agent_end", (_event, _ctx) => {
@@ -308,7 +307,6 @@ export default function (pi: ExtensionAPI) {
 		setAgentWorking(false);
 		attachLiveSummary(turnTelemetry.getLastTurnSummary());
 		state.lastTurnSummary = turnTelemetry.getLastTurnSummary();
-		setThinkingLabel(ctx, "✻ Thought…");
 		requestFooterRender?.();
 		if (telemetry && config.enabled && config.telemetry.enabled && isTuiContext(ctx)) {
 			const message = formatTurnTelemetry(telemetry, ctx.ui.theme, config.telemetry, config.icons.mode);
