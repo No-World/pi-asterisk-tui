@@ -42,6 +42,26 @@
 - Pi 0.80 或更高版本
 - 支持 UTF-8 和彩色输出的终端
 - 使用完整图标集时需要 [Nerd Font](https://www.nerdfonts.com/font-downloads)（可选；内置 ASCII 图标）
+- 点击展开思维链需要 Pi 全屏模式：在 `~/.pi/agent/settings.json` 设置 `"tuiMode": "fullscreen"`（见下文）
+
+## 点击展开思维链需要全屏模式
+
+将思考块折叠为 ✻ 标签在任何 TUI 模式下都可用（`ctrl+t` 切换），但**点击标签展开对应思维链需要
+Pi 的全屏模式**。Pi 只在全屏 TUI 中捕获鼠标事件；普通模式下点击由终端自己处理（原生文本选择），
+扩展完全收不到——点击 ✻ 标签会毫无反应。
+
+开启方法：
+
+```json
+// ~/.pi/agent/settings.json
+{
+  "tuiMode": "fullscreen"
+}
+```
+
+修改后重启 Pi。注意全屏模式下鼠标行为整体变化：拖拽选中文本使用 Pi 自己绘制的选区高亮（而非终端
+原生选择），滚轮滚动的是对话视口。另外确保没有多路复用器拦截鼠标（例如 tmux 的
+`set -g mouse on` 会在 Pi 收到之前吞掉点击）。
 
 ## 安装
 

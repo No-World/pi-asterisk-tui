@@ -45,6 +45,28 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 - Pi 0.80 or later
 - A terminal with UTF-8 and color support
 - A [Nerd Font](https://www.nerdfonts.com/font-downloads) for the full icon set (optional; ASCII icons are built in)
+- For click-to-expand thinking: Pi's fullscreen TUI — set `"tuiMode": "fullscreen"` in `~/.pi/agent/settings.json` (see below)
+
+## Click-to-expand thinking needs fullscreen mode
+
+Collapsing thinking to the ✻ label works in any TUI mode (`ctrl+t` toggles it), but **expanding a
+label by clicking requires Pi's fullscreen mode**. Pi only captures mouse events in the
+fullscreen TUI; in regular mode the terminal handles clicks itself (native text selection) and
+the extension never sees them — clicks on ✻ labels silently do nothing.
+
+To enable:
+
+```json
+// ~/.pi/agent/settings.json
+{
+  "tuiMode": "fullscreen"
+}
+```
+
+Restart Pi afterwards. Note that fullscreen mode changes mouse behavior everywhere: dragging
+selects text with Pi's own selection highlight instead of the terminal's native selection, and
+the wheel scrolls the transcript viewport. Also make sure no multiplexer intercepts the mouse
+(e.g. tmux's `set -g mouse on` swallows clicks before Pi sees them).
 
 ## Install
 
