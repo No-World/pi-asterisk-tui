@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, saveConfig } from "./config.ts";
+import { ensureHideThinkingDefault } from "./pi-settings.ts";
 import { installEditor } from "./editor.ts";
 import { installFooter } from "./footer.ts";
 import { installHeader } from "./header.ts";
@@ -8,7 +9,6 @@ import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
 import { installThinkingClickExpand } from "./thinking-click.ts";
-import { registerThinkingCommand } from "./thinking-viewer.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
 import {
 	createInitialState,
@@ -223,6 +223,12 @@ export default function (pi: ExtensionAPI) {
 
 		if (isInteractiveLaunch() && config.enabled) {
 			clearVisibleScreen();
+			// Fresh installs: default pi to collapsed thinking so ✻ labels (and
+			// click-to-expand in the fullscreen TUI) work everywhere. Existing
+			// choices (ctrl+t) are left untouched.
+			if (ensureHideThinkingDefault() === "written") {
+				ctx.ui.notify("已默认折叠思考块（✻ 标签，全屏模式下可点击展开；ctrl+t 切换显示）", "info");
+			}
 		}
 
 		applyUi(ctx);
@@ -324,8 +330,6 @@ export default function (pi: ExtensionAPI) {
 		invalidateUsageCache();
 		refreshInteractiveState(ctx);
 	});
-
-	registerThinkingCommand(pi);
 
 	registerSettingsCommand(pi, {
 		getConfig: () => config,

@@ -14,11 +14,10 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 > detection when pi starts inside a repository subdirectory, and shows a per-turn timer plus
 > a live output-token counter next to the working indicator (estimated from the stream while
 > the model is generating, exact once the message completes). The transcript also stays
-> compact Claude-style: hidden thinking renders as a one-line ✻ label (pi's ctrl+t) — in the
-> fullscreen TUI the label is clickable to expand that message's thinking inline, click again
-> to collapse — plus a `/thinking` overlay to read any message's full reasoning, a live tool
-> count on the working indicator, and a turn summary (✻ 8s · 2 shell commands) in the classic
-> footer.
+> compact Claude-style: hidden thinking renders as a one-line ✻ label (pi's ctrl+t) — in
+> the fullscreen TUI the label is clickable to expand that message's thinking inline, click
+> again to collapse — a live tool count on the working indicator, and a turn summary
+> (✻ 8s · 2 shell commands) in the classic footer.
 >
 > Install **this fork** with:
 >
@@ -37,7 +36,7 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 - **Framed editor** with block, bar, and underline cursor styles
 - **Project awareness** for 50+ runtimes and detailed Git states, including ahead/behind, staged, modified, untracked, stashed, and detached HEAD
 - **Turn telemetry** for TPS, time to first token (TTFT), duration, stalls, tokens, and list-price rate
-- **Compact Claude-style transcript**: hidden thinking shows as a one-line ✻ label — click it to expand that message's thinking inline in the fullscreen TUI (click again to collapse), or browse everything with `/thinking`; the classic footer's done segment summarizes each turn (thinking time + tool count); the working indicator counts tools live
+- **Compact Claude-style transcript**: hidden thinking shows as a one-line ✻ label — click it to expand that message's thinking inline in the fullscreen TUI (click again to collapse); the classic footer's done segment summarizes each turn (thinking time + tool count); the working indicator counts tools live. On first run the extension defaults pi's `hideThinkingBlock` to true (existing choices are kept); clicking requires `tuiMode: fullscreen`.
 - **Interactive settings** through `/open-tui`, available in English and Simplified Chinese
 - **Version-guarded Pi compatibility shim**: fullscreen wheel speed falls back to Pi's default if its runtime support changes
 
