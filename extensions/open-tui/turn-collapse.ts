@@ -307,6 +307,9 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 					walk.renderChild(member);
 				}
 			} else {
+				// Lead with a blank line so the group line aligns with the
+				// boxes it stands in for (pi's boxes carry their own spacer).
+				walk.push([""]);
 				walk.pushChild(head, [renderGroupLine(group)]);
 			}
 			index = scan;
