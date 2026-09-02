@@ -113,6 +113,17 @@ test("consecutive tools collapse into group lines, non-adjacent stay separate", 
 	assert.ok(!container.render(60).join("\n").includes("$ echo one"), "group re-collapsed");
 });
 
+test("tools separated only by empty renders still group together", () => {
+	setTurnCollapseEnabled(true);
+	const bashA = makeBash("echo one");
+	const bashB = makeBash("echo two");
+	const emptyAssistant = makeAssistant([], false); // renders 0 lines
+	const container = makeContainer([makeUserMessage("go"), bashA, emptyAssistant, makeSpacer(), bashB]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("ran 2 shell commands"), `empty assistant must not break the group\n${out}`);
+	assert.ok(!out.includes("ran 1 shell"), `no stray single lines\n${out}`);
+});
+
 test("running tools render an animated one-liner with the live box", () => {
 	setTurnCollapseEnabled(true);
 	const live = makeBash("echo hi");

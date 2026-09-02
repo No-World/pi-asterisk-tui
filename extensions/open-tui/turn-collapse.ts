@@ -268,31 +268,30 @@ interface ExpandedWalk {
 	renderChild: (child: unknown) => void;
 }
 
-function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk): void {
+function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: number): void {
 	const completedTool = (candidate: unknown): boolean =>
 		isToolBox(candidate) && !isToolRunning(candidate);
+	// Transparent children render nothing visible (spacers, or empty assistant
+	// components — e.g. an iteration that only emitted a tool call). Tools
+	// separated solely by transparents still count as consecutive.
+	const isTransparent = (candidate: unknown): boolean =>
+		isSpacer(candidate) ||
+		(!isToolBox(candidate) && safeRender(candidate as Child, width).length === 0);
 
 	let index = 0;
 	while (index < turnChildren.length) {
 		const current = turnChildren[index];
 		if (completedTool(current) && enabled) {
-			// Consecutive completed tools (+ spacers between) collapse into one
-			// group line: `⏺ ran 2 shell commands`.
+			// Consecutive completed tools (+ transparents between) collapse into
+			// one group line: `✻ ran 2 shell commands`.
 			const group: unknown[] = [current];
 			let scan = index + 1;
 			while (scan < turnChildren.length) {
-				const next = turnChildren[scan];
-				if (completedTool(next)) {
-					group.push(next);
-					scan++;
-					continue;
-				}
-				if (
-					isSpacer(next) &&
-					completedTool(turnChildren[scan + 1])
-				) {
-					group.push(next);
-					scan++;
+				let probe = scan;
+				while (probe < turnChildren.length && isTransparent(turnChildren[probe])) probe++;
+				if (probe < turnChildren.length && completedTool(turnChildren[probe])) {
+					for (let k = scan; k <= probe; k++) group.push(turnChildren[k]!);
+					scan = probe + 1;
 					continue;
 				}
 				break;
@@ -301,7 +300,7 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk): void {
 			if (expandedGroups.has(head)) {
 				walk.pushChild(head, [renderGroupLine(group, true)]);
 				for (const member of group) {
-					if (isSpacer(member)) continue;
+					if (isSpacer(member) || safeRender(member as Child, width).length === 0) continue;
 					walk.renderChild(member);
 				}
 			} else {
@@ -371,7 +370,7 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 				push,
 				pushChild,
 				renderChild,
-			});
+			}, width);
 			i = j;
 		} else {
 			renderChild(child);
