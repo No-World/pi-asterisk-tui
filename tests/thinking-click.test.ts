@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { TUI } from "@earendil-works/pi-tui";
 import {
-	findThinkingHost,
+	findThinkingHostAtLine,
 	hitTestLeaf,
 	installThinkingClickExpand,
 	labelSpan,
@@ -20,40 +20,19 @@ interface LayoutBox {
 }
 
 /** Duck-typed stand-in for pi's AssistantMessageComponent. */
-function makeMessage(hideThinking: boolean): {
-	component: {
-		hideThinkingBlock: boolean;
-		setHideThinkingBlock(hide: boolean): void;
-	};
-} {
+function makeMessage(lines: string[], hideThinking: boolean) {
 	const component = {
 		hideThinkingBlock: hideThinking,
 		setHideThinkingBlock(hide: boolean) {
 			this.hideThinkingBlock = hide;
 		},
+		render: (width: number) => lines.map((line) => line.padEnd(width)),
 	};
-	return { component };
+	return component;
 }
 
-function leafBox(
-	line: string,
-	y: number,
-	parent?: LayoutBox,
-	x = 0,
-	width = 80,
-): LayoutBox {
-	const box: LayoutBox = {
-		component: { some: "text-component" },
-		rect: { x, y, width, height: 1 },
-		children: [],
-		lines: [line],
-	};
-	if (parent) {
-		box.parent = parent;
-		parent.children.push(box);
-		parent.rect.height += 1;
-	}
-	return box;
+function makeSpacer() {
+	return { render: (_width: number) => [""] };
 }
 
 test("parseSgrPrimaryPress only matches unmodified primary presses", () => {
@@ -73,50 +52,75 @@ test("labelSpan finds the ✻ label columns", () => {
 	assert.equal(labelSpan("regular assistant text"), undefined);
 });
 
-test("hitTestLeaf resolves the leaf box and line under a point", () => {
+test("hitTestLeaf resolves the leaf box, line, and line index", () => {
 	const root: LayoutBox = {
 		component: { root: true },
 		rect: { x: 0, y: 0, width: 80, height: 0 },
 		children: [],
 	};
-	leafBox(" ✻ Thought…", 3, root);
-	leafBox("  let me think about this", 4, root);
+	const chatLines = ["user asks", " ✻ Thought…", "  inner reasoning", "answer"];
+	root.children.push({
+		component: { children: [] },
+		rect: { x: 0, y: 1, width: 80, height: chatLines.length },
+		children: [],
+		lines: chatLines,
+	});
 
-	const hit = hitTestLeaf(root, 4, 4);
+	const hit = hitTestLeaf(root, 4, 2);
 	assert.ok(hit);
-	assert.equal(hit.line, "  let me think about this");
+	assert.equal(hit.lineIndex, 1);
+	assert.equal(hit.line, " ✻ Thought…");
+	assert.equal(hit.box.component, root.children[0]!.component);
 	// Outside every box.
 	assert.equal(hitTestLeaf(root, 4, 40), undefined);
-	// Clipped away: parent clips to the first row only.
+	// Clipped away.
 	const clipped: LayoutBox = {
 		component: { root: true },
 		rect: { x: 0, y: 0, width: 80, height: 0 },
 		children: [],
 	};
-	const child = leafBox(" ✻ Thought…", 3, clipped);
-	child.clip = { x: 0, y: 0, width: 80, height: 0 };
+	const child: LayoutBox = {
+		component: { children: [] },
+		rect: { x: 0, y: 3, width: 80, height: 1 },
+		children: [],
+		lines: [" ✻ Thought…"],
+		clip: { x: 0, y: 0, width: 80, height: 0 },
+	};
+	clipped.children.push(child);
 	assert.equal(hitTestLeaf(clipped, 4, 3), undefined);
 });
 
-test("findThinkingHost walks up to the message component", () => {
-	const { component } = makeMessage(true);
-	const root: LayoutBox = {
-		component: { root: true },
-		rect: { x: 0, y: 0, width: 80, height: 0 },
-		children: [],
-	};
-	const messageBox: LayoutBox = {
-		component,
-		rect: { x: 0, y: 2, width: 80, height: 0 },
-		children: [],
-		parent: root,
-	};
-	root.children.push(messageBox);
-	const label = leafBox(" ✻ Thought…", 2, messageBox);
-
-	assert.equal(findThinkingHost(label), component);
-	assert.equal(findThinkingHost(messageBox), component);
+test("findThinkingHostAtLine maps a chat line onto its owning message", () => {
+	const message = makeMessage([" ✻ Thought…", "  inner reasoning", "answer"], true);
+	const chat = { children: [makeSpacer(), message, makeSpacer(), { render: undefined }] };
+	// Line 0 is the spacer; lines 1-3 belong to the message.
+	assert.equal(findThinkingHostAtLine(chat, 0, 80), undefined);
+	assert.equal(findThinkingHostAtLine(chat, 1, 80), message);
+	assert.equal(findThinkingHostAtLine(chat, 3, 80), message);
+	assert.equal(findThinkingHostAtLine(chat, 4, 80), undefined);
+	// Non-container input.
+	assert.equal(findThinkingHostAtLine({}, 0, 80), undefined);
 });
+
+test("findThinkingHostAtLine descends through nested wrappers", () => {
+	const message = makeMessage([" ✻ Thought…", "  inner reasoning"], true);
+	const inner = { children: [message] };
+	const middle = { children: [{ render: (_w: number) => ["banner"] }, inner] };
+	const outer = { children: [makeSpacer(), middle] };
+	// outer lines: 0 spacer · 1 banner · 2-3 message.
+	assert.equal(findThinkingHostAtLine(outer, 2, 80), message, "label line through two wrappers");
+	assert.equal(findThinkingHostAtLine(outer, 3, 80), message);
+	assert.equal(findThinkingHostAtLine(outer, 1, 80), undefined, "banner line has no host");
+});
+
+function makeChatLeaf(chat: { children: unknown[] }, lines: string[], y = 2): LayoutBox {
+	return {
+		component: chat,
+		rect: { x: 0, y, width: 80, height: lines.length },
+		children: [],
+		lines,
+	};
+}
 
 function makeTui(root: LayoutBox | undefined) {
 	const calls: string[] = [];
@@ -136,61 +140,54 @@ function makeTui(root: LayoutBox | undefined) {
 }
 
 test("clicking the label expands, clicking the message collapses", () => {
-	const { component } = makeMessage(true);
+	const message = makeMessage([" ✻ Thought…", "  inner reasoning", "answer"], true);
+	const chat = { children: [makeSpacer(), message] };
+	const lines = ["", ...message.render(80)];
 	const root: LayoutBox = {
 		component: { root: true },
 		rect: { x: 0, y: 0, width: 80, height: 0 },
-		children: [],
+		children: [makeChatLeaf(chat, lines)],
 	};
-	const messageBox: LayoutBox = {
-		component,
-		rect: { x: 0, y: 2, width: 80, height: 0 },
-		children: [],
-		parent: root,
-	};
-	root.children.push(messageBox);
-	leafBox(" ✻ Thought…", 2, messageBox);
-	leafBox("  inner reasoning", 3, messageBox);
 
 	const { tui, calls, getRenders } = makeTui(root);
 	const cleanup = installThinkingClickExpand(tui);
 	const input = (tui as unknown as { handleViewportInput: (data: string) => unknown }).handleViewportInput;
 
-	// Click the label (screen row 3 = y 2) → expand.
-	assert.deepEqual(input("\x1b[<0;5;3M"), { consume: true });
-	assert.equal(component.hideThinkingBlock, false);
+	// Click the label (row y=3 → lineIndex 1) → expand.
+	assert.deepEqual(input("\x1b[<0;5;4M"), { consume: true });
+	assert.equal(message.hideThinkingBlock, false);
 	assert.ok(getRenders() > 0);
 	assert.equal(calls.length, 0, "click should not reach selection handling");
 
-	// Click the expanded thinking (y 3) → collapse.
-	input("\x1b[<0;5;4M");
-	assert.equal(component.hideThinkingBlock, true);
+	// Click the expanded thinking (y=4 → lineIndex 2) → collapse.
+	input("\x1b[<0;5;5M");
+	assert.equal(message.hideThinkingBlock, true);
 
 	// Clicking the label again re-expands.
-	input("\x1b[<0;5;3M");
-	assert.equal(component.hideThinkingBlock, false);
+	input("\x1b[<0;5;4M");
+	assert.equal(message.hideThinkingBlock, false);
 
 	cleanup();
 });
 
 test("non-label clicks fall through untouched", () => {
-	const { component } = makeMessage(true);
+	const message = makeMessage([" ✻ Thought…", "answer"], true);
+	const chat = { children: [message] };
+	const lines = [...message.render(80)];
 	const root: LayoutBox = {
 		component: { root: true },
 		rect: { x: 0, y: 0, width: 80, height: 0 },
-		children: [],
+		children: [makeChatLeaf(chat, lines)],
 	};
-	leafBox(" ✻ Thought…", 2, root);
-	leafBox("plain answer text", 3, root);
 
 	const { tui, calls } = makeTui(root);
 	const cleanup = installThinkingClickExpand(tui);
 	const input = (tui as unknown as { handleViewportInput: (data: string) => unknown }).handleViewportInput;
 
-	// Click on the answer row (y 3) at the label's columns → not a label.
+	// Click the label's columns but on the answer row (y=3 → lineIndex 1) → not a label.
 	assert.deepEqual(input("\x1b[<0;5;4M"), { consume: true });
 	assert.equal(calls.length, 1, "falls through to the original handler");
-	assert.equal(component.hideThinkingBlock, true);
+	assert.equal(message.hideThinkingBlock, true);
 
 	// Non-mouse input passes through.
 	input("j");
@@ -199,7 +196,7 @@ test("non-label clicks fall through untouched", () => {
 	cleanup();
 });
 
-test("install no-ops outside fullscreen mode and cleanup restores the prototype", () => {
+test("install no-ops outside fullscreen mode and cleanup restores the original", () => {
 	const { tui, calls } = makeTui(undefined);
 	(tui as unknown as { mode: string }).mode = "regular";
 	const cleanup = installThinkingClickExpand(tui);
