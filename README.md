@@ -14,9 +14,9 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 > detection when pi starts inside a repository subdirectory, and shows a per-turn timer plus
 > a live output-token counter next to the working indicator (estimated from the stream while
 > the model is generating, exact once the message completes). The transcript also stays
-> compact Claude-style: hidden thinking renders as a one-line ✻ label (pi's ctrl+t), the
-> working indicator counts tools live, and the classic footer's done segment summarizes the
-> turn (✻ 8s · 2 shell commands).
+> compact Claude-style: hidden thinking renders as a one-line ✻ label (pi's ctrl+t) with a
+> `/thinking` overlay to read any message's full reasoning, the working indicator counts tools
+> live, and the classic footer's done segment summarizes the turn (✻ 8s · 2 shell commands).
 >
 > Install **this fork** with:
 >
@@ -35,7 +35,7 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 - **Framed editor** with block, bar, and underline cursor styles
 - **Project awareness** for 50+ runtimes and detailed Git states, including ahead/behind, staged, modified, untracked, stashed, and detached HEAD
 - **Turn telemetry** for TPS, time to first token (TTFT), duration, stalls, tokens, and list-price rate
-- **Compact Claude-style transcript**: hidden thinking shows as a one-line ✻ label; the classic footer's done segment summarizes each turn (thinking time + tool count); the working indicator counts tools live
+- **Compact Claude-style transcript**: hidden thinking shows as a one-line ✻ label; `/thinking` opens a scrollable overlay with every message's full reasoning; the classic footer's done segment summarizes each turn (thinking time + tool count); the working indicator counts tools live
 - **Interactive settings** through `/open-tui`, available in English and Simplified Chinese
 - **Version-guarded Pi compatibility shim**: fullscreen wheel speed falls back to Pi's default if its runtime support changes
 

@@ -7,6 +7,7 @@ import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
+import { registerThinkingCommand } from "./thinking-viewer.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
 import {
 	createInitialState,
@@ -315,6 +316,8 @@ export default function (pi: ExtensionAPI) {
 		invalidateUsageCache();
 		refreshInteractiveState(ctx);
 	});
+
+	registerThinkingCommand(pi);
 
 	registerSettingsCommand(pi, {
 		getConfig: () => config,
