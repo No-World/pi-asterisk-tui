@@ -104,9 +104,21 @@ test("findThinkingHostAtLine maps a chat line onto its owning message", () => {
 
 test("findThinkingHostAtLine descends through nested wrappers", () => {
 	const message = makeMessage([" ✻ Thought…", "  inner reasoning"], true);
-	const inner = { children: [message] };
-	const middle = { children: [{ render: (_w: number) => ["banner"] }, inner] };
-	const outer = { children: [makeSpacer(), middle] };
+	// Mimic pi-tui Container: render concatenates children exactly.
+	const makeContainer = (children: unknown[]) => ({
+		children,
+		render: (width: number) => {
+			const lines: string[] = [];
+			for (const child of children) {
+				const renderable = child as { render?: (w: number) => string[] };
+				if (typeof renderable.render === "function") lines.push(...renderable.render(width));
+			}
+			return lines;
+		},
+	});
+	const inner = makeContainer([message]);
+	const middle = makeContainer([{ render: (_w: number) => ["banner"] }, inner]);
+	const outer = makeContainer([makeSpacer(), middle]);
 	// outer lines: 0 spacer · 1 banner · 2-3 message.
 	assert.equal(findThinkingHostAtLine(outer, 2, 80), message, "label line through two wrappers");
 	assert.equal(findThinkingHostAtLine(outer, 3, 80), message);
