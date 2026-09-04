@@ -6,6 +6,7 @@ import {
 	setAgentActive,
 	summarizeErrorLines,
 	handleToolLineClick,
+	attachForTest,
 	renderCollapsedForTest,
 	setThinkingDurations,
 	setTurnCollapseEnabled,
@@ -454,4 +455,36 @@ test("held error summary follows the newest error and clears on success", () => 
 	const out = container.render(60).join("\n");
 	assert.ok(out.includes("Error: 401"), `only newest flushes\n${out}`);
 	assert.ok(!out.includes("429"), `older dropped\n${out}`);
+});
+
+test("re-attach reclaims the container patch (extension /reload)", () => {
+	const kids: unknown[] = [];
+	const container = {
+		children: kids,
+		render(width: number): string[] {
+			return kids.flatMap((c) => (c as Child).render(width));
+		},
+		addChild(child: unknown): void {
+			kids.push(child);
+		},
+	};
+	const assistant = makeAssistant(["✻ Thought…", "hello world"], true);
+	kids.push(makeUserMessage("hi"), assistant);
+
+	attachForTest(container);
+	const firstRender = container.render;
+	const out1 = container.render(80);
+
+	// Simulate /reload: a fresh module instance discovers the same container
+	// (already marked ATTACHED by the previous instance) and must take the
+	// patch over instead of early-returning.
+	attachForTest(container);
+	assert.notEqual(container.render, firstRender, "attach should re-patch, not early-return");
+	const out2 = container.render(80);
+	assert.deepEqual(out2, out1);
+
+	// The click pipeline maps the label line back to its assistant message.
+	const labelLine = out2.findIndex((line) => line.includes("✻"));
+	assert.ok(labelLine >= 0, "label line missing");
+	assert.equal(findThinkingHostViaSegments(labelLine), assistant);
 });

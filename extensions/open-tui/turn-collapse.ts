@@ -52,6 +52,9 @@ interface ViewportAltScreen {
 
 const ATTACHED = Symbol.for("open-tui.turnCollapse");
 const COLLAPSE_INSTALLED = Symbol.for("open-tui.turnCollapseInstalled");
+/** Reclaim bookkeeping: lets a reloaded module instance take over the patch. */
+const ORIGINAL_RENDER = Symbol.for("open-tui.turnCollapse.originalRender");
+const ORIGINAL_ADD_CHILD = Symbol.for("open-tui.turnCollapse.originalAddChild");
 
 const DEBUG_LOG = process.env.OPEN_TUI_DEBUG;
 function debug(message: string): void {
@@ -756,8 +759,24 @@ function attachToContainer(container: unknown): void {
 		debug("attach: no container");
 		return;
 	}
-	const target = container as ChatContainer & { [ATTACHED]?: boolean };
-	if (target[ATTACHED] === true) return;
+	const target = container as ChatContainer & {
+		[ATTACHED]?: boolean;
+		[ORIGINAL_RENDER]?: ChatContainer["render"];
+		[ORIGINAL_ADD_CHILD]?: (child: unknown) => void;
+	};
+	if (target[ATTACHED] === true) {
+		// A previous module instance (extension /reload) patched this container;
+		// its render override still collapses, but segment recording lands in
+		// that dead instance's state, so click lookups here find nothing. Restore
+		// the pristine methods (recorded symbolically) and re-patch with ours.
+		const priorRender = target[ORIGINAL_RENDER];
+		if (typeof priorRender !== "function") return; // legacy patch without bookkeeping
+		target.render = priorRender;
+		if (typeof target[ORIGINAL_ADD_CHILD] === "function") {
+			target.addChild = target[ORIGINAL_ADD_CHILD];
+		}
+		debug("attach: reclaiming container from a previous module instance");
+	}
 	if (typeof target.render !== "function" || !Array.isArray(target.children)) {
 		debug(`attach: unusable shape ctor=${(container as { constructor?: { name?: string } }).constructor?.name}`);
 		return;
@@ -766,6 +785,7 @@ function attachToContainer(container: unknown): void {
 	attachedContainer = container;
 	const addChild = target.addChild?.bind(target) as ((child: unknown) => void) | undefined;
 	if (typeof addChild === "function") {
+		target[ORIGINAL_ADD_CHILD] = addChild;
 		errorSink = (children: unknown[]): void => {
 			for (const child of children) addChild(child);
 		};
@@ -787,6 +807,7 @@ function attachToContainer(container: unknown): void {
 	}
 	debug(`attach: container ctor=${(container as { constructor?: { name?: string } }).constructor?.name} children=${target.children.length}`);
 	const original = target.render;
+	target[ORIGINAL_RENDER] = original;
 	target.render = function (this: ChatContainer, width: number) {
 		return renderCollapsed(this, original as (width: number) => string[], width);
 	};
@@ -922,6 +943,11 @@ export function installTurnCollapse(): () => void {
 		debug(`install: failed: ${error instanceof Error ? error.message : String(error)}`);
 		return () => {};
 	}
+}
+
+/** Test hook: attach the container patch like installTurnCollapse would. */
+export function attachForTest(container: unknown): void {
+	attachToContainer(container);
 }
 
 /** Test hook: a container-like object with the same addChild interception. */
