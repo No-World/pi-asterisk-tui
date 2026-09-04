@@ -37,7 +37,7 @@ function makeAssistant(lines: string[], hideThinking: boolean, streaming = false
 		isStreaming: streaming,
 		hiddenThinkingLabel: "✻ Thought…",
 		children: [],
-		render: (width: number) => ["", ...lines.map((line) => line.padEnd(width))],
+		render: (width: number) => ["", ...lines.flatMap((line) => (line.includes("✻") ? [line.padEnd(width), ""] : [line.padEnd(width)]))],
 	};
 	assistant.setHiddenThinkingLabel = (label: string) => {
 		assistant.hiddenThinkingLabel = label;
@@ -164,6 +164,22 @@ test("findThinkingHostViaSegments maps lines recorded during render", () => {
 	const found = findThinkingHostViaSegments(labelIndex) as AssistantChild | undefined;
 	assert.equal(found, assistant);
 	assert.equal(findThinkingHostViaSegments(-1), undefined);
+});
+
+test("compact spacing: no blanks around group lines and labels", () => {
+	setTurnCollapseEnabled(true);
+	const bash = makeBash("echo one");
+	const labeled = makeAssistant([" ✻ Thought…", "完成 ✅ 已提交"], true);
+	const container = makeContainer([makeUserMessage("go"), bash, makeSpacer(), makeSpacer(), labeled]);
+	const lines = container.render(60).join("\n").split("\n").map((l) => l.trim());
+
+	const groupIndex = lines.findIndex((l) => l.includes("Ran 1 shell command"));
+	const labelIndex = lines.findIndex((l) => l.includes("✻ Thought"));
+	const textIndex = lines.findIndex((l) => l.includes("完成 ✅"));
+	assert.ok(groupIndex >= 0 && labelIndex >= 0 && textIndex >= 0);
+	// group line directly followed by the label, label directly by the text
+	assert.equal(labelIndex, groupIndex + 1, `group → label must be adjacent\n${lines.join("\n")}`);
+	assert.equal(textIndex, labelIndex + 1, `label → text must be adjacent\n${lines.join("\n")}`);
 });
 
 test("disabled feature renders full boxes untouched", () => {

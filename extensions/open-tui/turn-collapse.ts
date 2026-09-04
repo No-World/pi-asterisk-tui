@@ -313,6 +313,10 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 				walk.pushChild(head, [renderGroupLine(group)]);
 			}
 			index = scan;
+			// Swallow trailing spacers/blank renders so the group line connects
+			// straight to the following content (anything tool-like would have
+			// joined the group; the rest that follows transparently is padding).
+			while (index < turnChildren.length && isTransparent(turnChildren[index])) index++;
 			continue;
 		}
 		if (isToolBox(current) && enabled) {
@@ -371,9 +375,16 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 		let lines = safeRender(child as Child, width);
 		if (isAssistantMessage(child) && startsWithLabel(lines)) {
 			// Compact transcript: pi renders a leading Spacer inside the
-			// message; drop it so the ✻ label sits flush like every other
-			// one-liner.
+			// message and another after the thinking label; drop both so the
+			// ✻ line sits flush and connects straight to the following text.
 			while (lines.length > 0 && isBlankLine(lines[0]!)) lines = lines.slice(1);
+			let labelEnd = 0;
+			while (labelEnd < lines.length && !isBlankLine(lines[labelEnd]!) && lines[labelEnd]!.includes("✻")) {
+				labelEnd++;
+			}
+			while (labelEnd < lines.length && isBlankLine(lines[labelEnd]!)) {
+				lines = [...lines.slice(0, labelEnd), ...lines.slice(labelEnd + 1)];
+			}
 		}
 		pushChild(child, lines);
 	};
