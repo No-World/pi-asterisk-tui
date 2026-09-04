@@ -372,7 +372,9 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 		if (thinkingMs >= 1000) parts.push(`Thought for ${formatDuration(thinkingMs)}`);
 		else if (hasThinking) parts.push("Thought");
 		parts.push(...summarizeTools(tools));
-		const text = parts.length > 0 ? parts.join(", ") : "worked";
+		const joined = parts.length > 0 ? parts.join(", ") : "worked";
+		// Leading verb phrases capitalize; mid-sentence phrases stay lowercase.
+		const text = joined.charAt(0).toUpperCase() + joined.slice(1);
 		return ` ${fg("accent", "✻")} ${fg("muted", text)}`;
 	};
 

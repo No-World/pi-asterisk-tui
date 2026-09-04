@@ -204,7 +204,7 @@ test("text message without a label flushes the run before rendering", () => {
 		if (l.trim()) console.log("LINE:", JSON.stringify(l.slice(0, 60)));
 	}
 	const out = lines.join("\n");
-	assert.ok(out.includes("ran 2 shell commands"), `run line before plain text\n${out}`);
+	assert.ok(out.includes("Ran 2 shell commands"), `run line before plain text\n${out}`);
 	assert.ok(out.includes("完成 ✅ 无思考直接回答"), `plain text renders\n${out}`);
 });
 
@@ -219,8 +219,8 @@ test("text breaks runs; separate runs get separate lines", () => {
 		makeTool("ls"),
 	]);
 	const out = container.render(60).join("\n");
-	assert.ok(out.includes("listed 1 directory"), `first run\n${out}`);
-	assert.ok(out.includes("listed 2 directories"), `second run grouped\n${out}`);
+	assert.ok(out.includes("Listed 1 directory"), `first run\n${out}`);
+	assert.ok(out.includes("Listed 2 directories"), `second run grouped\n${out}`);
 	assert.ok(out.includes("中间"), `text between\n${out}`);
 });
 
@@ -228,7 +228,7 @@ test("unknown tools keep the called phrasing", () => {
 	setTurnCollapseEnabled(true);
 	const container = makeContainer([makeUserMessage("go"), makeTool("playwright"), makeTool("playwright")]);
 	const out = container.render(60).join("\n");
-	assert.ok(out.includes("called playwright ×2"), `unknown verb\n${out}`);
+	assert.ok(out.includes("Called playwright ×2"), `unknown verb\n${out}`);
 });
 
 test("clicking a collapsed run line expands it; clicking a member collapses it", () => {
@@ -297,4 +297,13 @@ test("disabled feature renders full boxes untouched", () => {
 	} finally {
 		setTurnCollapseEnabled(true);
 	}
+});
+
+test("tool-first run lines capitalize the leading verb", () => {
+	setTurnCollapseEnabled(true);
+	const container = makeContainer([makeUserMessage("go"), makeBash("echo hi"), makeTextMessage("done")]);
+	const lines = container.render(60);
+	const runLine = lines.find((l) => l.includes("Ran 1 shell command"));
+	assert.ok(runLine, `capitalized leading verb\n${lines.join("\n")}`);
+	assert.ok(!lines.join("\n").includes("✻ ran"), `no lowercase lead\n${lines.join("\n")}`);
 });
