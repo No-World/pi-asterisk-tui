@@ -255,9 +255,9 @@ function summarizeTools(turnChildren: unknown[]): string[] {
 	const parts: string[] = [];
 	if (counts.size > 0) {
 		const names = [...counts.entries()].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name));
-		parts.push(`called ${names.join(", ")}`);
+		parts.push(`Called ${names.join(", ")}`);
 	}
-	if (bash > 0) parts.push(`ran ${bash} shell command${bash > 1 ? "s" : ""}`);
+	if (bash > 0) parts.push(`Ran ${bash} shell command${bash > 1 ? "s" : ""}`);
 	return parts;
 }
 
@@ -275,9 +275,12 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 	// Transparent children render nothing visible (spacers, or empty assistant
 	// components — e.g. an iteration that only emitted a tool call). Tools
 	// separated solely by transparents still count as consecutive.
-	const isTransparent = (candidate: unknown): boolean =>
-		isSpacer(candidate) ||
-		(!isToolBox(candidate) && safeRender(candidate as Child, width).length === 0);
+	const isTransparent = (candidate: unknown): boolean => {
+		if (isSpacer(candidate)) return true;
+		if (isToolBox(candidate)) return false;
+		const lines = safeRender(candidate as Child, width);
+		return lines.length === 0 || lines.every((line) => isBlankLine(line));
+	};
 
 	let index = 0;
 	while (index < turnChildren.length) {
@@ -307,9 +310,6 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 					walk.renderChild(member);
 				}
 			} else {
-				// Lead with a blank line so the group line aligns with the
-				// boxes it stands in for (pi's boxes carry their own spacer).
-				walk.push([""]);
 				walk.pushChild(head, [renderGroupLine(group)]);
 			}
 			index = scan;
@@ -325,6 +325,17 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 		walk.renderChild(current);
 		index++;
 	}
+}
+
+const ANSI_ONLY = /^\x1b\[[0-9;?]*[A-Za-z]*$/;
+
+function isBlankLine(line: string): boolean {
+	return line === "" || ANSI_ONLY.test(line);
+}
+
+function startsWithLabel(lines: string[]): boolean {
+	const first = lines.find((line) => !isBlankLine(line));
+	return first !== undefined && first.includes("✻");
 }
 
 let renderLogState: string | undefined;
@@ -357,7 +368,14 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	};
 	const renderChild = (child: unknown): void => {
 		if (isAssistantMessage(child)) syncThinkingLabel(child);
-		pushChild(child, safeRender(child as Child, width));
+		let lines = safeRender(child as Child, width);
+		if (isAssistantMessage(child) && startsWithLabel(lines)) {
+			// Compact transcript: pi renders a leading Spacer inside the
+			// message; drop it so the ✻ label sits flush like every other
+			// one-liner.
+			while (lines.length > 0 && isBlankLine(lines[0]!)) lines = lines.slice(1);
+		}
+		pushChild(child, lines);
 	};
 
 	let i = 0;

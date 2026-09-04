@@ -37,7 +37,7 @@ function makeAssistant(lines: string[], hideThinking: boolean, streaming = false
 		isStreaming: streaming,
 		hiddenThinkingLabel: "✻ Thought…",
 		children: [],
-		render: (width: number) => lines.map((line) => line.padEnd(width)),
+		render: (width: number) => ["", ...lines.map((line) => line.padEnd(width))],
 	};
 	assistant.setHiddenThinkingLabel = (label: string) => {
 		assistant.hiddenThinkingLabel = label;
@@ -92,28 +92,28 @@ test("consecutive tools collapse into group lines, non-adjacent stay separate", 
 
 	const lines = container.render(60);
 	const out = lines.join("\n");
-	assert.ok(out.includes("✻ ran 2 shell commands"), `adjacent bash grouped\n${out}`);
-	assert.ok(out.includes("✻ called playwright"), `separate tool line\n${out}`);
+	assert.ok(out.includes("✻ Ran 2 shell commands"), `adjacent bash grouped\n${out}`);
+	assert.ok(out.includes("✻ Called playwright"), `separate tool line\n${out}`);
 	assert.ok(out.includes("assistant text"), `text visible\n${out}`);
 	assert.ok(!out.includes("$ echo one"), `boxes hidden behind group lines\n${out}`);
 	assert.ok(!out.includes("▸"), `no turn summary line\n${out}`);
 
 	// Click the group line → boxes open, group line REPLACED (thinking-block parity).
-	const groupLine = lines.find((l) => l.includes("ran 2 shell commands"));
+	const groupLine = lines.find((l) => l.includes("Ran 2 shell commands"));
 	assert.ok(groupLine);
 	assert.equal(handleToolLineClick(lines.indexOf(groupLine), groupLine), true);
 	const openedLines = container.render(60);
 	const opened = openedLines.join("\n");
 	assert.ok(opened.includes("$ echo one") && opened.includes("$ echo two"), `both boxes open\n${opened}`);
-	assert.ok(!opened.includes("ran 2 shell commands"), `group line replaced by boxes\n${opened}`);
-	assert.ok(opened.includes("called playwright"), `other group untouched\n${opened}`);
+	assert.ok(!opened.includes("Ran 2 shell commands"), `group line replaced by boxes\n${opened}`);
+	assert.ok(opened.includes("Called playwright"), `other group untouched\n${opened}`);
 
 	// Click a box line → collapse back to the single line.
 	const boxLine = openedLines.findIndex((l) => l.includes("$ echo one"));
 	assert.ok(boxLine >= 0);
 	assert.equal(handleToolLineClick(boxLine, openedLines[boxLine]!), true);
 	const recollapsed = container.render(60).join("\n");
-	assert.ok(recollapsed.includes("ran 2 shell commands"), "group line back");
+	assert.ok(recollapsed.includes("Ran 2 shell commands"), "group line back");
 	assert.ok(!recollapsed.includes("$ echo one"), "boxes hidden again");
 });
 
@@ -124,8 +124,8 @@ test("tools separated only by empty renders still group together", () => {
 	const emptyAssistant = makeAssistant([], false); // renders 0 lines
 	const container = makeContainer([makeUserMessage("go"), bashA, emptyAssistant, makeSpacer(), bashB]);
 	const out = container.render(60).join("\n");
-	assert.ok(out.includes("ran 2 shell commands"), `empty assistant must not break the group\n${out}`);
-	assert.ok(!out.includes("ran 1 shell"), `no stray single lines\n${out}`);
+	assert.ok(out.includes("Ran 2 shell commands"), `empty assistant must not break the group\n${out}`);
+	assert.ok(!out.includes("Ran 1 shell"), `no stray single lines\n${out}`);
 });
 
 test("running tools render an animated one-liner with the live box", () => {
@@ -171,7 +171,7 @@ test("disabled feature renders full boxes untouched", () => {
 	try {
 		const container = makeContainer([makeUserMessage("off"), makeTool("playwright")]);
 		const out = container.render(60).join("\n");
-		assert.ok(!out.includes("✻ ran"), `no group lines when disabled\n${out}`);
+		assert.ok(!out.includes("✻ Ran"), `no group lines when disabled\n${out}`);
 		assert.ok(out.includes("│ playwright"), `full box passthrough\n${out}`);
 	} finally {
 		setTurnCollapseEnabled(true);
