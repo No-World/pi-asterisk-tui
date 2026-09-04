@@ -331,10 +331,13 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 	}
 }
 
-const ANSI_ONLY = /^\x1b\[[0-9;?]*[A-Za-z]*$/;
+// A line is blank when it is empty or consists solely of zero-width control
+// sequences — CSI ([...m) and OSC (]..., incl. pi's 133 shell
+// integration markers that land on spacer lines).
+const ZERO_WIDTH_LINE = /^(?:\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))*$/;
 
 function isBlankLine(line: string): boolean {
-	return line === "" || ANSI_ONLY.test(line);
+	return line === "" || ZERO_WIDTH_LINE.test(line);
 }
 
 function startsWithLabel(lines: string[]): boolean {
@@ -343,6 +346,7 @@ function startsWithLabel(lines: string[]): boolean {
 }
 
 let renderLogState: string | undefined;
+let dumpCount = 0;
 
 function renderCollapsed(container: ChatContainer, original: (width: number) => string[], width: number): string[] {
 	// The walk below replaces Container.render entirely. Disabling collapse does
@@ -372,6 +376,7 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	};
 	const renderChild = (child: unknown): void => {
 		if (isAssistantMessage(child)) syncThinkingLabel(child);
+
 		let lines = safeRender(child as Child, width);
 		if (isAssistantMessage(child) && startsWithLabel(lines)) {
 			// Compact transcript: pi renders a leading Spacer inside the
@@ -410,6 +415,9 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 			renderChild(child);
 			i++;
 		}
+	}
+	if (DEBUG_LOG && (dumpCount = (dumpCount + 1) % 300) === 1) {
+		out.forEach((line, idx) => debug(`L${idx}: ${JSON.stringify(line.slice(0, 40))}`));
 	}
 	return out;
 }

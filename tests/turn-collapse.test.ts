@@ -166,6 +166,24 @@ test("findThinkingHostViaSegments maps lines recorded during render", () => {
 	assert.equal(findThinkingHostViaSegments(-1), undefined);
 });
 
+test("OSC133 marker lines count as blank", () => {
+	setTurnCollapseEnabled(true);
+	const labeled = makeAssistant([" ✻ Thought…", "完成"], true);
+	(labeled as { render: (w: number) => string[] }).render = (w: number) => [
+		"\x1b]133;A\x07",
+		" ✻ Thought…".padEnd(w),
+		"\x1b]133;B\x07\x1b]133;C\x07",
+		"完成".padEnd(w),
+	];
+	const container = makeContainer([makeUserMessage("go"), labeled]);
+	const lines = container.render(60);
+	const out = lines.join("\n");
+	assert.ok(out.includes("✻ Thought…") && out.includes("完成"));
+	const labelIndex = lines.findIndex((l) => l.includes("✻ Thought"));
+	assert.ok(!lines.slice(0, labelIndex).some((l) => l.trim() === "" || l.includes("133")), `marker line must be stripped\n${out}`);
+	assert.equal(lines[labelIndex! + 1]!.includes("完成"), true, `label connects straight to text\n${out}`);
+});
+
 test("compact spacing: no blanks around group lines and labels", () => {
 	setTurnCollapseEnabled(true);
 	const bash = makeBash("echo one");
