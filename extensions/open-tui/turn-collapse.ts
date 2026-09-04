@@ -418,8 +418,9 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 			if (expandedRuns.has(head)) {
 				for (const member of runMembers) {
 					runMembership.set(member.child as object, head);
-					if (member.kind === "label") {
-						// Expand the thinking along with the tools.
+					if (member.kind === "label" || member.kind === "text-tail") {
+						// Expand the thinking along with the tools — one click,
+						// no second tap on the label.
 						if ((member.child as AssistantLike).hideThinkingBlock !== false) {
 							(member.child as AssistantLike).setHideThinkingBlock(false);
 						}
@@ -430,7 +431,10 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 				collapsedRunHeads.add(head);
 				walk.pushChild(head, [renderRunLine(runMembers)]);
 				for (const member of runMembers) {
-					if (member.kind === "label" && (member.child as AssistantLike).hideThinkingBlock !== true) {
+					if (
+						(member.kind === "label" || member.kind === "text-tail") &&
+						(member.child as AssistantLike).hideThinkingBlock !== true
+					) {
 						(member.child as AssistantLike).setHideThinkingBlock(true);
 					}
 					if (member.kind === "text-tail") renderTextTail(member.child);

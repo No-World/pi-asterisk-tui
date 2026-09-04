@@ -339,3 +339,28 @@ test("expanded runs stay expanded across re-renders", () => {
 	}
 	setThinkingDurations(undefined);
 });
+
+test("expanding a run also opens text-tail thinking in one click", () => {
+	setTurnCollapseEnabled(true);
+	setThinkingDurations([2_500]);
+	const tail = makeAssistant([" ✻ Thought…", "验证最终状态："], true);
+	const container = makeContainer([makeUserMessage("go"), makeBash("echo hi"), tail]);
+	const lines = container.render(60);
+	const runIndex = lines.findIndex((l) => l.includes("Thought for 2s"));
+	assert.ok(runIndex >= 0, `run line\n${lines.join("\n")}`);
+	assert.equal(tail.hideThinkingBlock, true, "collapsed initially");
+
+	handleToolLineClick(runIndex, lines[runIndex]!);
+	container.render(60);
+	assert.equal(tail.hideThinkingBlock, false, "one click opens text-tail thinking");
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("$ echo hi"), `tools open\n${out}`);
+	assert.ok(out.includes("验证最终状态："), `text open\n${out}`);
+
+	const lines2 = container.render(60);
+	const boxIdx = lines2.findIndex((l) => l.includes("$ echo hi"));
+	handleToolLineClick(boxIdx, lines2[boxIdx]!);
+	container.render(60);
+	assert.equal(tail.hideThinkingBlock, true, "collapse re-hides text-tail thinking");
+	setThinkingDurations(undefined);
+});
