@@ -643,11 +643,71 @@ export function setAgentActive(active: boolean): void {
 }
 
 function flushHeldErrors(): void {
+	heldErrorSummary = undefined;
 	if (heldErrorGroup.length === 0 || errorSink === undefined) return;
 	const group = heldErrorGroup;
 	heldErrorGroup = [];
 	errorSink(group);
 	requestRenderRef?.();
+}
+
+/** Short summary of a held retry error for the retry indicator line. */
+let heldErrorSummary: string | undefined;
+
+/**
+ * 'Error: 429 {"type":"error","error":{"type":"rate_limit_error"...}}'
+ * → "429 rate_limit_error"; falls back to the leading text truncated.
+ */
+export function summarizeErrorLines(lines: string[]): string | undefined {
+	const first = lines.find((line) => !isBlankLine(line));
+	if (first === undefined) return undefined;
+	const stripped = first.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").trimStart();
+	if (!stripped.startsWith("Error:")) return undefined;
+	const plain = stripped.replace(/^Error:\s*/, "").trim();
+	if (plain.length === 0) return undefined;
+	const code = plain.match(/^(\d{3})\b/)?.[1];
+	// Prefer the innermost error type ("error":{"type":X}); the wrapper's
+	// own "type":"error" carries no information.
+	const type = [...plain.matchAll(/"type\":\"([a-z_]+)\"/gi)].map((m) => m[1]).find((t) => t !== "error")
+		?? plain.match(/"code\":\"([a-z0-9_]+)\"/i)?.[1];
+	if (code !== undefined && type !== undefined) return `${code} ${type}`;
+	if (code !== undefined) return code;
+	return plain.slice(0, 60);
+}
+
+const RETRY_LINE = /^Retrying \(\d+\/\d+\) in /;
+const LOADER_PATCHED = Symbol.for("open-tui.retryErrorSummary");
+
+/** Appends the held error summary to retry indicator lines. */
+function installRetrySummaryPatch(): () => void {
+	try {
+		// eslint-disable-next-line @typescript-eslint/no-require-imports
+		const piTui = require("@earendil-works/pi-tui") as {
+			Loader?: { prototype?: Record<PropertyKey, unknown> & { setMessage?: (message?: string) => void } };
+		};
+		const proto = piTui?.Loader?.prototype;
+		const setMessage = proto?.setMessage;
+		if (!proto || typeof setMessage !== "function" || proto[LOADER_PATCHED] === true) {
+			return () => {};
+		}
+		proto.setMessage = function (message?: string) {
+			if (
+				typeof message === "string" &&
+				RETRY_LINE.test(message) &&
+				heldErrorSummary !== undefined
+			) {
+				message = `${message} · ${heldErrorSummary}`;
+			}
+			return setMessage.call(this, message);
+		};
+		proto[LOADER_PATCHED] = true;
+		return () => {
+			delete proto[LOADER_PATCHED];
+			proto.setMessage = setMessage;
+		};
+	} catch {
+		return () => {};
+	}
 }
 
 /** A pi showError Text: first visible line starts with "Error:". */
@@ -715,10 +775,12 @@ function attachToContainer(container: unknown): void {
 			// assistant message drops them entirely (they were transient).
 			if (agentActive && isErrorTextChild(child)) {
 				heldErrorGroup = [child];
+				heldErrorSummary = summarizeErrorLines(safeRender(child as Child, 200));
 				return;
 			}
 			if (isAssistantMessage(child)) {
 				heldErrorGroup = [];
+				heldErrorSummary = undefined;
 			}
 			addChild(child);
 		};
@@ -848,11 +910,13 @@ export function installTurnCollapse(): () => void {
 			return originalRequestRender.apply(this, args);
 		};
 		proto[COLLAPSE_INSTALLED] = true;
+		const cleanupRetryPatch = installRetrySummaryPatch();
 		debug("install: wrapped setLayoutRoot + requestRender");
 		return () => {
 			delete proto[COLLAPSE_INSTALLED];
 			proto.setLayoutRoot = originalSetLayoutRoot;
 			proto.requestRender = originalRequestRender;
+			cleanupRetryPatch();
 		};
 	} catch (error) {
 		debug(`install: failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -878,10 +942,12 @@ export function makeInterceptedContainer(): {
 		addChild(child: unknown): void {
 			if (agentActive && isErrorTextChild(child)) {
 				heldErrorGroup = [child];
+				heldErrorSummary = summarizeErrorLines(safeRender(child as Child, 200));
 				return;
 			}
 			if (isAssistantMessage(child)) {
 				heldErrorGroup = [];
+				heldErrorSummary = undefined;
 			}
 			state.children.push(child);
 		},

@@ -4,6 +4,7 @@ import {
 	findThinkingHostViaSegments,
 	makeInterceptedContainer,
 	setAgentActive,
+	summarizeErrorLines,
 	handleToolLineClick,
 	renderCollapsedForTest,
 	setThinkingDurations,
@@ -431,4 +432,26 @@ test("a successful assistant message drops held errors entirely", () => {
 	const out = container.render(60).join("\n");
 	assert.ok(!out.includes("429"), `transient retry errors vanish on success\n${out}`);
 	assert.ok(out.includes("成功回复"), `assistant renders\n${out}`);
+});
+
+test("summarizeErrorLines extracts status code + error type", () => {
+	const lines = ["Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"code\":\"1302\"}}"];
+	assert.equal(summarizeErrorLines(lines), "429 rate_limit_error");
+	assert.equal(summarizeErrorLines(["Error: 401 无效或缺失的总网关 API key"]), "401");
+	assert.equal(summarizeErrorLines(["Error: connection reset by peer".padEnd(80, "哒")]), "connection reset by peer".padEnd(60, "哒"));
+	assert.equal(summarizeErrorLines(["", "Error: 500 boom"]), "500");
+	assert.equal(summarizeErrorLines(["plain text without marker"]), undefined);
+});
+
+test("held error summary follows the newest error and clears on success", () => {
+	setTurnCollapseEnabled(true);
+	const container = makeInterceptedContainer();
+	setAgentActive(true);
+	container.addChild({ render: () => ["Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\"}}"] });
+	const second = { render: () => ["Error: 401 key invalid"] };
+	container.addChild(second);
+	setAgentActive(false);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("Error: 401"), `only newest flushes\n${out}`);
+	assert.ok(!out.includes("429"), `older dropped\n${out}`);
 });
