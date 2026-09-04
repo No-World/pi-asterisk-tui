@@ -156,6 +156,15 @@ let childSegments: Array<{ start: number; end: number; child: unknown }> = [];
  * AssistantMessageComponent, so history can show "✻ Thought…" while the
  * streaming message shows "✻ Thinking…" — no global label flipping.
  */
+/**
+ * Styled thinking label: same ✻ icon color and upright font as the run
+ * lines. pi wraps the label in italic + thinkingText gray; a leading SGR
+ * reset takes over completely.
+ */
+function styledThinkingLabel(text: string): string {
+	return `\x1b[0m${fg("accent", "✻")}${fg("muted", ` ${text}`)}`;
+}
+
 function syncThinkingLabel(child: unknown): void {
 	const candidate = child as {
 		isStreaming?: unknown;
@@ -163,7 +172,7 @@ function syncThinkingLabel(child: unknown): void {
 		setHiddenThinkingLabel?: (label: string) => void;
 	};
 	if (typeof candidate.setHiddenThinkingLabel !== "function") return;
-	const desired = candidate.isStreaming === true ? "✻ Thinking…" : "✻ Thought…";
+	const desired = styledThinkingLabel(candidate.isStreaming === true ? "Thinking…" : "Thought…");
 	if (candidate.hiddenThinkingLabel !== desired) {
 		candidate.setHiddenThinkingLabel(desired);
 	}

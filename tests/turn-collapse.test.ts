@@ -287,8 +287,9 @@ test("per-message labels: history says Thought, streaming says Thinking", () => 
 		streaming,
 	]);
 	container.render(60);
-	assert.equal(history.hiddenThinkingLabel, "✻ Thought…");
-	assert.equal(streaming.hiddenThinkingLabel, "✻ Thinking…");
+	assert.ok((history.hiddenThinkingLabel ?? "").includes("Thought…"), "history label");
+	assert.ok((streaming.hiddenThinkingLabel ?? "").includes("Thinking…"), "streaming label");
+	assert.ok((history.hiddenThinkingLabel ?? "").includes("\x1b[0m"), "label carries full styling");
 });
 
 test("label-only messages without durations still merge (tool phrases only)", () => {
