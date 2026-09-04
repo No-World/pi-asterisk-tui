@@ -1,30 +1,23 @@
-# pi-open-tui
+# pi-asterisk-tui
 
 [English](./README.md) | **简体中文**
 
-一个为 [Pi](https://pi.dev) 编程代理打造的终端界面扩展，将 pi-haiku、pi-claude-code-tui 与 pi-zentui 的优秀设计整合为统一、可配置的使用体验。
+为 [Pi](https://pi.dev) 编程代理打造的 Claude Code 式紧凑对话体验——模型做的一切都折叠成
+整齐的 `✻` 行，点击即可展开：
 
-![pi-open-tui 预览](https://raw.githubusercontent.com/OldSuns/pi-open-tui/main/assets/preview_dashboard_1.png)
+- `✻ Thought for 19s, searched for 9 patterns, listed 1 directory, ran 1 shell command`
+  ——连续的思考与工具阶段合并为一行；点击展开完整思维链和工具输出，再点收回。
+- [claude-hud](https://github.com/jarrodwatts/claude-hud) 风格四行底栏：模型与思考强度、
+  git 状态与增删统计、会话名、agent 工作时长、费用、上下文进度条、token 统计、工具调用
+  计数、逐文件 diff。
+- Working 指示器实时显示单轮遥测（耗时、流式输出 token、工具数）、重试倒计时附带失败
+  原因、逐消息思考标签。
 
-> [!IMPORTANT]
-> **这是个人 Fork**（[No-World/pi-open-tui](https://github.com/No-World/pi-open-tui)），将 footer 改成了
-> [claude-hud](https://github.com/jarrodwatts/claude-hud) 风格：四行布局，包含模型与思考强度（月相图标）、
-> git 状态与增删统计、会话名、纯 agent 工作时长（不含空闲）、费用、上下文进度条、中文 token 统计、
-> 工具调用计数、逐文件 diff。同时修复了 pi 在仓库子目录启动时无法显示分支的问题，并在 Working
-> 指示器后追加本轮执行耗时与实时输出 Token 计数（生成中按流式增量估算，消息完成后回填精确值）。
-> 对话记录保持 Claude 风格的紧凑：思考块折叠为一行 ✻ 标签（pi 的 ctrl+t 开关），全屏模式下
-> **标签可点击**——点开对应消息的思维链，再点一下收回；Working 指示器实时显示工具调用次数，
-> Classic 底栏完成后显示单轮摘要（✻ 8s · 2 shell commands）。
->
-> 安装 **本 Fork**：
->
-> ```bash
-> pi install git:github.com/No-World/pi-open-tui
-> ```
->
-> 上游：[OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui)
+```bash
+pi install git:github.com/No-World/pi-asterisk-tui
+```
 
-
+![pi-asterisk-tui 预览](assets/preview_dashboard_1.png)
 
 ## 功能亮点
 
@@ -65,13 +58,13 @@ Pi 的全屏模式**。Pi 只在全屏 TUI 中捕获鼠标事件；普通模式�
 安装扩展：
 
 ```bash
-pi install git:github.com/No-World/pi-open-tui
+pi install git:github.com/No-World/pi-asterisk-tui
 ```
 
 也可以只在当前会话中试用：
 
 ```bash
-pi -e git:github.com/No-World/pi-open-tui
+pi -e git:github.com/No-World/pi-asterisk-tui
 ```
 
 ## 字体与图标
@@ -155,7 +148,7 @@ pi -e git:github.com/No-World/pi-open-tui
 
 ## 单轮遥测
 
-每次 Agent 完整运行结束后，pi-open-tui 会显示一条临时结果，并将其中的多个工具调用轮次合并统计：
+每次 Agent 完整运行结束后，pi-asterisk-tui 会显示一条临时结果，并将其中的多个工具调用轮次合并统计：
 
 ```text
 > TPS 42.5 tok/s | ~ TTFT 1.2s | + 29.7s | ↑ 567 | ↓ 1.2k | ! stall 1x / 4.3s | $ $3.60/M
@@ -176,7 +169,8 @@ pi -e .
 
 ## 致谢
 
-本项目基于多个 Pi 社区包的工作：
+本项目源自 **[OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui)** 的 fork，后发展为
+独立项目，原代码库的致谢一并延续。同时基于多个 Pi 社区包的工作：
 
 - **[pi-haiku](https://github.com/nnocte/pi-haiku)** — 双行底栏结构和工作计时器
 - **[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui)** — Pi Logo 帧与圆角编辑器边框技术

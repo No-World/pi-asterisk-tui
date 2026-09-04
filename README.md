@@ -1,33 +1,24 @@
-# pi-open-tui
+# pi-asterisk-tui
 
 **English** | [简体中文](./README.zh-CN.md)
 
-A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brings the strongest ideas from pi-haiku, pi-claude-code-tui, and pi-zentui into one configurable extension.
+A Claude Code-style transcript experience for the [Pi](https://pi.dev) coding agent —
+everything the model does collapses into tidy `✻` lines you can click apart:
 
-![pi-open-tui preview]
+- `✻ Thought for 19s, searched for 9 patterns, listed 1 directory, ran 1 shell command`
+  — consecutive thinking and tool phases merge into one line; click to open the full
+  reasoning and tool output, click again to fold it back.
+- A [claude-hud](https://github.com/jarrodwatts/claude-hud) style 4-line footer: model +
+  thinking level, git state with diff stats, session name, agent working time, cost,
+  context bar, token stats, tool usage counts, and per-file diff.
+- Live turn telemetry on the working indicator (elapsed, streaming output tokens, tool
+  count), retry reasons on the retry countdown, and per-message thinking labels.
 
-> [!IMPORTANT]
-> **This is a fork** ([No-World/pi-open-tui](https://github.com/No-World/pi-open-tui)) with a
-> [claude-hud](https://github.com/jarrodwatts/claude-hud) style footer: 4-line layout with
-> model + thinking level, git state with diff stats, session name, agent working time, cost,
-> context bar, Chinese token stats, tool usage counts, and per-file diff. It also fixes git
-> detection when pi starts inside a repository subdirectory, and shows a per-turn timer plus
-> a live output-token counter next to the working indicator (estimated from the stream while
-> the model is generating, exact once the message completes). The transcript also stays
-> compact Claude-style: hidden thinking renders as a one-line ✻ label (pi's ctrl+t) — in
-> the fullscreen TUI the label is clickable to expand that message's thinking inline, click
-> again to collapse — a live tool count on the working indicator, and a turn summary
-> (✻ 8s · 2 shell commands) in the classic footer.
->
-> Install **this fork** with:
->
-> ```bash
-> pi install git:github.com/No-World/pi-open-tui
-> ```
->
-> Upstream: [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui)
+```bash
+pi install git:github.com/No-World/pi-asterisk-tui
+```
 
-(https://raw.githubusercontent.com/OldSuns/pi-open-tui/main/assets/preview_dashboard_1.png)
+![pi-asterisk-tui preview](assets/preview_dashboard_1.png)
 
 ## Highlights
 
@@ -72,13 +63,13 @@ them).
 Install the extension:
 
 ```bash
-pi install git:github.com/No-World/pi-open-tui
+pi install git:github.com/No-World/pi-asterisk-tui
 ```
 
 Or try it for one session:
 
 ```bash
-pi -e git:github.com/No-World/pi-open-tui
+pi -e git:github.com/No-World/pi-asterisk-tui
 ```
 
 ## Font and icons
@@ -165,7 +156,7 @@ click-to-expand, this needs the fullscreen TUI.
 
 ## Turn telemetry
 
-After each complete agent run, pi-open-tui shows one transient result. Tool-call turns are combined into that result:
+After each complete agent run, pi-asterisk-tui shows one transient result. Tool-call turns are combined into that result:
 
 ```text
 > TPS 42.5 tok/s | ~ TTFT 1.2s | + 29.7s | ↑ 567 | ↓ 1.2k | ! stall 1x / 4.3s | $ $3.60/M
@@ -186,7 +177,9 @@ pi -e .
 
 ## Acknowledgements
 
-This project builds on several Pi community packages:
+This project originated as a fork of **[OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui)**
+and grew into an independent project; the original codebase's credits carry over. It also
+builds on several Pi community packages:
 
 - **[pi-haiku](https://github.com/nnocte/pi-haiku)** — two-line footer structure and working timer
 - **[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui)** — Pi logo frames and rounded editor border technique

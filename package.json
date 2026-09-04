@@ -1,11 +1,11 @@
 {
-	"name": "pi-open-tui",
+	"name": "pi-asterisk-tui",
 	"version": "0.3.0",
 	"description": "A polished TUI for Pi coding agent: animated logo header, Starship-style footer, rounded editor with model metadata, and prompt-box user messages.",
 	"type": "module",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/OldSuns/pi-open-tui.git"
+		"url": "git+https://github.com/No-World/pi-asterisk-tui.git"
 	},
 	"keywords": [
 		"pi-package",
@@ -63,5 +63,7 @@
 		"@google/genai@1.52.0": true,
 		"koffi@2.16.2": true,
 		"tree-sitter-bash@0.25.1": true
-	}
+	},
+	"bugs": null,
+	"homepage": null
 }
