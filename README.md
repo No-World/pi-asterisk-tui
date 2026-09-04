@@ -65,9 +65,10 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
 ## Editor & settings
 
 - Framed editor with block / bar / underline cursor styles.
-- Bilingual `/open-tui` settings panel (English / 简体中文) covering footer segments,
-  HUD toggles, telemetry fields, icon mode (nerd / ascii / auto), cursor style, and
-  fullscreen wheel-scroll speed — with named style presets (hud / classic / custom).
+- Bilingual `/open-tui` settings panel (English / 简体中文) — the language choice also
+  localizes HUD labels — covering footer segments, HUD toggles, telemetry fields, icon
+  mode (nerd / ascii / auto), cursor style, and fullscreen wheel-scroll speed — with named
+  style presets (hud / classic / custom).
 - Version-guarded compatibility shims: fullscreen wheel speed falls back to pi defaults if
   the runtime shape changes.
 

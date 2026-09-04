@@ -242,7 +242,12 @@ export default function (pi: ExtensionAPI) {
 			// click-to-expand in the fullscreen TUI) work everywhere. Existing
 			// choices (ctrl+t) are left untouched.
 			if (ensureHideThinkingDefault() === "written") {
-				ctx.ui.notify("已默认折叠思考块（✻ 标签，全屏模式下可点击展开；ctrl+t 切换显示）", "info");
+				ctx.ui.notify(
+					config.settingsLanguage === "zh"
+						? "已默认折叠思考块（✻ 标签，全屏模式下可点击展开；ctrl+t 切换显示）"
+						: "Thinking blocks now collapsed by default (✻ labels, click to expand in fullscreen; ctrl+t toggles)",
+					"info",
+				);
 			}
 		}
 

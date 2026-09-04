@@ -14,7 +14,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { OpenTuiConfig, HudConfig } from "./config.ts";
+import type { OpenTuiConfig, HudConfig, SettingsLanguage } from "./config.ts";
 import { runtimeSymbol, type IconGlyphs, resolveGlyphs } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
 import type { RuntimeInfo } from "./runtime.ts";
@@ -45,6 +45,53 @@ const THINKING_ICONS: Record<string, string> = {
 	high: "◑",
 	xhigh: "◕",
 	max: "●",
+};
+
+// HUD labels follow the /open-tui panel language (settingsLanguage).
+interface HudStrings {
+	contextLabel: string;
+	costLabel: string;
+	todayLabel: string;
+	speedLabel: string;
+	cacheLabel: string;
+	inputLabel: string;
+	outputLabel: string;
+	hitLabel: string;
+	compactionLabel: string;
+	memoryLabel: string;
+	extensionsLabel: string;
+	packagesLabel: string;
+}
+
+const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
+	en: {
+		contextLabel: "ctx ",
+		costLabel: "cost ",
+		todayLabel: "today ",
+		speedLabel: "out ",
+		cacheLabel: "·cache ",
+		inputLabel: "↑in ",
+		outputLabel: "↓out ",
+		hitLabel: "hit ",
+		compactionLabel: "compact ",
+		memoryLabel: "mem ",
+		extensionsLabel: " ext",
+		packagesLabel: " pkgs",
+	},
+	zh: {
+		contextLabel: "上下文 ",
+		costLabel: "费用 ",
+		todayLabel: "今日 ",
+		speedLabel: "输出: ",
+		cacheLabel: "·缓存 ",
+		inputLabel: "↑输入 ",
+		outputLabel: "↓输出 ",
+		hitLabel: "缓存命中 ",
+		compactionLabel: "压实 ",
+		memoryLabel: "内存 ",
+		extensionsLabel: " 扩展",
+		packagesLabel: " 包",
+	},
 };
 
 type FileStatus = "added" | "modified" | "deleted";
@@ -327,7 +374,7 @@ function toolCallLabel(name: string, args: unknown): string {
 	return truncateLabel(v, mode);
 }
 
-function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig): string {
+function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig, strings: HudStrings): string {
 	const usage = ctx.getContextUsage();
 	const ctxWin = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
 	if (ctxWin <= 0) return "";
@@ -335,7 +382,7 @@ function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig): 
 	const pct = usage?.percent ?? 0;
 	const filled = Math.round((pct / 100) * 10);
 	const color = stressColor(pct);
-	let bar = theme.fg("dim", "上下文 ") +
+	let bar = theme.fg("dim", strings.contextLabel) +
 		theme.fg(color, "█".repeat(filled)) +
 		theme.fg("dim", "░".repeat(10 - filled));
 	if (hud.contextPercent) bar += theme.fg("muted", ` ${Math.floor(pct)}%`);
@@ -418,6 +465,7 @@ export function installHudFooter(
 				const config = getConfig();
 				const glyphs: IconGlyphs = resolveGlyphs(config.icons.mode);
 				const hud = config.hud;
+				const strings = HUD_STRINGS[config.settingsLanguage] ?? HUD_STRINGS.en;
 				const meta = getModelMeta();
 				const sep = theme.fg("dim", " │ ");
 
@@ -530,16 +578,16 @@ export function installHudFooter(
 				if (hud.time) {
 					right1.push(theme.fg("muted", `⏱️ ${formatDuration(workingMs)}`));
 				}
-				if (hud.cost) right1.push(theme.fg("muted", `费用 $${totals.cost.toFixed(2)}`));
-				if (hud.dailyCost) right1.push(theme.fg("muted", `今日 $${dailyCost.toFixed(2)}`));
+				if (hud.cost) right1.push(theme.fg("muted", `${strings.costLabel}$${totals.cost.toFixed(2)}`));
+				if (hud.dailyCost) right1.push(theme.fg("muted", `${strings.todayLabel}$${dailyCost.toFixed(2)}`));
 				if (hud.outputSpeed && state.outputTps !== null && state.outputTps > 0) {
-					right1.push(theme.fg("accent", `输出: ${state.outputTps.toFixed(1)} tok/s`));
+					right1.push(theme.fg("accent", `${strings.speedLabel}${state.outputTps.toFixed(1)} tok/s`));
 				}
 				const line1 = alignRight(left1.join(sep), right1.join(sep), width, theme);
 
 				// ---- line 2: context bar … runtime │ cache-hit │ tokens ----
 				let line2 = "";
-				if (hud.contextBar) line2 = renderContextBar(theme, ctx, hud);
+				if (hud.contextBar) line2 = renderContextBar(theme, ctx, hud, strings);
 				const right2: string[] = [];
 				if (hud.runtime && state.runtime) {
 					const rt: RuntimeInfo = state.runtime;
@@ -551,30 +599,30 @@ export function installHudFooter(
 				if (hud.tokens) {
 					const cachedPart =
 						hud.tokenBreakdown && totals.cacheRead > 0
-							? theme.fg("dim", `·缓存 ${fmtTokens(totals.cacheRead)}`)
+							? theme.fg("dim", `${strings.cacheLabel}${fmtTokens(totals.cacheRead)}`)
 							: "";
 					right2.push(
-						theme.fg("accent", `↑输入 ${fmtTokens(totals.input + totals.cacheRead)}`) +
+						theme.fg("accent", `${strings.inputLabel}${fmtTokens(totals.input + totals.cacheRead)}`) +
 						cachedPart
 					);
 					const cacheWritePart =
 						hud.tokenBreakdown && totals.cacheWrite > 0
-							? theme.fg("dim", `·缓存 ${fmtTokens(totals.cacheWrite)}`)
+							? theme.fg("dim", `${strings.cacheLabel}${fmtTokens(totals.cacheWrite)}`)
 							: "";
 					right2.push(
-						theme.fg("success", `↓输出 ${fmtTokens(totals.output)}`) + cacheWritePart
+						theme.fg("success", `${strings.outputLabel}${fmtTokens(totals.output)}`) + cacheWritePart
 					);
 					if (hud.cacheHit && totals.cacheHitRate !== undefined) {
 						right2.push(
 							theme.fg(
 								cacheHitColor(totals.cacheHitRate),
-								`缓存命中 ${totals.cacheHitRate.toFixed(1)}%`
+								`${strings.hitLabel}${totals.cacheHitRate.toFixed(1)}%`
 							)
 						);
 					}
 				}
 				if (hud.compactions && compactions > 0) {
-				right2.push(theme.fg("muted", `压实 ${compactions}`));
+				right2.push(theme.fg("muted", `${strings.compactionLabel}${compactions}`));
 			}
 				if (hud.piVersion && piVer) right2.push(theme.fg("muted", piVer));
 				if (right2.length) {
@@ -590,7 +638,7 @@ export function installHudFooter(
 					const memFilled = Math.round((memPct / 100) * 10);
 					const fmtGB = (n: number) => `${(n / 1024 ** 3).toFixed(0)}G`;
 					memLine =
-						theme.fg("dim", "内存 ") +
+						theme.fg("dim", strings.memoryLabel) +
 						theme.fg(stressColor(memPct), "█".repeat(memFilled)) +
 						theme.fg("dim", "░".repeat(10 - memFilled)) +
 						theme.fg("muted", ` ${Math.floor(memPct)}%`) +
@@ -606,9 +654,9 @@ export function installHudFooter(
 					}
 					if (envInfo.skills > 0) parts.push(theme.fg("muted", `${envInfo.skills} skills`));
 					if (envInfo.extensions > 0) {
-						parts.push(theme.fg("muted", `${envInfo.extensions} 扩展`));
+						parts.push(theme.fg("muted", `${envInfo.extensions}${strings.extensionsLabel}`));
 					}
-					if (envInfo.packages > 0) parts.push(theme.fg("muted", `${envInfo.packages} 包`));
+					if (envInfo.packages > 0) parts.push(theme.fg("muted", `${envInfo.packages}${strings.packagesLabel}`));
 					if (envInfo.mcp > 0) parts.push(theme.fg("muted", `${envInfo.mcp} MCP`));
 					if (parts.length) envLine = parts.join(sep);
 				}

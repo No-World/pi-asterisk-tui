@@ -11,6 +11,7 @@ import type {
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/open-tui/config.ts";
 import { installClassicFooter as installFooter } from "../extensions/open-tui/footer-classic.ts";
+import { installHudFooter } from "../extensions/open-tui/footer-hud.ts";
 import { emptyGitStatus } from "../extensions/open-tui/git.ts";
 import { resolveGlyphs, runtimeSymbol } from "../extensions/open-tui/icons.ts";
 import { clearRuntimeCache, readRuntimeInfo } from "../extensions/open-tui/runtime.ts";
@@ -505,4 +506,68 @@ test("done segment summarizes thinking time and tool usage Claude-style", () => 
 	const mixed = component.render(120).join("\n").split("\n")[0]!;
 	assert.ok(mixed.includes("3 tools"), `generic tool wording missing\n${mixed}`);
 	assert.ok(!mixed.includes("✻"), `thinking marker should be absent when there was none\n${mixed}`);
+});
+
+test("hud labels follow the settings language", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => [],
+			getBranch: () => [],
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250, contextWindow: 1_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		runtime: null,
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	const cleanup = installHudFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	const hudTheme = { ...theme, underline: (text: string) => text } as Theme;
+	let component: Component | undefined;
+	try {
+		assert.ok(footerFactory);
+		const footerData = {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		} as unknown as ReadonlyFooterDataProvider;
+		component = footerFactory(
+			{ requestRender() {} } as TUI,
+			hudTheme,
+			footerData,
+		) as Component;
+
+		config.settingsLanguage = "en";
+		const en = component.render(120).join("\n");
+		assert.ok(en.includes("ctx "), `english context label missing\n${en}`);
+		assert.ok(!en.includes("上下文"), `chinese label leaked in english mode\n${en}`);
+
+		config.settingsLanguage = "zh";
+		const zh = component.render(120).join("\n");
+		assert.ok(zh.includes("上下文"), `chinese context label missing\n${zh}`);
+		assert.ok(!zh.includes("ctx "), `english label leaked in chinese mode\n${zh}`);
+	} finally {
+		cleanup();
+		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
+	}
 });
