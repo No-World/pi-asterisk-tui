@@ -490,7 +490,9 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 			continue;
 		}
 		if (isToolBox(current)) {
-			// Running tool joins the run and keeps it live.
+			// A running tool must not drag already-completed members into the
+			// live (expanded) render — fold them into their own line first.
+			if (runMembers.length > 0 && !runLive) flushRun();
 			runMembers.push({ kind: "tool", child: current });
 			runLive = true;
 			index++;
@@ -498,6 +500,10 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 		}
 		const kind = classify(current);
 		if (kind === "label") {
+			if ((current as { isStreaming?: unknown }).isStreaming === true && runMembers.length > 0 && !runLive) {
+				// Same for a streaming thinking message following completed work.
+				flushRun();
+			}
 			runMembers.push({ kind: "label", child: current });
 			if (runIsLive(runMembers)) runLive = true;
 			index++;

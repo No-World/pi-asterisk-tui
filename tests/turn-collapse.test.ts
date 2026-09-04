@@ -364,3 +364,29 @@ test("expanding a run also opens text-tail thinking in one click", () => {
 	assert.equal(tail.hideThinkingBlock, true, "collapse re-hides text-tail thinking");
 	setThinkingDurations(undefined);
 });
+
+test("a running tool does not expand the completed run before it", () => {
+	setTurnCollapseEnabled(true);
+	const done = makeBash("echo done");
+	const live = makeBash("echo live");
+	(live as { status?: string }).status = "running";
+	const container = makeContainer([makeUserMessage("go"), done, live]);
+	const lines = container.render(60);
+	const out = lines.join("\n");
+	assert.ok(out.includes("Ran 1 shell command"), `completed tool stays folded\n${out}`);
+	assert.ok(!out.includes("$ echo done"), `completed box hidden\n${out}`);
+	assert.ok(out.includes("bash · $ echo live"), `live line present\n${out}`);
+	assert.ok(out.includes("$ echo live"), `live box streams\n${out}`);
+});
+
+test("a streaming thinking message does not expand the completed run before it", () => {
+	setTurnCollapseEnabled(true);
+	const done = makeBash("echo done");
+	const streamingLabel = makeAssistant([" ✻ Thinking…"], true, true);
+	streamingLabel.lastMessage.content = [{ type: "thinking", thinking: "正在想" }];
+	const container = makeContainer([makeUserMessage("go"), done, streamingLabel]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("Ran 1 shell command"), `completed tool stays folded\n${out}`);
+	assert.ok(!out.includes("$ echo done"), `completed box hidden\n${out}`);
+	assert.ok(out.includes("✻ Thinking…"), `streaming label visible\n${out}`);
+});
