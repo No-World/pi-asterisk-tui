@@ -2,193 +2,101 @@
 
 **English** | [简体中文](./README.zh-CN.md)
 
-A Claude Code-style transcript experience for the [Pi](https://pi.dev) coding agent —
-everything the model does collapses into tidy `✻` lines you can click apart:
+A [Pi](https://pi.dev) terminal experience where everything the model does folds into tidy
+`✻` lines — Claude Code style.
 
-- `✻ Thought for 19s, searched for 9 patterns, listed 1 directory, ran 1 shell command`
-  — consecutive thinking and tool phases merge into one line; click to open the full
-  reasoning and tool output, click again to fold it back.
-- A [claude-hud](https://github.com/jarrodwatts/claude-hud) style 4-line footer: model +
-  thinking level, git state with diff stats, session name, agent working time, cost,
-  context bar, token stats, tool usage counts, and per-file diff.
-- Live turn telemetry on the working indicator (elapsed, streaming output tokens, tool
-  count), retry reasons on the retry countdown, and per-message thinking labels.
+![preview](assets/preview_dashboard_1.png)
 
 ```bash
 pi install git:github.com/No-World/pi-asterisk-tui
 ```
 
-![pi-asterisk-tui preview](assets/preview_dashboard_1.png)
+## The ✻ lines
 
-## Highlights
+The transcript renders as answer text plus one `✻` line per activity phase:
 
-- **Pi header** with model, thinking level, working directory, and useful slash-command hints
-- **Responsive footer** with Git state, detected runtime, context usage, token counts, cost, and extension status
-- **Framed editor** with block, bar, and underline cursor styles
-- **Project awareness** for 50+ runtimes and detailed Git states, including ahead/behind, staged, modified, untracked, stashed, and detached HEAD
-- **Turn telemetry** for TPS, time to first token (TTFT), duration, stalls, tokens, and list-price rate
-- **Compact Claude-style transcript**: hidden thinking shows as a one-line ✻ label — click it to expand that message's thinking inline in the fullscreen TUI (click again to collapse); the classic footer's done segment summarizes each turn (thinking time + tool count); the working indicator counts tools live. On first run the extension defaults pi's `hideThinkingBlock` to true (existing choices are kept); clicking requires `tuiMode: fullscreen`.
-- **Interactive settings** through `/open-tui`, available in English and Simplified Chinese
-- **Version-guarded Pi compatibility shim**: fullscreen wheel speed falls back to Pi's default if its runtime support changes
+```
+✻ Thought for 19s, searched for 9 patterns, listed 1 directory, ran 1 shell command
+```
+
+- Consecutive thinking blocks and tool calls **merge into one line** — verbs read like a
+  sentence (`ran 3 shell commands`, `edited 2 files`, `called playwright ×2`, with a
+  capitalized leading verb when no thinking precedes).
+- **Click the line** to open the full reasoning and every tool's bordered output at once;
+  click any member to fold it all back. No second taps: text-bearing messages' thinking
+  opens in the same click.
+- A **running** tool renders as an animated one-liner (`⠋ bash · $ npm test`) with the live
+  output streaming beneath it, and never drags completed neighbors out of their folded
+  lines.
+- History sessions fold the same way; thinking durations come from live telemetry, so
+  history turns read `✻ Thought, ran 1 shell command`.
+
+## Everything else
+
+- **HUD footer** (claude-hud style, 4 lines): model + thinking level, git state with diff
+  stats, session name, pure agent working time, cost, context bar, token stats with cache
+  hit rate, tool usage counts, and per-file diff — plus a classic starship-style preset.
+- **Working indicator telemetry**: `Working… (34s · ↓ 1.2k tokens · 3 tools)` — live token
+  counts estimated from the stream (exact on completion), tool count as they start.
+- **Turn telemetry** after each run: TPS, TTFT, duration, stalls, token breakdown, $/M rate.
+- **Retry UX**: the countdown carries the failure reason
+  (`Retrying (2/10) in 5s… · 429 rate_limit_error`); intermediate errors are held back and
+  only the last one prints if the run ultimately fails. A successful retry prints nothing.
+- Per-message thinking labels (`✻ Thought…` / `✻ Thinking…` while streaming), individually
+  clickable, styled identically to the run lines.
+- **Turn summary in the classic footer**: `✓ done 12s · ✻ 8s · 2 shell commands`.
+- Framed editor with block/bar/underline cursors, fullscreen wheel-scroll tuning, and a
+  bilingual `/open-tui` settings panel.
+- Compact transcript spacing: pi's internal spacer padding and OSC shell-integration
+  markers are folded away around ✻ lines.
 
 ## Requirements
 
-- Pi 0.80 or later
-- A terminal with UTF-8 and color support
-- A [Nerd Font](https://www.nerdfonts.com/font-downloads) for the full icon set (optional; ASCII icons are built in)
-- For click-to-expand thinking: Pi's fullscreen TUI — set `"tuiMode": "fullscreen"` in `~/.pi/agent/settings.json` (see below)
-
-## Click-to-expand thinking needs fullscreen mode
-
-Collapsing thinking to the ✻ label works in any TUI mode (`ctrl+t` toggles it), but **expanding a
-label by clicking requires Pi's fullscreen mode**. Pi only captures mouse events in the
-fullscreen TUI; in regular mode the terminal handles clicks itself (native text selection) and
-the extension never sees them — clicks on ✻ labels silently do nothing.
-
-To enable, either:
-
-- run `/settings` → **TUI mode** → `fullscreen` (applies immediately, no restart; close open
-  overlays first), or
-- set `"tuiMode": "fullscreen"` in `~/.pi/agent/settings.json` and restart Pi.
-
-Switching modes mid-session is fine: the click handler wraps the shared viewport prototype, so
-newly created fullscreen UIs pick it up right away. Note that fullscreen mode changes mouse
-behavior everywhere: dragging selects text with Pi's own selection highlight instead of the
-terminal's native selection, and the wheel scrolls the transcript viewport. Also make sure no
-multiplexer intercepts the mouse (e.g. tmux's `set -g mouse on` swallows clicks before Pi sees
-them).
-
-## Install
-
-Install the extension:
-
-```bash
-pi install git:github.com/No-World/pi-asterisk-tui
-```
-
-Or try it for one session:
-
-```bash
-pi -e git:github.com/No-World/pi-asterisk-tui
-```
-
-## Font and icons
-
-Download any patched font from the official [Nerd Fonts downloads page](https://www.nerdfonts.com/font-downloads) or [latest GitHub release](https://github.com/ryanoasis/nerd-fonts/releases/latest). Install it, select that font in your terminal profile, and restart the terminal.
-
-The default `auto` mode detects the terminal environment, not the installed font file. If icons appear as boxes or incorrect symbols, open `/open-tui` and choose one of these modes under **Appearance**:
-
-- `nerd`: force Nerd Font icons after configuring a Nerd Font in the terminal
-- `ascii`: use plain-text icons with no patched font required
-- `auto`: use Nerd Font icons in recognized terminals and ASCII elsewhere
-
-If the font is installed but `auto` still selects ASCII, choose `nerd` explicitly. In VS Code, Windows Terminal, and similar apps, configure the font in the terminal profile rather than only installing it in the operating system.
+- Pi 0.80+
+- UTF-8 terminal; a [Nerd Font](https://www.nerdfonts.com/font-downloads) for the full icon
+  set (ASCII icons are built in)
+- **Fullscreen TUI** (`/settings` → TUI mode, or `"tuiMode": "fullscreen"` in
+  `~/.pi/agent/settings.json`) for mouse interactions — click-to-expand needs pi's
+  fullscreen mouse capture. Everything else works in regular mode.
 
 ## Configuration
 
-Run `/open-tui` to open the settings dialog. It provides **General**, **Appearance**, **Footer**, and **Telemetry** tabs. Settings are stored in `~/.pi/agent/open-tui.json`:
+Run `/open-tui` for the settings panel (English / 简体中文), or edit
+`~/.pi/agent/open-tui.json`. Notable keys:
 
-```json
-{
-  "enabled": true,
-  "settingsLanguage": "en",
-  "cursorStyle": "block",
-  "fullscreen": {
-    "wheelScrollLines": 4
-  },
-  "icons": {
-    "mode": "auto"
-  },
-  "footerSegments": {
-    "cwd": true,
-    "sessionName": false,
-    "gitBranch": true,
-    "gitStatus": true,
-    "gitCommit": false,
-    "runtime": true,
-    "context": true,
-    "tokens": true,
-    "cost": true,
-    "extensionStatuses": true
-  },
-  "telemetry": {
-    "enabled": true,
-    "tps": true,
-    "ttft": true,
-    "duration": true,
-    "tokens": true,
-    "stalls": true,
-    "cost": true
-  }
-}
-```
-
-Key options:
-
-| Option | Values | Notes |
+| Key | Default | Effect |
 | --- | --- | --- |
-| `settingsLanguage` | `en`, `zh` | Changes the `/open-tui` interface language |
-| `cursorStyle` | `block`, `bar`, `underline` | `bar` and `underline` require terminal cursor-shape support |
-| `fullscreen.wheelScrollLines` | `1`-`10` | Lines scrolled per mouse-wheel notch in fullscreen mode; defaults to `4`. In `/open-tui`, press Enter on this item and type a number (values are clamped to `1`-`10`) |
-| `icons.mode` | `auto`, `nerd`, `ascii` | Controls footer and telemetry icons |
-| `footerSegments` | Boolean flags | Shows or hides individual footer data |
-| `telemetry` | Boolean flags | Enables telemetry and its individual measurements |
+| `footerStyle` | `"hud"` | `hud` / `classic` footer presets |
+| `turnCollapse` | `true` | ✻ run lines and tool grouping |
+| `telemetry.*` | on | working-indicator and post-turn telemetry fields |
+| `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
 
-`sessionName` appears only when the session has a name. `gitCommit` shows the short hash and tag in detached HEAD state. Disabling `extensionStatuses` hides the entire extension status line, including MCP status.
+Fresh installs default pi's `hideThinkingBlock` to `true` (existing choices are never
+overridden) so the ✻ experience works out of the box.
 
-Fullscreen wheel speed uses an isolated compatibility shim for Pi 0.84.2's runtime field because Pi does not yet expose a public setter. On Pi versions without a compatible field, the setting is ignored and Pi's default scrolling remains active.
+## How it works
 
-## Tool grouping (Claude Code style)
-
-There is no turn-level folding line. Instead the transcript reads like Claude Code:
-
-- Thinking collapses per message behind a clickable `✻ Thought…` label.
-- Consecutive completed tool calls collapse together into one clickable line:
-  `✻ ran 2 shell commands` for adjacent shells; groups separated by text each get
-  their own `✻ ran 1 shell command` / `✻ called playwright` line. Click a group line
-  to open those tools' full bordered output — the line itself is replaced by the boxes,
-  like thinking blocks — and click any box line to collapse back to the single line.
-- A running tool renders as an animated one-liner (`⠋ bash · $ echo hi`) with the live
-  box streaming below it.
-
-Disable grouping via `"turnCollapse": false` in the open-tui config. As with
-click-to-expand, this needs the fullscreen TUI.
-
-## Turn telemetry
-
-After each complete agent run, pi-asterisk-tui shows one transient result. Tool-call turns are combined into that result:
-
-```text
-> TPS 42.5 tok/s | ~ TTFT 1.2s | + 29.7s | ↑ 567 | ↓ 1.2k | ! stall 1x / 4.3s | $ $3.60/M
-```
-
-TPS is calculated from all provider-reported assistant output tokens divided by the total generation time across the run. Timing starts at `turn_start` and ends at the assistant `message_end`, so it includes TTFT, hidden reasoning, buffering, and stalls; tool execution between turns is excluded. Runs without output tokens or measurable generation time show `TPS —`.
-
-The `$ / M` value is the model's list-price rate from `usage.cost.total`, not the cumulative session cost shown in the footer. Every telemetry field can be toggled from the **Telemetry** tab.
+Everything is a runtime patch over pi's extension surface, version-guarded and inert on
+mismatch: the chat container's render is wrapped to re-chunk the transcript (containers,
+messages, tools are classified by content, not appearance), the fullscreen viewport's mouse
+input is intercepted to route clicks through per-render line segments, and pi-tui's loader
+messages carry retry reasons. No pi files are modified on disk.
 
 ## Local development
 
 ```bash
 npm install
-npm test
-npm run typecheck
+npm test && npm run typecheck
 pi -e .
 ```
 
 ## Acknowledgements
 
-This project originated as a fork of **[OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui)**
-and grew into an independent project; the original codebase's credits carry over. It also
-builds on several Pi community packages:
-
-- **[pi-haiku](https://github.com/nnocte/pi-haiku)** — two-line footer structure and working timer
-- **[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui)** — Pi logo frames and rounded editor border technique
-- **[pi-zentui](https://github.com/lmilojevicc/pi-zentui)** — Starship-style footer segments, runtime detection, session lifecycle, and settings UI pattern
-- **[pi-tps](https://github.com/monotykamary/pi-tps)** — turn timing, stall detection, and conservative TPS measurement
-
-The logo frames are derived from Pi's official install script (`pi.dev/install.sh`). Runtime detection and Git porcelain parsing borrow structure from `pi-zentui`.
-
+- **[OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui)** — this project began as
+  a fork of it; the original integration work and its credits carry over.
+- **[claude-hud](https://github.com/jarrodwatts/claude-hud)** — the HUD footer layout.
+- **[pi-haiku](https://github.com/nnocte/pi-haiku)** — footer structure and working timer.
 
 ## License
 
-[MIT](./LICENSE)
+MIT
