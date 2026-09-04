@@ -1,0 +1,58 @@
+# PR checks — the hard gate for every change reaching main (docs/adrs/0002).
+#
+# Runs on every pull_request (including description edits — the issue-binding
+# check reads the PR body, which `synchronize` does not cover) and on pushes
+# to main as belt-and-braces. The lane is exactly `npm test && npm run
+# typecheck`: npm test already chains the mechanical doc gates
+# (scripts/check-docs.mjs), so local and CI share one checklist.
+
+name: PR checks (test + typecheck + doc gates)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: npm test + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+
+  # PR↔issue binding gate (AgentCloudCity ADR-0034 practice): the PR body must
+  # declare Closes/Fixes/Resolves/Refs #N, or an explicit No-Issue escape hatch.
+  # Only meaningful for pull_request events — skipped on pushes to main.
+  pr-issue-link:
+    name: PR issue binding declaration
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require Closes #N / Refs #N / No-Issue
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -eu
+          body="${PR_BODY:-}"
+          if printf '%s' "$body" | grep -qiE '(closes|fixes|resolves|refs) #[0-9]+' \
+             || printf '%s' "$body" | grep -qi 'no-issue:'; then
+            echo "issue binding declaration found"
+          else
+            echo "::error::PR body must contain one of: Closes #N / Fixes #N / Resolves #N / Refs #N / No-Issue: <reason>"
+            exit 1
+          fi
