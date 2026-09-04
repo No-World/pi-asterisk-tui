@@ -381,7 +381,12 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 	const flushRun = (): void => {
 		if (runMembers.length === 0) return;
 		const head = (runMembers[0]!.child as object);
-		if (enabled && !runLive) {
+		const tools = runMembers.filter((member) => member.kind === "tool");
+		const thinkingMs = runMembers.reduce((sum, member) => {
+			if (member.kind === "tool") return sum;
+			return sum + ((member.child as { __openTuiThinkingMs?: number }).__openTuiThinkingMs ?? 0);
+		}, 0);
+		if (enabled && !runLive && !(tools.length === 0 && thinkingMs < 1000)) {
 			if (expandedRuns.has(head)) {
 				for (const member of runMembers) {
 					runMembership.set(member.child as object, head);
@@ -394,6 +399,13 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 				for (const member of runMembers) {
 					if (member.kind === "text-tail") renderTextTail(member.child);
 				}
+			}
+		} else if (enabled && !runLive) {
+			// Label-only run without duration data: nothing to summarize —
+			// render the labels as ordinary clickable lines.
+			for (const member of runMembers) {
+				if (member.kind === "text-tail") renderTextTail(member.child);
+				else walk.renderChild(member.child);
 			}
 		} else {
 			for (const member of runMembers) {
@@ -458,8 +470,10 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 			safeRender(current as Child, width).some((line) => !isBlankLine(line) && line.includes("✻"))
 		) {
 			// Text message with a leading thinking label: the label joins the
-			// open run (duration included), the text renders after the run.
+			// open run (duration included) and the run CLOSES here — the text
+			// is a visible boundary; later tools start a fresh run.
 			runMembers.push({ kind: "text-tail", child: current });
+			flushRun();
 			index++;
 			continue;
 		}

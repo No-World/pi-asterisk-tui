@@ -128,7 +128,7 @@ test("a text message's leading label merges into the open run", () => {
 	setThinkingDurations(undefined);
 });
 
-test("full iteration chain: text → tools → labeled text → labeled text", () => {
+test("text closes the run: later tools start a fresh one", () => {
 	setTurnCollapseEnabled(true);
 	setThinkingDurations([0, 3_000, 5_000]);
 	const msgA = makeTextMessage("先确认：");
@@ -140,17 +140,31 @@ test("full iteration chain: text → tools → labeled text → labeled text", (
 		makeBash("echo one"),
 		makeBash("echo two"),
 		msgB,
+		makeBash("echo three"),
 		msgC,
 	]);
 	const lines = container.render(60);
-	for (const l of lines) {
-		if (l.trim()) console.log("LINE:", JSON.stringify(l.slice(0, 60)));
-	}
 	const out = lines.join("\n");
 	assert.ok(out.includes("先确认："), `msgA text\n${out}`);
-	assert.ok(out.includes("完成 ✅ 结果A"), `msgB text\n${out}`);
-	assert.ok(out.includes("以及 结果B"), `msgC text\n${out}`);
-	assert.ok(out.includes("Thought for 8s"), `durations merged into one run\n${out}`);
+	const firstRun = lines.find((l) => l.includes("Thought for 3s"));
+	assert.ok(firstRun, `msgB's label joins the first run\n${out}`);
+	assert.ok(firstRun!.includes("ran 2 shell commands"), `first run holds the adjacent tools\n${out}`);
+	assert.ok(out.includes("完成 ✅ 结果A"), `msgB text follows\n${out}`);
+	const secondRun = lines.find((l) => l.includes("Thought for 5s"));
+	assert.ok(secondRun, `msgC's label starts its own run\n${out}`);
+	assert.ok(secondRun!.includes("ran 1 shell command"), `second run holds only its own tool\n${out}`);
+	assert.ok(!out.includes("ran 3 shell"), `no cross-text merging\n${out}`);
+});
+
+test("label-only runs without durations render as plain labels", () => {
+	setTurnCollapseEnabled(true);
+	setThinkingDurations(undefined);
+	const container = makeContainer([makeUserMessage("go"), makeLabelMessage(), makeTextMessage("回答")]);
+	const lines = container.render(60);
+	const out = lines.join("\n");
+	assert.ok(out.includes("✻ Thought…"), `plain label line\n${out}`);
+	assert.ok(!out.includes("worked"), `no garbage summary line\n${out}`);
+	assert.ok(out.includes("回答"), `text renders\n${out}`);
 });
 
 test("text message without a label flushes the run before rendering", () => {
