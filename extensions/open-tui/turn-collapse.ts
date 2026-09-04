@@ -372,6 +372,18 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 		if (thinkingMs >= 1000) parts.push(`Thought for ${formatDuration(thinkingMs)}`);
 		else if (hasThinking) parts.push("Thought");
 		parts.push(...summarizeTools(tools));
+		if (DEBUG_LOG) {
+			const detail = members
+				.map((member) => {
+					if (member.kind === "tool") return "tool";
+					const msg = (member.child as { lastMessage?: { content?: Array<{ type?: string; thinking?: string }> } }).lastMessage;
+					const real = Array.isArray(msg?.content) &&
+						msg!.content!.some((block) => block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim().length > 0);
+					return `${member.kind}:${real === true ? "real-thinking" : "NO-THINKING"}`;
+				})
+				.join(" ");
+			debug(`runline hasThinking=${hasThinking} [${detail}]`);
+		}
 		const joined = parts.length > 0 ? parts.join(", ") : "worked";
 		// Leading verb phrases capitalize; mid-sentence phrases stay lowercase.
 		const text = joined.charAt(0).toUpperCase() + joined.slice(1);

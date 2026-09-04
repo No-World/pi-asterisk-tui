@@ -263,6 +263,9 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_start", (event, ctx) => {
 		turnTelemetry.handle(event);
+		// Drop the previous run's per-message durations while streaming —
+		// ordinals no longer line up until the new run settles.
+		setThinkingDurations(undefined);
 		if (!sessionLifecycle.isCurrent()) return;
 		state.workingSince = Date.now();
 		state.lastDoneIn = undefined;
