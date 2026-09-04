@@ -2,13 +2,11 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { GitStatus } from "./git.ts";
 import { emptyGitStatus } from "./git.ts";
-import type { RuntimeInfo } from "./runtime.ts";
 import type { TurnSummary } from "./telemetry.ts";
 import { finiteOrZero, fmtTokens, formatProviderLabel } from "./utils.ts";
 
 export interface FooterState {
 	git: GitStatus;
-	runtime: RuntimeInfo | null;
 	sessionStartEpoch: number;
 	workingSince: number | undefined;
 	lastDoneIn: number | undefined;
@@ -79,7 +77,6 @@ export function invalidateUsageCache(): void {
 export function createInitialState(): FooterState {
 	return {
 		git: emptyGitStatus(),
-		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,

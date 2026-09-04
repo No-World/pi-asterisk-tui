@@ -2,9 +2,8 @@ import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-cod
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { OpenTuiConfig } from "./config.ts";
 import type { IconGlyphs } from "./icons.ts";
-import { resolveGlyphs, resolveIconMode, runtimeSymbol } from "./icons.ts";
+import { resolveGlyphs, resolveIconMode } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
-import type { RuntimeInfo } from "./runtime.ts";
 import {
 	alignRight,
 	basenamePath,
@@ -101,18 +100,6 @@ function renderGitSegment(
 	}
 
 	return parts.join(" ");
-}
-
-function renderRuntimeSegment(
-	theme: Theme,
-	runtime: RuntimeInfo | null,
-	iconMode: OpenTuiConfig["icons"]["mode"],
-): string {
-	if (!runtime) return "";
-	const symbol = theme.fg("success", runtimeSymbol(runtime.name, iconMode));
-	const version = runtime.version ? theme.fg("muted", runtime.version) : "";
-	const label = [symbol, version].filter(Boolean).join(" ");
-	return label;
 }
 
 function renderTimerSegment(theme: Theme, state: FooterState, glyphs: IconGlyphs): string {
@@ -272,10 +259,6 @@ export function installClassicFooter(
 				}
 				const gitSeg = renderGitSegment(theme, state.git, glyphs, segments);
 				if (gitSeg) leftParts.push({ text: gitSeg, priority: 3 });
-				if (segments.runtime) {
-					const runtimeSeg = renderRuntimeSegment(theme, state.runtime, config.icons.mode);
-					if (runtimeSeg) leftParts.push({ text: runtimeSeg, priority: 4 });
-				}
 				const timerSeg = renderTimerSegment(theme, state, glyphs);
 				if (timerSeg) leftParts.push({ text: timerSeg, priority: 1 });
 
@@ -292,7 +275,7 @@ export function installClassicFooter(
 				}
 				const allParts: PrioritizedSegment[] = [...leftParts];
 				if (contextText) {
-					// ponytail: priority 4 = sheds with runtime, before git/timer/cwd.
+					// ponytail: priority 4 sheds before git/timer/cwd.
 					allParts.push({ text: contextText, compactText: contextCompact, priority: 4 });
 				}
 

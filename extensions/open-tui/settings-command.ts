@@ -42,7 +42,7 @@ const COPY = {
 			gitBranch: "Git branch",
 			gitStatus: "Git status",
 			gitCommit: "Git commit (detached)",
-			runtime: "Runtime",
+
 			context: "Context bar",
 			tokens: "Tokens",
 			cost: "Cost",
@@ -112,7 +112,7 @@ const COPY = {
 			gitBranch: "Git 分支",
 			gitStatus: "Git 状态",
 			gitCommit: "Git 提交（分离 HEAD）",
-			runtime: "运行环境",
+
 			context: "上下文栏",
 			tokens: "Token",
 			cost: "费用",
@@ -289,7 +289,7 @@ const HUD_TOGGLE_ITEMS: Array<{ id: string; key: keyof HudConfig; label: string 
 	{ id: "contextBar", key: "contextBar", label: "hudContextBar" },
 	{ id: "contextPercent", key: "contextPercent", label: "hudContextPercent" },
 	{ id: "contextTokens", key: "contextTokens", label: "hudContextTokens" },
-	{ id: "runtime", key: "runtime", label: "hudRuntime" },
+
 	{ id: "tokens", key: "tokens", label: "hudTokens" },
 	{ id: "tokenBreakdown", key: "tokenBreakdown", label: "hudTokenBreakdown" },
 	{ id: "cacheHit", key: "cacheHit", label: "hudCacheHit" },
@@ -325,7 +325,7 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			{ id: "gitBranch", label: copy.labels.gitBranch, currentValue: flag(segs.gitBranch) },
 			{ id: "gitStatus", label: copy.labels.gitStatus, currentValue: flag(segs.gitStatus) },
 			{ id: "gitCommit", label: copy.labels.gitCommit, currentValue: flag(segs.gitCommit) },
-			{ id: "runtime", label: copy.labels.runtime, currentValue: flag(segs.runtime) },
+
 			{ id: "context", label: copy.labels.context, currentValue: flag(segs.context) },
 			{ id: "tokens", label: copy.labels.tokens, currentValue: flag(segs.tokens) },
 			{ id: "cost", label: copy.labels.cost, currentValue: flag(segs.cost) },

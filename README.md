@@ -55,8 +55,8 @@ A claude-hud style four-line dashboard (a starship-style classic preset is also 
    cumulative working time, cost, today's cost, live output speed (tok/s).
 2. **Context line** — usage bar with percent and token counts, cache hit rate.
 3. **Tools line** — per-tool usage counts with ✓, running tool labels.
-4. **Environment line** — detected runtime + version, MCP server count (only when
-   pi-mcp-adapter is actually installed), memory usage, compaction count, pi version.
+4. **Environment line** — MCP server count (only when pi-mcp-adapter is actually
+   installed), memory usage, compaction count, pi version.
 
 Plus: OSC 8 hyperlinks on the working directory and changed files (click to open),
 powerline-styled git segment, ahead/behind indicators, and full subdirectory git detection

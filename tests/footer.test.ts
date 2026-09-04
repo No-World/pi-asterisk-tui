@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import test from "node:test";
 import type {
 	ExtensionContext,
@@ -13,8 +10,7 @@ import { DEFAULT_CONFIG } from "../extensions/open-tui/config.ts";
 import { installClassicFooter as installFooter } from "../extensions/open-tui/footer-classic.ts";
 import { installHudFooter } from "../extensions/open-tui/footer-hud.ts";
 import { emptyGitStatus } from "../extensions/open-tui/git.ts";
-import { resolveGlyphs, runtimeSymbol } from "../extensions/open-tui/icons.ts";
-import { clearRuntimeCache, readRuntimeInfo } from "../extensions/open-tui/runtime.ts";
+import { resolveGlyphs } from "../extensions/open-tui/icons.ts";
 import { getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/open-tui/state.ts";
 import { fitSegmentsByPriority, truncateBranch, truncatePath } from "../extensions/open-tui/utils.ts";
 
@@ -46,7 +42,7 @@ test("footer compacts cwd before truncating lower-priority segments", () => {
 	);
 });
 
-test("narrow footer keeps the cwd basename and drops runtime first", () => {
+test("narrow footer keeps the cwd basename", () => {
 	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
 	const ctx = {
 		model: { provider: "openai", contextWindow: 1_000 },
@@ -66,7 +62,6 @@ test("narrow footer keeps the cwd basename and drops runtime first", () => {
 	config.icons.mode = "ascii";
 	const state: FooterState = {
 		git: { ...emptyGitStatus(), branch: "main" },
-		runtime: { name: "nodejs", version: "24.6.0" },
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
@@ -90,7 +85,7 @@ test("narrow footer keeps the cwd basename and drops runtime first", () => {
 		theme,
 		footerData,
 	) as Component;
-	// Width 59: the full cwd does not fit alongside git+runtime+context bar.
+	// Width 59: the full cwd does not fit alongside git+context bar.
 	// The footer compacts the cwd to its basename before dropping segments.
 	const out = component.render(59).join("\n");
 	assert.ok(out.includes("pi-o"), `cwd basename prefix missing\n${out}`);
@@ -117,7 +112,6 @@ test("narrow footer sheds the context bar before left segments", () => {
 	config.icons.mode = "ascii";
 	const state: FooterState = {
 		git: { ...emptyGitStatus(), branch: "main" },
-		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
@@ -184,35 +178,7 @@ test("both icon modes provide every footer semantic", () => {
 	}
 });
 
-test("uses the official Nerd Font runtime symbols", () => {
-	assert.equal(runtimeSymbol("nodejs", "nerd"), "\uE718");
-	assert.equal(runtimeSymbol("bun", "nerd"), "\uE76F");
-	assert.equal(runtimeSymbol("bun", "ascii"), "bun");
-});
 
-test("prefers Bun lockfiles while preserving the Node fallback", async () => {
-	const cwd = mkdtempSync(join(tmpdir(), "open-tui-runtime-"));
-	try {
-		writeFileSync(join(cwd, "package.json"), "{}");
-		assert.equal((await readRuntimeInfo(cwd))?.name, "nodejs");
-
-		writeFileSync(join(cwd, "package-lock.json"), "{}");
-		assert.equal((await readRuntimeInfo(cwd))?.name, "nodejs");
-
-		writeFileSync(join(cwd, "bun.lock"), "");
-		assert.equal((await readRuntimeInfo(cwd))?.name, "bun");
-
-		rmSync(join(cwd, "bun.lock"));
-		writeFileSync(join(cwd, "bun.lockb"), "");
-		assert.equal((await readRuntimeInfo(cwd))?.name, "bun");
-
-		rmSync(join(cwd, "bun.lockb"));
-		assert.equal((await readRuntimeInfo(cwd))?.name, "nodejs");
-	} finally {
-		clearRuntimeCache();
-		rmSync(cwd, { recursive: true, force: true });
-	}
-});
 
 test("normalizes invalid usage totals", () => {
 	const usage = {
@@ -293,7 +259,6 @@ test("ASCII footer renders icons as semantic labels", () => {
 	config.icons.mode = "ascii";
 	const state: FooterState = {
 		git: { ...emptyGitStatus(), branch: "main", modified: 2 },
-		runtime: { name: "nodejs", version: "24.6.0" },
 		sessionStartEpoch: Date.now(),
 		workingSince: Date.now() - 2_000,
 		lastDoneIn: undefined,
@@ -329,7 +294,6 @@ test("ASCII footer renders icons as semantic labels", () => {
 		"@",
 		"* main",
 		"!2",
-		"node 24.6.0",
 		"o working",
 		"#",
 		"M",
@@ -384,7 +348,6 @@ function renderFooterWithSession(opts: {
 	config.footerSegments.sessionName = sessionNameEnabled;
 	const state: FooterState = {
 		git: emptyGitStatus(),
-		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,
@@ -461,7 +424,6 @@ test("done segment summarizes thinking time and tool usage Claude-style", () => 
 	config.icons.mode = "ascii";
 	const state: FooterState = {
 		git: emptyGitStatus(),
-		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: 12_000,
@@ -529,7 +491,6 @@ test("hud labels follow the settings language", () => {
 	config.icons.mode = "ascii";
 	const state: FooterState = {
 		git: { ...emptyGitStatus(), branch: "main" },
-		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastDoneIn: undefined,

@@ -15,9 +15,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OpenTuiConfig, HudConfig, SettingsLanguage } from "./config.ts";
-import { runtimeSymbol, type IconGlyphs, resolveGlyphs } from "./icons.ts";
+import { type IconGlyphs, resolveGlyphs } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
-import type { RuntimeInfo } from "./runtime.ts";
 import {
 	alignRight,
 	basenamePath,
@@ -585,17 +584,10 @@ export function installHudFooter(
 				}
 				const line1 = alignRight(left1.join(sep), right1.join(sep), width, theme);
 
-				// ---- line 2: context bar … runtime │ cache-hit │ tokens ----
+				// ---- line 2: context bar … cache-hit │ tokens ----
 				let line2 = "";
 				if (hud.contextBar) line2 = renderContextBar(theme, ctx, hud, strings);
 				const right2: string[] = [];
-				if (hud.runtime && state.runtime) {
-					const rt: RuntimeInfo = state.runtime;
-					const sym = runtimeSymbol(rt.name, config.icons.mode);
-					right2.push(
-						theme.fg("success", sym) + theme.fg("muted", rt.version ? ` ${rt.version}` : "")
-					);
-				}
 				if (hud.tokens) {
 					const cachedPart =
 						hud.tokenBreakdown && totals.cacheRead > 0

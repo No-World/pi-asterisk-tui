@@ -30,7 +30,7 @@ export interface HudConfig {
 	contextBar: boolean;
 	contextPercent: boolean;
 	contextTokens: boolean;
-	runtime: boolean;
+
 	tokens: boolean;
 	tokenBreakdown: boolean;
 	cacheHit: boolean;
@@ -65,7 +65,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	contextBar: true,
 	contextPercent: true,
 	contextTokens: true,
-	runtime: true,
+
 	tokens: true,
 	tokenBreakdown: true,
 	cacheHit: true,
@@ -95,7 +95,7 @@ export interface FooterSegments {
 	gitBranch: boolean;
 	gitStatus: boolean;
 	gitCommit: boolean;
-	runtime: boolean;
+
 	context: boolean;
 	tokens: boolean;
 	cost: boolean;
@@ -153,7 +153,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		gitBranch: true,
 		gitStatus: true,
 		gitCommit: false,
-		runtime: true,
+
 		context: true,
 		tokens: true,
 		cost: true,

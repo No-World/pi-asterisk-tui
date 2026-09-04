@@ -12,7 +12,6 @@ import { installEditor } from "./editor.ts";
 import { installFooter } from "./footer.ts";
 import { installHeader } from "./header.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
-import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
 import { installThinkingClickExpand } from "./thinking-click.ts";
@@ -142,21 +141,10 @@ export default function (pi: ExtensionAPI) {
 		requestFooterRender?.();
 	};
 
-	const refreshRuntime = async (ctx: ExtensionContext) => {
-		if (!sessionLifecycle.isCurrent()) return;
-		const generation = sessionLifecycle.currentGeneration();
-		const cwd = ctx.cwd;
-		const runtime = await readRuntimeInfo(cwd);
-		if (!sessionLifecycle.isCurrent(generation)) return;
-		state.runtime = runtime;
-		requestFooterRender?.();
-	};
-
 	const refreshInteractiveState = (ctx: ExtensionContext, project = false) => {
 		if (!sessionLifecycle.isCurrent() || !ctx.hasUI) return;
 		if (project) {
 			void scheduleGitRefresh(ctx);
-			void refreshRuntime(ctx);
 		}
 		requestFooterRender?.();
 	};
