@@ -156,15 +156,42 @@ test("text closes the run: later tools start a fresh one", () => {
 	assert.ok(!out.includes("ran 3 shell"), `no cross-text merging\n${out}`);
 });
 
-test("label-only runs without durations render as plain labels", () => {
+test("label-only runs without durations show a bare Thought line", () => {
 	setTurnCollapseEnabled(true);
 	setThinkingDurations(undefined);
 	const container = makeContainer([makeUserMessage("go"), makeLabelMessage(), makeTextMessage("回答")]);
 	const lines = container.render(60);
 	const out = lines.join("\n");
-	assert.ok(out.includes("✻ Thought…"), `plain label line\n${out}`);
+	const runLine = lines.find((l) => l.includes("✻ Thought") && !l.includes("…"));
+	assert.ok(runLine, `bare Thought run line\n${out}`);
 	assert.ok(!out.includes("worked"), `no garbage summary line\n${out}`);
 	assert.ok(out.includes("回答"), `text renders\n${out}`);
+});
+
+test("expanding a run opens thinking and tools together", () => {
+	setTurnCollapseEnabled(true);
+	setThinkingDurations([4_000]);
+	const labelMsg = makeLabelMessage();
+	const container = makeContainer([makeUserMessage("go"), labelMsg, makeBash("echo hi")]);
+	const lines = container.render(60);
+	const runIndex = lines.findIndex((l) => l.includes("Thought for 4s"));
+	assert.ok(runIndex >= 0, "run line exists");
+	assert.equal(labelMsg.hideThinkingBlock, true, "collapsed: thinking hidden");
+
+	assert.equal(handleToolLineClick(runIndex, lines[runIndex]!), true);
+	container.render(60);
+	assert.equal(labelMsg.hideThinkingBlock, false, "expanded: thinking shown");
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("$ echo hi"), `tools shown\n${out}`);
+
+	// collapse again: thinking re-hides
+	const lines2 = container.render(60);
+	const boxIdx = lines2.findIndex((l) => l.includes("$ echo hi"));
+	assert.equal(handleToolLineClick(boxIdx, lines2[boxIdx]!), true);
+	container.render(60);
+	assert.equal(labelMsg.hideThinkingBlock, true, "re-collapsed: thinking hidden");
+	assert.ok(container.render(60).join("\n").includes("Thought for 4s"), "run line back");
+	setThinkingDurations(undefined);
 });
 
 test("text message without a label flushes the run before rendering", () => {

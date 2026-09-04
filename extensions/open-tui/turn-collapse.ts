@@ -366,9 +366,11 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 			if (member.kind === "tool") return sum;
 			return sum + ((member.child as { __openTuiThinkingMs?: number }).__openTuiThinkingMs ?? 0);
 		}, 0);
+		const hasThinking = members.some((member) => member.kind !== "tool");
 		const tools = members.filter((member) => member.kind === "tool").map((member) => member.child);
 		const parts: string[] = [];
 		if (thinkingMs >= 1000) parts.push(`Thought for ${formatDuration(thinkingMs)}`);
+		else if (hasThinking) parts.push("Thought");
 		parts.push(...summarizeTools(tools));
 		const text = parts.length > 0 ? parts.join(", ") : "worked";
 		return ` ${fg("accent", "✻")} ${fg("muted", text)}`;
@@ -382,21 +384,30 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 		if (runMembers.length === 0) return;
 		const head = (runMembers[0]!.child as object);
 		const tools = runMembers.filter((member) => member.kind === "tool");
+		const hasThinking = runMembers.some((member) => member.kind !== "tool");
 		const thinkingMs = runMembers.reduce((sum, member) => {
 			if (member.kind === "tool") return sum;
 			return sum + ((member.child as { __openTuiThinkingMs?: number }).__openTuiThinkingMs ?? 0);
 		}, 0);
-		if (enabled && !runLive && !(tools.length === 0 && thinkingMs < 1000)) {
+		if (enabled && !runLive && !(tools.length === 0 && thinkingMs < 1000 && !hasThinking)) {
 			if (expandedRuns.has(head)) {
 				for (const member of runMembers) {
 					runMembership.set(member.child as object, head);
-					if (member.kind === "text-tail") renderTextTail(member.child);
-					else walk.renderChild(member.child);
+					if (member.kind === "label") {
+						// Expand the thinking along with the tools.
+						if ((member.child as AssistantLike).hideThinkingBlock !== false) {
+							(member.child as AssistantLike).setHideThinkingBlock(false);
+						}
+					}
+					walk.renderChild(member.child);
 				}
 			} else {
 				collapsedRunHeads.add(head);
 				walk.pushChild(head, [renderRunLine(runMembers)]);
 				for (const member of runMembers) {
+					if (member.kind === "label" && (member.child as AssistantLike).hideThinkingBlock !== true) {
+						(member.child as AssistantLike).setHideThinkingBlock(true);
+					}
 					if (member.kind === "text-tail") renderTextTail(member.child);
 				}
 			}
