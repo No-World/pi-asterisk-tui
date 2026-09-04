@@ -328,17 +328,28 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 		return lines.length === 0 || lines.every((line) => isBlankLine(line));
 	};
 
-	// Classify assistant messages: label-only (run member), empty (transparent),
-	// or text-bearing (ends a run). Tracks the telemetry ordinal per message.
+	// Classify assistant messages by CONTENT, not by what they currently
+	// render: expanding a run flips hideThinkingBlock, which would otherwise
+	// re-classify label members as text on the next frame, rebuild the runs,
+	// and self-destruct the expanded state.
 	const classify = (child: unknown): "label" | "transparent" | "text" | "other" => {
 		if (!isAssistantMessage(child)) return "other";
 		const ordinal = assistantOrdinal++;
-		const lines = safeRender(child as Child, width).filter((line) => !isBlankLine(line));
-		if (lines.length === 0) return "transparent";
 		const duration = thinkingDurations?.[ordinal] ?? 0;
 		(child as { __openTuiThinkingMs?: number }).__openTuiThinkingMs = duration;
-		if (lines.length === 1 && lines[0]!.includes("✻")) return "label";
-		return "text";
+		const content = (child as { lastMessage?: { content?: Array<{ type?: string; text?: string; thinking?: string }> } })
+			.lastMessage?.content;
+		if (!Array.isArray(content)) return "transparent";
+		const hasText = content.some(
+			(block) => block?.type === "text" && typeof block.text === "string" && block.text.trim().length > 0,
+		);
+		const hasThinking = content.some(
+			(block) => block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim().length > 0,
+		);
+		(child as { __openTuiHasThinking?: boolean }).__openTuiHasThinking = hasThinking;
+		if (hasText) return "text";
+		if (hasThinking) return "label";
+		return "transparent";
 	};
 
 	/** Render a text message minus its leading ✻ label lines (absorbed run). */
@@ -488,12 +499,7 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 			index++;
 			continue;
 		}
-		if (
-			kind === "text" &&
-			runMembers.length > 0 &&
-			!runLive &&
-			safeRender(current as Child, width).some((line) => !isBlankLine(line) && line.includes("✻"))
-		) {
+		if (kind === "text" && runMembers.length > 0 && !runLive && (current as { __openTuiHasThinking?: boolean }).__openTuiHasThinking === true) {
 			// Text message with a leading thinking label: the label joins the
 			// open run (duration included) and the run CLOSES here — the text
 			// is a visible boundary; later tools start a fresh run.

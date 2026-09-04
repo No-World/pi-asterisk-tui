@@ -21,15 +21,27 @@ function makeUserMessage(text: string): Child & { text: string; rebuild(): void 
 	};
 }
 
+interface ContentBlock {
+	type: string;
+	text?: string;
+	thinking?: string;
+}
+
 interface AssistantChild extends Child {
 	hideThinkingBlock: boolean;
 	setHideThinkingBlock(hide: boolean): void;
 	isStreaming?: boolean;
 	hiddenThinkingLabel?: string;
 	setHiddenThinkingLabel?(label: string): void;
+	lastMessage: { content: ContentBlock[] };
 }
 
 function makeAssistant(lines: string[], hideThinking: boolean, streaming = false): AssistantChild {
+	const hasThinking = lines.some((line) => line.includes("✻"));
+	const textBody = lines.filter((line) => !line.includes("✻")).join(" ").trim();
+	const content: ContentBlock[] = [];
+	if (hasThinking) content.push({ type: "thinking", thinking: "想了很多" });
+	if (textBody) content.push({ type: "text", text: textBody });
 	const assistant: AssistantChild = {
 		hideThinkingBlock: hideThinking,
 		setHideThinkingBlock(hide: boolean) {
@@ -37,6 +49,7 @@ function makeAssistant(lines: string[], hideThinking: boolean, streaming = false
 		},
 		isStreaming: streaming,
 		hiddenThinkingLabel: "✻ Thought…",
+		lastMessage: { content },
 		children: [],
 		render: (width: number) => ["", ...lines.map((line) => line.padEnd(width))],
 	};
@@ -306,4 +319,23 @@ test("tool-first run lines capitalize the leading verb", () => {
 	const runLine = lines.find((l) => l.includes("Ran 1 shell command"));
 	assert.ok(runLine, `capitalized leading verb\n${lines.join("\n")}`);
 	assert.ok(!lines.join("\n").includes("✻ ran"), `no lowercase lead\n${lines.join("\n")}`);
+});
+
+test("expanded runs stay expanded across re-renders", () => {
+	setTurnCollapseEnabled(true);
+	setThinkingDurations([4_000]);
+	const labelMsg = makeLabelMessage();
+	const container = makeContainer([makeUserMessage("go"), labelMsg, makeBash("echo hi")]);
+	const lines = container.render(60);
+	const runIndex = lines.findIndex((l) => l.includes("Thought for 4s"));
+	assert.ok(runIndex >= 0, "run line exists");
+	handleToolLineClick(runIndex, lines[runIndex]!);
+
+	// Re-render many times: the run must NOT collapse back on its own.
+	for (let frame = 0; frame < 5; frame++) {
+		const out = container.render(60).join("\n");
+		assert.ok(out.includes("$ echo hi"), `frame ${frame}: tools stay expanded\n${out}`);
+		assert.equal(labelMsg.hideThinkingBlock, false, `frame ${frame}: thinking stays expanded`);
+	}
+	setThinkingDurations(undefined);
 });
