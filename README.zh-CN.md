@@ -179,7 +179,6 @@ pi -e .
 
 Logo 帧源自 Pi 官方安装脚本（`pi.dev/install.sh`）。运行环境检测和 Git porcelain 解析借鉴了 `pi-zentui` 的结构。
 
-特别感谢 **[LINUX DO](https://linux.do)** 社区的支持。
 
 ## 许可证
 

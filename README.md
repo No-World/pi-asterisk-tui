@@ -188,7 +188,6 @@ builds on several Pi community packages:
 
 The logo frames are derived from Pi's official install script (`pi.dev/install.sh`). Runtime detection and Git porcelain parsing borrow structure from `pi-zentui`.
 
-Special thanks to the **[LINUX DO](https://linux.do)** community for its support.
 
 ## License
 
