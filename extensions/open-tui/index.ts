@@ -7,6 +7,7 @@ import {
 	setThinkingDurations,
 	setTurnCollapseEnabled,
 	setTurnCollapseTheme,
+	uninstallTurnCollapse,
 } from "./turn-collapse.ts";
 import { installEditor } from "./editor.ts";
 import { installFooter } from "./footer.ts";
@@ -99,12 +100,23 @@ export default function (pi: ExtensionAPI) {
 				},
 			);
 			editor = installEditor(pi, ctx, config.cursorStyle, config.fullscreen.wheelScrollLines);
+			// Re-enabled mid-session: the collapse/click patches install here too
+			// (session_start only covers fresh sessions).
+			if (!cleanupThinkingClick) cleanupThinkingClick = installThinkingClickExpand();
+			if (!cleanupTurnCollapse) {
+				setTurnCollapseTheme(ctx.ui.theme);
+				cleanupTurnCollapse = installTurnCollapse();
+			}
 			active = true;
 		}
 	};
 
 	const uninstallUi = (ctx: ExtensionContext) => {
 		if (!isTuiContext(ctx)) return;
+		// Cross-instance safety net: even when this instance never installed
+		// the collapse patch (e.g. enabled=false at startup, then /reload), a
+		// previous instance's container patch must be torn down too.
+		uninstallTurnCollapse();
 		if (active) {
 			cleanupHeader?.();
 			cleanupFooter?.();

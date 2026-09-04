@@ -7,6 +7,7 @@ import {
 	summarizeErrorLines,
 	handleToolLineClick,
 	attachForTest,
+	uninstallTurnCollapse,
 	renderCollapsedForTest,
 	setThinkingDurations,
 	setTurnCollapseEnabled,
@@ -487,4 +488,45 @@ test("re-attach reclaims the container patch (extension /reload)", () => {
 	const labelLine = out2.findIndex((line) => line.includes("✻"));
 	assert.ok(labelLine >= 0, "label line missing");
 	assert.equal(findThinkingHostViaSegments(labelLine), assistant);
+});
+
+test("uninstall restores the pristine container and stops error holding", () => {
+	const kids: unknown[] = [];
+	const container = {
+		children: kids,
+		render(width: number): string[] {
+			return kids.flatMap((c) => (c as Child).render(width));
+		},
+		addChild(child: unknown): void {
+			kids.push(child);
+		},
+	};
+	const pristineRender = container.render;
+	const pristineAddChild = container.addChild;
+	const assistant = makeAssistant(["✻ Thought…", "hello"], true);
+	kids.push(makeUserMessage("hi"), assistant);
+
+	attachForTest(container);
+	assert.notEqual(container.render, pristineRender, "render should be patched");
+	setAgentActive(true);
+	const errorChild = { render: () => ["Error: 429 boom"] };
+	container.addChild(errorChild);
+	assert.ok(!kids.includes(errorChild), "mid-run errors should be held while attached");
+
+	// Extension disabled: everything reverts — pristine methods, immediate
+	// passthrough of error children, plain concatenated render.
+	uninstallTurnCollapse();
+	assert.equal(container.render, pristineRender);
+	assert.equal(container.addChild, pristineAddChild);
+	const passthrough = { render: () => ["Error: 429 again"] };
+	container.addChild(passthrough);
+	assert.ok(kids.includes(passthrough), "addChild should pass through after uninstall");
+	assert.deepEqual(container.render(80), kids.flatMap((c) => (c as Child).render(80)));
+	setAgentActive(false); // flush must not resurrect anything
+
+	// Re-enable later: a fresh patch attaches cleanly.
+	attachForTest(container);
+	assert.notEqual(container.render, pristineRender);
+	uninstallTurnCollapse();
+	setAgentActive(false);
 });

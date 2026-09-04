@@ -55,6 +55,8 @@ const COLLAPSE_INSTALLED = Symbol.for("open-tui.turnCollapseInstalled");
 /** Reclaim bookkeeping: lets a reloaded module instance take over the patch. */
 const ORIGINAL_RENDER = Symbol.for("open-tui.turnCollapse.originalRender");
 const ORIGINAL_ADD_CHILD = Symbol.for("open-tui.turnCollapse.originalAddChild");
+/** Global slot: any module instance can find the patched chat container. */
+const CONTAINER_SLOT = Symbol.for("open-tui.turnCollapse.container");
 
 const DEBUG_LOG = process.env.OPEN_TUI_DEBUG;
 function debug(message: string): void {
@@ -754,6 +756,40 @@ export function lineIndexInAttachedContainer(leaf: unknown, leafLineIndex: numbe
 	return undefined;
 }
 
+/**
+ * Restores the chat container to its pristine render/addChild and drops all
+ * interception state. Safe to call from any module instance (extension
+ * /reload) and when nothing is attached. No-ops on legacy patches without
+ * reclaim bookkeeping to keep the display working.
+ */
+function detachFromContainer(): void {
+	const container = (globalThis as Record<symbol, unknown>)[CONTAINER_SLOT];
+	if (typeof container !== "object" || container === null) return;
+	const target = container as ChatContainer & {
+		[ATTACHED]?: boolean;
+		[ORIGINAL_RENDER]?: ChatContainer["render"];
+		[ORIGINAL_ADD_CHILD]?: (child: unknown) => void;
+	};
+	if (target[ATTACHED] !== true) return;
+	if (typeof target[ORIGINAL_RENDER] === "function") target.render = target[ORIGINAL_RENDER];
+	if (typeof target[ORIGINAL_ADD_CHILD] === "function") target.addChild = target[ORIGINAL_ADD_CHILD];
+	delete target[ATTACHED];
+	(globalThis as Record<symbol, unknown>)[CONTAINER_SLOT] = undefined;
+	attachedContainer = undefined;
+	childSegments = [];
+	errorSink = undefined;
+	heldErrorGroup = [];
+	heldErrorSummary = undefined;
+	collapsedRunHeads = new Set();
+	debug("detach: container restored to pristine render/addChild");
+	requestRenderRef?.();
+}
+
+/** Uninstalls every turn-collapse modification, even across /reload instances. */
+export function uninstallTurnCollapse(): void {
+	detachFromContainer();
+}
+
 function attachToContainer(container: unknown): void {
 	if (typeof container !== "object" || container === null) {
 		debug("attach: no container");
@@ -768,14 +804,9 @@ function attachToContainer(container: unknown): void {
 		// A previous module instance (extension /reload) patched this container;
 		// its render override still collapses, but segment recording lands in
 		// that dead instance's state, so click lookups here find nothing. Restore
-		// the pristine methods (recorded symbolically) and re-patch with ours.
-		const priorRender = target[ORIGINAL_RENDER];
-		if (typeof priorRender !== "function") return; // legacy patch without bookkeeping
-		target.render = priorRender;
-		if (typeof target[ORIGINAL_ADD_CHILD] === "function") {
-			target.addChild = target[ORIGINAL_ADD_CHILD];
-		}
-		debug("attach: reclaiming container from a previous module instance");
+		// the pristine methods and re-patch with ours.
+		if (typeof target[ORIGINAL_RENDER] !== "function") return; // legacy patch without bookkeeping
+		detachFromContainer();
 	}
 	if (typeof target.render !== "function" || !Array.isArray(target.children)) {
 		debug(`attach: unusable shape ctor=${(container as { constructor?: { name?: string } }).constructor?.name}`);
@@ -783,9 +814,11 @@ function attachToContainer(container: unknown): void {
 	}
 	target[ATTACHED] = true;
 	attachedContainer = container;
-	const addChild = target.addChild?.bind(target) as ((child: unknown) => void) | undefined;
-	if (typeof addChild === "function") {
-		target[ORIGINAL_ADD_CHILD] = addChild;
+	(globalThis as Record<symbol, unknown>)[CONTAINER_SLOT] = container;
+	const addChildRaw = target.addChild as ((child: unknown) => void) | undefined;
+	if (typeof addChildRaw === "function") {
+		target[ORIGINAL_ADD_CHILD] = addChildRaw;
+		const addChild = addChildRaw.bind(target);
 		errorSink = (children: unknown[]): void => {
 			for (const child of children) addChild(child);
 		};
@@ -938,6 +971,7 @@ export function installTurnCollapse(): () => void {
 			proto.setLayoutRoot = originalSetLayoutRoot;
 			proto.requestRender = originalRequestRender;
 			cleanupRetryPatch();
+			detachFromContainer();
 		};
 	} catch (error) {
 		debug(`install: failed: ${error instanceof Error ? error.message : String(error)}`);
