@@ -3,6 +3,7 @@ import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, sav
 import { ensureHideThinkingDefault } from "./pi-settings.ts";
 import {
 	installTurnCollapse,
+	setAgentActive,
 	setThinkingDurations,
 	setTurnCollapseEnabled,
 	setTurnCollapseTheme,
@@ -263,6 +264,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_start", (event, ctx) => {
 		turnTelemetry.handle(event);
+		setAgentActive(true);
 		// Drop the previous run's per-message durations while streaming —
 		// ordinals no longer line up until the new run settles.
 		setThinkingDurations(undefined);
@@ -306,6 +308,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_settled", (event, ctx) => {
 		const telemetry = turnTelemetry.handle(event);
+		setAgentActive(false); // flushes the last held retry error, if any
 		setThinkingDurations(turnTelemetry.getLastRunThinkingDurations());
 		state.lastTurnSummary = turnTelemetry.getLastTurnSummary();
 		requestFooterRender?.();

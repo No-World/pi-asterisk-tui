@@ -41,6 +41,7 @@ interface AssistantLike {
 interface ChatContainer {
 	children?: unknown[];
 	render: (width: number) => string[];
+	addChild?: (child: unknown) => void;
 }
 
 interface ViewportAltScreen {
@@ -629,6 +630,40 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 }
 
 let attachedContainer: unknown;
+/** Error blocks held back during an agent run — only the newest is kept. */
+let heldErrorGroup: unknown[] = [];
+let agentActive = false;
+/** Where flushed errors land (production: container.addChild; tests: array). */
+let errorSink: ((children: unknown[]) => void) | undefined;
+
+/** Called by index.ts: true while an agent run is streaming/retrying. */
+export function setAgentActive(active: boolean): void {
+	agentActive = active;
+	if (!active) flushHeldErrors();
+}
+
+function flushHeldErrors(): void {
+	if (heldErrorGroup.length === 0 || errorSink === undefined) return;
+	const group = heldErrorGroup;
+	heldErrorGroup = [];
+	errorSink(group);
+	requestRenderRef?.();
+}
+
+/** A pi showError Text: first visible line starts with "Error:". */
+function isErrorTextChild(child: unknown): boolean {
+	if (typeof child !== "object" || child === null) return false;
+	if ((child as { children?: unknown[] }).children !== undefined) return false;
+	const renderable = child as { render?: (width: number) => string[] };
+	if (typeof renderable.render !== "function") return false;
+	try {
+		const lines = renderable.render(200) ?? [];
+		const first = lines.find((line) => !isBlankLine(line));
+		return first !== undefined && first.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").trimStart().startsWith("Error:");
+	} catch {
+		return false;
+	}
+}
 
 /**
  * Translate a line index from the hit leaf's coordinate space (pi's opaque
@@ -669,6 +704,25 @@ function attachToContainer(container: unknown): void {
 	}
 	target[ATTACHED] = true;
 	attachedContainer = container;
+	const addChild = target.addChild?.bind(target) as ((child: unknown) => void) | undefined;
+	if (typeof addChild === "function") {
+		errorSink = (children: unknown[]): void => {
+			for (const child of children) addChild(child);
+		};
+		target.addChild = (child: unknown): void => {
+			// During a run, retry errors are held back — only the newest
+			// survives, and it renders when the run settles. A successful
+			// assistant message drops them entirely (they were transient).
+			if (agentActive && isErrorTextChild(child)) {
+				heldErrorGroup = [child];
+				return;
+			}
+			if (isAssistantMessage(child)) {
+				heldErrorGroup = [];
+			}
+			addChild(child);
+		};
+	}
 	debug(`attach: container ctor=${(container as { constructor?: { name?: string } }).constructor?.name} children=${target.children.length}`);
 	const original = target.render;
 	target.render = function (this: ChatContainer, width: number) {
@@ -804,6 +858,37 @@ export function installTurnCollapse(): () => void {
 		debug(`install: failed: ${error instanceof Error ? error.message : String(error)}`);
 		return () => {};
 	}
+}
+
+/** Test hook: a container-like object with the same addChild interception. */
+export function makeInterceptedContainer(): {
+	children: unknown[];
+	addChild(child: unknown): void;
+	render(width: number): string[];
+} {
+	const container = { children: [] as unknown[] };
+	const state = { children: container.children };
+	errorSink = (children: unknown[]): void => {
+		state.children.push(...children);
+	};
+	return {
+		get children() {
+			return state.children;
+		},
+		addChild(child: unknown): void {
+			if (agentActive && isErrorTextChild(child)) {
+				heldErrorGroup = [child];
+				return;
+			}
+			if (isAssistantMessage(child)) {
+				heldErrorGroup = [];
+			}
+			state.children.push(child);
+		},
+		render(width: number): string[] {
+			return renderCollapsedForTest(this, width);
+		},
+	};
 }
 
 /** Test hook: run the collapsed render against a container-like object. */

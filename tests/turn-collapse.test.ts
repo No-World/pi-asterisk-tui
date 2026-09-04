@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	findThinkingHostViaSegments,
+	makeInterceptedContainer,
+	setAgentActive,
 	handleToolLineClick,
 	renderCollapsedForTest,
 	setThinkingDurations,
@@ -390,4 +392,43 @@ test("a streaming thinking message does not expand the completed run before it",
 	assert.ok(out.includes("Ran 1 shell command"), `completed tool stays folded\n${out}`);
 	assert.ok(!out.includes("$ echo done"), `completed box hidden\n${out}`);
 	assert.ok(out.includes("✻ Thinking…"), `streaming label visible\n${out}`);
+});
+
+test("retry errors are held back; only the last one renders at settle", () => {
+	setTurnCollapseEnabled(true);
+	const errorA = { render: () => ["Error: 429 first"] };
+	const errorB = { render: () => ["Error: 429 second"] };
+	const errorC = { render: () => ["Error: 429 third"] };
+	const status = { render: () => ["some status"] };
+	const container = makeInterceptedContainer();
+
+	// agent run active: errors held, newest replaces older ones
+	setAgentActive(true);
+	container.addChild(errorA);
+	container.addChild(status);
+	container.addChild(errorB);
+	container.addChild(errorC);
+	let out = container.render(60).join("\n");
+	assert.ok(!out.includes("429"), `no error output mid-run\n${out}`);
+	assert.ok(out.includes("some status"), `non-error content unaffected\n${out}`);
+
+	// settle: only the LAST error renders
+	setAgentActive(false);
+	out = container.render(60).join("\n");
+	assert.ok(out.includes("Error: 429 third"), `last error at settle\n${out}`);
+	assert.ok(!out.includes("429 first") && !out.includes("429 second"), `older errors dropped\n${out}`);
+});
+
+test("a successful assistant message drops held errors entirely", () => {
+	setTurnCollapseEnabled(true);
+	const errorA = { render: () => ["Error: 429 boom"] };
+	const assistant = makeAssistant(["成功回复"], false);
+	const container = makeInterceptedContainer();
+	setAgentActive(true);
+	container.addChild(errorA);
+	container.addChild(assistant);
+	setAgentActive(false);
+	const out = container.render(60).join("\n");
+	assert.ok(!out.includes("429"), `transient retry errors vanish on success\n${out}`);
+	assert.ok(out.includes("成功回复"), `assistant renders\n${out}`);
 });
