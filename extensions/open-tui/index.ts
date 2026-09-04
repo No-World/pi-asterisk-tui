@@ -3,6 +3,7 @@ import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, sav
 import { ensureHideThinkingDefault } from "./pi-settings.ts";
 import {
 	installTurnCollapse,
+	setThinkingDurations,
 	setTurnCollapseEnabled,
 	setTurnCollapseTheme,
 } from "./turn-collapse.ts";
@@ -233,6 +234,7 @@ export default function (pi: ExtensionAPI) {
 			cleanupThinkingClick = installThinkingClickExpand();
 			setTurnCollapseEnabled(config.turnCollapse);
 			setTurnCollapseTheme(ctx.ui.theme);
+			setThinkingDurations(undefined); // per-session; fed at agent_settled
 			cleanupTurnCollapse?.();
 			cleanupTurnCollapse = installTurnCollapse();
 			// Fresh installs: default pi to collapsed thinking so ✻ labels (and
@@ -301,6 +303,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_settled", (event, ctx) => {
 		const telemetry = turnTelemetry.handle(event);
+		setThinkingDurations(turnTelemetry.getLastRunThinkingDurations());
 		state.lastTurnSummary = turnTelemetry.getLastTurnSummary();
 		requestFooterRender?.();
 		if (telemetry && config.enabled && config.telemetry.enabled && isTuiContext(ctx)) {

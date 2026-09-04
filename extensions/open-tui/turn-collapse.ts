@@ -64,10 +64,12 @@ function debug(message: string): void {
 	}
 }
 
-/** Tool groups the user expanded to their full bordered output. Keyed by head tool. */
-const expandedGroups = new WeakSet<object>();
-/** member tool -> group head (expanded boxes collapse via any member line). */
-const groupMembership = new Map<object, object>();
+/** Runs the user expanded to their full content. Keyed by the run's head child. */
+const expandedRuns = new WeakSet<object>();
+/** Heads of runs rendered as collapsed lines this frame. */
+let collapsedRunHeads = new Set<object>();
+/** member child -> run head (expanded runs collapse via any member line). */
+const runMembership = new Map<object, object>();
 /** Spinner frames for running tool lines. */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -119,17 +121,24 @@ function renderGroupLine(group: unknown[]): string {
 	return ` ${fg("accent", "✻")} ${fg("muted", text)}`;
 }
 
-/** Click routing for tool groups (segment-authoritative). */
+/** Click routing for collapsed run lines and expanded-run members. */
 export function handleToolLineClick(lineIndex: number, line: string): boolean {
 	void line;
 	for (const segment of childSegments) {
-		if (lineIndex >= segment.start && lineIndex < segment.end && isToolBox(segment.child)) {
-			if (isToolRunning(segment.child)) return false; // live boxes are not clickable
-			const head = groupMembership.get(segment.child) ?? segment.child;
-			if (expandedGroups.has(head)) {
-				expandedGroups.delete(head);
+		if (lineIndex >= segment.start && lineIndex < segment.end) {
+			const child = segment.child as object;
+			let head: object | undefined;
+			if (collapsedRunHeads.has(child)) {
+				head = child; // a collapsed run's summary line
+			} else if (isToolBox(child)) {
+				if (isToolRunning(child)) return false; // live boxes are not clickable
+				head = runMembership.get(child); // a member of an expanded run
+			}
+			if (head === undefined) continue; // label lines fall through to the thinking flow
+			if (expandedRuns.has(head)) {
+				expandedRuns.delete(head);
 			} else {
-				expandedGroups.add(head);
+				expandedRuns.add(head);
 			}
 			requestRenderRef?.();
 			return true;
@@ -158,6 +167,37 @@ function syncThinkingLabel(child: unknown): void {
 	if (candidate.hiddenThinkingLabel !== desired) {
 		candidate.setHiddenThinkingLabel(desired);
 	}
+}
+
+/** Per-message thinking durations (ms) of the last settled run, message-ordered. */
+let thinkingDurations: number[] | undefined;
+let assistantOrdinal = 0;
+
+/** Feed the settled run's per-message thinking durations (undefined for history). */
+export function setThinkingDurations(durations: number[] | undefined): void {
+	thinkingDurations = durations;
+	assistantOrdinal = 0;
+}
+
+function resetAssistantOrdinal(): void {
+	assistantOrdinal = 0;
+}
+
+const VERB_PHRASES: Record<string, (count: number) => string> = {
+	bash: (n) => `ran ${n} shell command${n > 1 ? "s" : ""}`,
+	ls: (n) => `listed ${n} director${n > 1 ? "ies" : "y"}`,
+	glob: (n) => `searched for ${n} pattern${n > 1 ? "s" : ""}`,
+	grep: (n) => `searched for ${n} pattern${n > 1 ? "s" : ""}`,
+	read: (n) => `read ${n} file${n > 1 ? "s" : ""}`,
+	edit: (n) => `edited ${n} file${n > 1 ? "s" : ""}`,
+	write: (n) => `edited ${n} file${n > 1 ? "s" : ""}`,
+};
+
+/** Claude-style verb phrase for a tool: `ran 2 shell commands`, `searched for 9 patterns`. */
+function verbPhrase(toolName: string, count: number): string {
+	const phrase = VERB_PHRASES[toolName];
+	if (phrase) return phrase(count);
+	return count > 1 ? `called ${toolName} ×${count}` : `called ${toolName}`;
 }
 
 /** Segment lookup for the click pipeline: the child that rendered a line. */
@@ -237,27 +277,18 @@ function formatDuration(ms: number): string {
 
 function summarizeTools(turnChildren: unknown[]): string[] {
 	const counts = new Map<string, number>();
-	let bash = 0;
 	for (const child of turnChildren) {
 		if (!isToolBox(child)) continue;
-		if (typeof (child as { command?: unknown }).command === "string") {
-			bash++;
-			continue;
-		}
-		const name = (child as { toolName?: string }).toolName ?? "tool";
-		// The agent's bash tool renders as a generic ToolExecutionComponent.
-		if (name === "bash") {
-			bash++;
-			continue;
-		}
+		const name =
+			typeof (child as { command?: unknown }).command === "string"
+				? "bash"
+				: ((child as { toolName?: string }).toolName ?? "tool");
 		counts.set(name, (counts.get(name) ?? 0) + 1);
 	}
 	const parts: string[] = [];
-	if (counts.size > 0) {
-		const names = [...counts.entries()].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name));
-		parts.push(`Called ${names.join(", ")}`);
+	for (const [name, count] of counts) {
+		parts.push(verbPhrase(name, count));
 	}
-	if (bash > 0) parts.push(`Ran ${bash} shell command${bash > 1 ? "s" : ""}`);
 	return parts;
 }
 
@@ -269,12 +300,27 @@ interface ExpandedWalk {
 	renderChild: (child: unknown) => void;
 }
 
+interface ExpandedWalk {
+	push: (lines: string[]) => void;
+	pushChild: (child: unknown, lines: string[]) => void;
+	renderChild: (child: unknown) => void;
+}
+
+type RunMember =
+	| { kind: "label"; child: unknown }
+	| { kind: "tool"; child: unknown }
+	/** A text-bearing message whose leading ✻ label was absorbed into the run. */
+	| { kind: "text-tail"; child: unknown };
+
+/**
+ * Claude-Code style run merging: consecutive label-only messages and tool
+ * groups (with nothing visible between) collapse into ONE line:
+ *   ✻ Thought for 19s, searched for 9 patterns, ran 1 shell command
+ */
 function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: number): void {
 	const completedTool = (candidate: unknown): boolean =>
 		isToolBox(candidate) && !isToolRunning(candidate);
-	// Transparent children render nothing visible (spacers, or empty assistant
-	// components — e.g. an iteration that only emitted a tool call). Tools
-	// separated solely by transparents still count as consecutive.
+
 	const isTransparent = (candidate: unknown): boolean => {
 		if (isSpacer(candidate)) return true;
 		if (isToolBox(candidate)) return false;
@@ -282,53 +328,147 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
 		return lines.length === 0 || lines.every((line) => isBlankLine(line));
 	};
 
+	// Classify assistant messages: label-only (run member), empty (transparent),
+	// or text-bearing (ends a run). Tracks the telemetry ordinal per message.
+	const classify = (child: unknown): "label" | "transparent" | "text" | "other" => {
+		if (!isAssistantMessage(child)) return "other";
+		const ordinal = assistantOrdinal++;
+		const lines = safeRender(child as Child, width).filter((line) => !isBlankLine(line));
+		if (lines.length === 0) return "transparent";
+		const duration = thinkingDurations?.[ordinal] ?? 0;
+		(child as { __openTuiThinkingMs?: number }).__openTuiThinkingMs = duration;
+		if (lines.length === 1 && lines[0]!.includes("✻")) return "label";
+		return "text";
+	};
+
+	/** Render a text message minus its leading ✻ label lines (absorbed run). */
+	const renderTextTail = (child: unknown): void => {
+		const lines = safeRender(child as Child, width);
+		let cut = 0;
+		// skip leading blanks
+		while (cut < lines.length && isBlankLine(lines[cut]!)) cut++;
+		// skip the label run
+		while (cut < lines.length && !isBlankLine(lines[cut]!) && lines[cut]!.includes("✻")) cut++;
+		// keep one structure: blanks before the remaining text are dropped too
+		while (cut < lines.length && isBlankLine(lines[cut]!)) cut++;
+		walk.pushChild(child, lines.slice(cut));
+	};
+
+	const runIsLive = (members: RunMember[]): boolean =>
+		members.some(
+			(member) =>
+				member.kind === "tool" && isToolRunning(member.child) ||
+				(member.kind === "label" && (member.child as { isStreaming?: unknown }).isStreaming === true),
+		);
+
+	const renderRunLine = (members: RunMember[]): string => {
+		const thinkingMs = members.reduce((sum, member) => {
+			if (member.kind === "tool") return sum;
+			return sum + ((member.child as { __openTuiThinkingMs?: number }).__openTuiThinkingMs ?? 0);
+		}, 0);
+		const tools = members.filter((member) => member.kind === "tool").map((member) => member.child);
+		const parts: string[] = [];
+		if (thinkingMs >= 1000) parts.push(`Thought for ${formatDuration(thinkingMs)}`);
+		parts.push(...summarizeTools(tools));
+		const text = parts.length > 0 ? parts.join(", ") : "worked";
+		return ` ${fg("accent", "✻")} ${fg("muted", text)}`;
+	};
+
 	let index = 0;
-	while (index < turnChildren.length) {
-		const current = turnChildren[index];
-		if (completedTool(current) && enabled) {
-			// Consecutive completed tools (+ transparents between) collapse into
-			// one group line: `✻ ran 2 shell commands`.
-			const group: unknown[] = [current];
-			let scan = index + 1;
-			while (scan < turnChildren.length) {
-				let probe = scan;
-				while (probe < turnChildren.length && isTransparent(turnChildren[probe])) probe++;
-				if (probe < turnChildren.length && completedTool(turnChildren[probe])) {
-					for (let k = scan; k <= probe; k++) group.push(turnChildren[k]!);
-					scan = probe + 1;
-					continue;
-				}
-				break;
-			}
-			const head = group[0]! as object;
-			if (expandedGroups.has(head)) {
-				// Expanded: the group line is REPLACED by the boxes, like
-				// thinking blocks — clicking any box line collapses back.
-				for (const member of group) {
-					if (isSpacer(member) || safeRender(member as Child, width).length === 0) continue;
-					groupMembership.set(member as object, head);
-					walk.renderChild(member);
+	let runMembers: RunMember[] = [];
+	let runLive = false;
+
+	const flushRun = (): void => {
+		if (runMembers.length === 0) return;
+		const head = (runMembers[0]!.child as object);
+		if (enabled && !runLive) {
+			if (expandedRuns.has(head)) {
+				for (const member of runMembers) {
+					runMembership.set(member.child as object, head);
+					if (member.kind === "text-tail") renderTextTail(member.child);
+					else walk.renderChild(member.child);
 				}
 			} else {
-				walk.pushChild(head, [renderGroupLine(group)]);
+				collapsedRunHeads.add(head);
+				walk.pushChild(head, [renderRunLine(runMembers)]);
+				for (const member of runMembers) {
+					if (member.kind === "text-tail") renderTextTail(member.child);
+				}
 			}
-			index = scan;
-			// Swallow trailing spacers/blank renders so the group line connects
-			// straight to the following content (anything tool-like would have
-			// joined the group; the rest that follows transparently is padding).
-			while (index < turnChildren.length && isTransparent(turnChildren[index])) index++;
-			continue;
+		} else {
+			for (const member of runMembers) {
+				if (member.kind === "text-tail") {
+					renderTextTail(member.child);
+					continue;
+				}
+				if (member.kind === "tool") {
+					if (!enabled) {
+						walk.renderChild(member.child);
+						continue;
+					}
+					// Running tool: animated one-liner + the live box below.
+					if (isToolRunning(member.child)) {
+						walk.pushChild(member.child, [renderToolLine(member.child, fg("accent", spinnerFrame()))]);
+					}
+					walk.renderChild(member.child);
+					continue;
+				}
+				walk.renderChild(member.child);
+			}
 		}
-		if (isToolBox(current) && enabled) {
-			// Running tool: animated one-liner + the live box below it.
-			walk.pushChild(current, [renderToolLine(current, fg("accent", spinnerFrame()))]);
+		runMembers = [];
+		runLive = false;
+	};
+
+	while (index < turnChildren.length) {
+		const current = turnChildren[index];
+		if (isTransparent(current)) {
+			// Absorbed while a run is open; otherwise rendered as padding.
+			if (runMembers.length > 0) {
+				index++;
+				continue;
+			}
 			walk.renderChild(current);
 			index++;
 			continue;
 		}
+		if (completedTool(current)) {
+			runMembers.push({ kind: "tool", child: current });
+			index++;
+			continue;
+		}
+		if (isToolBox(current)) {
+			// Running tool joins the run and keeps it live.
+			runMembers.push({ kind: "tool", child: current });
+			runLive = true;
+			index++;
+			continue;
+		}
+		const kind = classify(current);
+		if (kind === "label") {
+			runMembers.push({ kind: "label", child: current });
+			if (runIsLive(runMembers)) runLive = true;
+			index++;
+			continue;
+		}
+		if (
+			kind === "text" &&
+			runMembers.length > 0 &&
+			!runLive &&
+			safeRender(current as Child, width).some((line) => !isBlankLine(line) && line.includes("✻"))
+		) {
+			// Text message with a leading thinking label: the label joins the
+			// open run (duration included), the text renders after the run.
+			runMembers.push({ kind: "text-tail", child: current });
+			index++;
+			continue;
+		}
+		// Visible content (text, errors) ends the run.
+		flushRun();
 		walk.renderChild(current);
 		index++;
 	}
+	flushRun();
 }
 
 // A line is blank when it is empty or consists solely of zero-width control
@@ -361,6 +501,8 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	}
 	const out: string[] = [];
 	childSegments = [];
+	collapsedRunHeads = new Set();
+	resetAssistantOrdinal();
 	let cursor = 0;
 
 	const push = (lines: string[]): void => {
@@ -417,7 +559,7 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 		}
 	}
 	if (DEBUG_LOG && (dumpCount = (dumpCount + 1) % 300) === 1) {
-		out.forEach((line, idx) => debug(`L${idx}: ${JSON.stringify(line.slice(0, 40))}`));
+		out.forEach((line, idx) => debug(`L${idx}: ${JSON.stringify(line.slice(0, 120))}`));
 	}
 	return out;
 }

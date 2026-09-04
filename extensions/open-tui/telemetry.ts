@@ -53,6 +53,8 @@ interface TurnTiming {
 	stallCount: number;
 	/** Time the model spent thinking before visible output, summed over messages. */
 	thinkingMs: number;
+	/** Per-message thinking durations, in message order (0 for non-thinking). */
+	messageThinkingMs: number[];
 	/** Tool executions started during this turn, by tool name. */
 	toolCounts: Map<string, number>;
 }
@@ -105,6 +107,10 @@ export class TurnTelemetryTracker {
 	private agentSummaries: TurnSummary[] = [];
 	/** Merged summary of the most recently settled agent run. */
 	private lastSummary: TurnSummary | undefined;
+	/** Per-message thinking durations of the most recently settled agent run. */
+	private lastRunThinkingMs: number[] = [];
+	/** Per-message thinking durations collected during the current agent run. */
+	private agentRunThinkingMs: number[] = [];
 
 	constructor(now: () => number = () => performance.now()) {
 		this.now = now;
@@ -154,6 +160,7 @@ export class TurnTelemetryTracker {
 					this.agentTurns = [];
 					this.liveToolCalls = 0;
 					this.agentSummaries = [];
+					this.agentRunThinkingMs = [];
 				}
 				return;
 			case "agent_settled":
@@ -191,6 +198,7 @@ export class TurnTelemetryTracker {
 			stallMs: 0,
 			stallCount: 0,
 			thinkingMs: 0,
+			messageThinkingMs: [],
 			toolCounts: new Map(),
 		};
 	}
@@ -276,17 +284,32 @@ export class TurnTelemetryTracker {
 				this.lastMessageTps = round(out / (genMs / 1000), 1);
 			}
 			if (current.sawThinking) {
-				turn.thinkingMs += (current.thinkingEndMs ?? endMs) - current.startMs;
+				const messageThinkingMs = Math.max(0, (current.thinkingEndMs ?? endMs) - current.startMs);
+				turn.thinkingMs += messageThinkingMs;
+				turn.messageThinkingMs.push(messageThinkingMs);
+			} else {
+				turn.messageThinkingMs.push(0);
 			}
 			turn.currentMessage = null;
 		}
+		if (!current) turn.messageThinkingMs.push(0);
 		turn.messages.push(message);
+	}
+
+	/** Per-message thinking durations of the last settled agent run, in message order. */
+	getLastRunThinkingDurations(): number[] {
+		return this.lastRunThinkingMs;
 	}
 
 	private endTurnAndCollect(): TurnTelemetry | undefined {
 		const telemetry = this.endTurn();
 		if (telemetry && this.agentStartMs !== null) this.agentTurns.push(telemetry);
 		return telemetry;
+	}
+
+	private collectThinkingDurations(turn: TurnTiming): void {
+		if (this.agentStartMs === null) return;
+		this.agentRunThinkingMs.push(...turn.messageThinkingMs);
 	}
 
 	private collectTurnSummary(turn: TurnTiming): void {
@@ -304,6 +327,7 @@ export class TurnTelemetryTracker {
 		this.turn = undefined;
 		if (!turn) return;
 		this.collectTurnSummary(turn);
+		this.collectThinkingDurations(turn);
 		if (turn.firstTokenMs === null || turn.messages.length === 0) return;
 
 		const endMs = this.now();
@@ -354,6 +378,8 @@ export class TurnTelemetryTracker {
 	private endAgent(): TurnTelemetry | undefined {
 		const startMs = this.agentStartMs;
 		const turns = this.agentTurns;
+		this.lastRunThinkingMs = this.agentRunThinkingMs;
+
 		this.agentStartMs = null;
 		this.agentTurns = [];
 		if (this.agentSummaries.length > 0) {
