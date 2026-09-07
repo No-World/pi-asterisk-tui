@@ -14,7 +14,6 @@ import {
 	formatCwd,
 	formatDuration,
 	formatInputBreakdown,
-	formatProviderLabel,
 	providerColor,
 	sanitizeStatus,
 	stressColor,

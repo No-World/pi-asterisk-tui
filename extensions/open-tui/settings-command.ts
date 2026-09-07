@@ -376,10 +376,6 @@ const HUD_TOGGLE_ITEMS: Array<{ id: string; key: keyof HudConfig; label: string 
 	{ id: "piVersion", key: "piVersion", label: "hudPiVersion" },
 ];
 
-function copyLabels(): unknown {
-	return COPY.en.labels;
-}
-
 function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingItem[] {
 	const flag = (value: boolean) => value ? copy.values.on : copy.values.off;
 	const styleItem: SettingItem = {
