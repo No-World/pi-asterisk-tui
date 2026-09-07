@@ -80,7 +80,7 @@ interface ViewportInstance {
 }
 
 function isThinkingHost(component: unknown): component is ThinkingHost {
-	if (typeof component !== "object" || component === null) return false;
+	if (component === null || typeof component !== "object") return false;
 	const candidate = component as Partial<ThinkingHost>;
 	return typeof candidate.setHideThinkingBlock === "function" && typeof candidate.hideThinkingBlock === "boolean";
 }

@@ -3,7 +3,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { GitStatus } from "./git.ts";
 import { emptyGitStatus } from "./git.ts";
 import type { TurnSummary } from "./telemetry.ts";
-import { finiteOrZero, fmtTokens, formatProviderLabel } from "./utils.ts";
+import { finiteOrZero, formatProviderLabel } from "./utils.ts";
 
 export interface FooterState {
 	git: GitStatus;
@@ -57,8 +57,6 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 			totals.cacheRead += cacheRead;
 			totals.cacheWrite += cacheWrite;
 			totals.cost += finiteOrZero(u.cost?.total);
-			const promptTokens = input + cacheRead + cacheWrite;
-
 		}
 	}
 	const promptTotal = totals.input + totals.cacheRead;

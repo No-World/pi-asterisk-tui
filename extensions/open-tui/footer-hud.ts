@@ -9,13 +9,12 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OpenTuiConfig, HudConfig, SettingsLanguage } from "./config.ts";
-import { type IconGlyphs, resolveGlyphs } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
 import {
 	alignRight,
@@ -288,8 +287,10 @@ function collectDailyCost(sessionDir: string | null): number {
 	for (const f of files) {
 		const p = path.join(sessionDir, f);
 		try {
-			if (fs.statSync(p).mtimeMs < start) continue;
+			// Read first, then filter by mtime: no stat-to-read window for the
+			// file to change underneath the check.
 			const content = fs.readFileSync(p, "utf8");
+			if (fs.statSync(p).mtimeMs < start) continue;
 			for (const line of content.split("\n")) {
 				if (!line.includes('"assistant"')) continue;
 				try {
@@ -463,7 +464,6 @@ export function installHudFooter(
 				if (width <= 0) return [""];
 				const state = getState();
 				const config = getConfig();
-				const glyphs: IconGlyphs = resolveGlyphs(config.icons.mode);
 				const hud = config.hud;
 				const strings = HUD_STRINGS[config.settingsLanguage] ?? HUD_STRINGS.en;
 				const meta = getModelMeta();
