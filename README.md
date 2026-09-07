@@ -42,7 +42,8 @@ compresses is the **compression mode** (`/open-tui` → Collapse):
   default. pi's native `hideThinkingBlock` is kept as a mirror (ctrl+t flips
   are adopted as explicit states).
 - **Line spacing**: `compact` (flush) or `classic` (blank line around compressed lines,
-  adjacent compressed lines separated by a single blank).
+  adjacent compressed lines separated by a single blank; standalone ✻ label lines count
+  as compressed lines).
 - **One-click expand/collapse**: click a compressed line to open the full reasoning and
   every tool's bordered output at once — including the thinking of text-bearing messages,
   no second tap on labels. Click any member line to fold it all back.

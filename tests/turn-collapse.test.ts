@@ -759,3 +759,37 @@ test("retry error holding can be disabled independently of the mode", () => {
 	setAgentActive(false);
 	resetCollapse();
 });
+
+test("classic style pads standalone per-message label lines", () => {
+	resetCollapse({ mode: "single", style: "classic" });
+	setThinkingDurations([5_000]);
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const lines = container.render(60);
+	const labelIdx = lines.findIndex((l) => l.includes("✻ Thought"));
+	assert.ok(labelIdx > 0, `label rendered\n${lines.join("\n")}`);
+	assert.equal(lines[labelIdx - 1]!.trim(), "", `blank before label\n${lines.join("\n")}`);
+	const after = lines.slice(labelIdx + 1);
+	assert.ok(after.length > 0 && after[0]!.trim() === "", `blank after label\n${lines.join("\n")}`);
+	setThinkingDurations(undefined);
+	resetCollapse();
+});
+
+test("compact style keeps per-message label lines flush", () => {
+	resetCollapse({ mode: "single", style: "compact" });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const lines = container.render(60);
+	const labelIdx = lines.findIndex((l) => l.includes("✻ Thought"));
+	const bashIdx = lines.findIndex((l) => l.includes("▸ bash"));
+	assert.ok(labelIdx > 0 && bashIdx === labelIdx + 1, `label flush against next line\n${lines.join("\n")}`);
+	resetCollapse();
+});

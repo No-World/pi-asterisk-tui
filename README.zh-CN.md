@@ -38,7 +38,7 @@ pi install git:github.com/No-World/pi-asterisk-tui
   pi 原生）。整段并入 ✻ 行只有「模式 group-all + default」一条路径；pi 原生的
   hideThinkingBlock 仅作镜像，ctrl+t 翻转会被采纳为显式状态。
 - **压缩行间隔**：compact（紧凑）或 classic（经典，压缩行前后各空一行，相邻压缩行之间
-  只留一行）。
+  只留一行；单独成行的 ✻ 标签也按压缩行对待）。
 - **一次点击展开/收回**：点击压缩行，完整思维链与所有工具的输出盒同时展开——包括
   带正文消息的思考，无需二次点击标签；点击任一成员行全部收回。
 - **逐消息思考标签**：`✻ Thought…`（历史）/ `✻ Thinking…`（流式中），可单独点击只展开

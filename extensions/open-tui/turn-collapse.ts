@@ -938,9 +938,16 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 			let labelEnd = 0;
 			while (labelEnd < lines.length && !isBlankLine(lines[labelEnd]!) && lines[labelEnd]!.includes("✻")) {
 				labelEnd++;
-			}
+		}
 			while (labelEnd < lines.length && isBlankLine(lines[labelEnd]!)) {
 				lines = [...lines.slice(0, labelEnd), ...lines.slice(labelEnd + 1)];
+			}
+			// A folded label-only message renders as a standalone ✻ line —
+			// treat it as a compressed line so classic/compact spacing applies.
+			const visible = lines.filter((line) => !isBlankLine(line));
+			if (child.hideThinkingBlock === true && visible.length > 0 && visible.every((line) => line.includes("✻"))) {
+				pushCompressed(child, lines);
+				return;
 			}
 		}
 		pushChild(child, lines);
