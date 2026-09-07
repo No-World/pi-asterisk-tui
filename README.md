@@ -8,6 +8,12 @@ A [Pi](https://pi.dev) terminal experience where everything the model does folds
 ![preview](assets/preview_dashboard_1.png)
 
 ```bash
+pi install npm:pi-asterisk-tui
+```
+
+Or from git (tracks `main`):
+
+```bash
 pi install git:github.com/No-World/pi-asterisk-tui
 ```
 

@@ -1,0 +1,36 @@
+# npm publish — tag-triggered (v*), gated on the full CI lane.
+#
+# Requires the NPM_TOKEN repository secret (granular access token, read+write).
+# Provenance signing uses GitHub OIDC (id-token: write) — no extra setup.
+
+name: npm publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: npm publish (provenance)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Install dependencies
+        run: npm ci
+      - name: Gate — npm test + typecheck
+        run: |
+          npm test
+          npm run typecheck
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
