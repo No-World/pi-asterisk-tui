@@ -25,6 +25,7 @@ import {
 	fmtTokens,
 	formatCwd,
 	formatDuration,
+	formatInputBreakdown,
 	sanitizeStatus,
 	stressColor,
 	truncateBranch,
@@ -588,7 +589,22 @@ export function installHudFooter(
 				let line2 = "";
 				if (hud.contextBar) line2 = renderContextBar(theme, ctx, hud, strings);
 				const right2: string[] = [];
-				if (hud.tokens) {
+				if (hud.tokens === "compact") {
+					// language-independent shorthand: ↑ 77M (U 855k + R 77M) │ ↓ 266k │ C 98.9%
+					const input = hud.tokenBreakdown && totals.cacheRead > 0
+						? formatInputBreakdown(totals.input, totals.cacheRead)
+						: fmtTokens(totals.input + totals.cacheRead);
+					right2.push(theme.fg("accent", `↑ ${input}`));
+					right2.push(theme.fg("success", `↓ ${fmtTokens(totals.output)}`));
+					if (hud.cacheHit && totals.cacheHitRate !== undefined) {
+						right2.push(
+							theme.fg(
+								cacheHitColor(totals.cacheHitRate),
+								`C ${totals.cacheHitRate.toFixed(1)}%`,
+							),
+						);
+					}
+				} else if (hud.tokens === "verbose") {
 					const cachedPart =
 						hud.tokenBreakdown && totals.cacheRead > 0
 							? theme.fg("dim", `${strings.cacheLabel}${fmtTokens(totals.cacheRead)}`)

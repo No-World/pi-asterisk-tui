@@ -78,7 +78,9 @@ claude-hud 风格四行面板（同时内置 starship 风格 classic 预设）�
 1. **状态行**——模型与上下文窗口、思考强度（月相图标）、git 分支与脏标记、
    ahead/behind、逐文件增删统计 `[+71 -5]`、会话名、累计工作时长、费用、今日费用、
    实时输出速度（tok/s）。
-2. **上下文行**——用量进度条、百分比与 token 数、缓存命中率。
+2. **上下文行**——用量进度条、百分比与 token 数、缓存命中率。Token 统计有三种呈现
+   （`hud.tokens`）：本地化完整标签 `verbose`（`↑输入 77M ·缓存 77M`）、语言无关的紧凑
+   缩写 `compact`（`↑ 77M (U 855k + R 77M) │ ↓ 266k │ C 98.9%`）、或 `off`。
 3. **工具行**——按工具的调用计数（✓ 标记）、运行中的工具标签。
 4. **环境行**——MCP 服务器计数（仅当实际安装了 pi-mcp-adapter 时统计）、内存占用、
    压缩次数、pi 版本。
@@ -128,7 +130,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `cursorStyle` | `"block"` | 编辑器光标样式 |
 | `telemetry.*` | 开 | Working 指示器与轮末遥测字段 |
 | `footerSegments.*` | 混合 | classic 底栏段落开关 |
-| `hud.*` | 开 | HUD 每个段落均可单独开关 |
+| `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`） |
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
 
 ## 实现方式

@@ -123,6 +123,11 @@ export function normalizeTurnCollapse(value: unknown): TurnCollapseConfig {
 	};
 }
 
+/** HUD token-stats presentation: hidden, localized verbose labels, or
+ *  language-independent compact shorthand (`↑ 77M (U 855k + R 77M) │ ↓ 266k │ C 98.9%`). */
+export type TokenDisplayMode = "off" | "verbose" | "compact";
+export const TOKEN_DISPLAY_MODES: readonly TokenDisplayMode[] = ["off", "verbose", "compact"];
+
 /** Fine-grained HUD-style footer options (one per visible detail). */
 export interface HudConfig {
 	model: boolean;
@@ -139,7 +144,7 @@ export interface HudConfig {
 	contextPercent: boolean;
 	contextTokens: boolean;
 
-	tokens: boolean;
+	tokens: TokenDisplayMode;
 	tokenBreakdown: boolean;
 	cacheHit: boolean;
 	tools: boolean;
@@ -174,7 +179,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	contextPercent: true,
 	contextTokens: true,
 
-	tokens: true,
+	tokens: "verbose",
 	tokenBreakdown: true,
 	cacheHit: true,
 	tools: true,
@@ -194,7 +199,17 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 
 export function normalizeHudConfig(hud: HudConfig): HudConfig {
 	const clamp = (n: number) => (Number.isFinite(n) && n >= 1 ? Math.min(10, Math.floor(n)) : 4);
-	return { ...hud, toolsMax: clamp(hud.toolsMax), filesMax: clamp(hud.filesMax) };
+	// hud.tokens was a boolean before the compact mode existed; migrate it here
+	const rawTokens: unknown = hud.tokens;
+	const tokens: TokenDisplayMode =
+		typeof rawTokens === "string" && TOKEN_DISPLAY_MODES.includes(rawTokens as TokenDisplayMode)
+			? (rawTokens as TokenDisplayMode)
+			: rawTokens === true
+				? "verbose"
+				: rawTokens === false
+					? "off"
+					: DEFAULT_HUD_CONFIG.tokens;
+	return { ...hud, tokens, toolsMax: clamp(hud.toolsMax), filesMax: clamp(hud.filesMax) };
 }
 
 export interface FooterSegments {

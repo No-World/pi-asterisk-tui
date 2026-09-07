@@ -283,6 +283,48 @@ test("remembers the selection for each tab", async () => {
 	assert.match(selectedLine(settings.component), /Git branch/);
 });
 
+test("cycles the HUD token-stats presentation off → verbose → compact", async () => {
+	const settings = await openSettings();
+
+	// Footer tab is three Tab presses from General; Tokens sits at slot 15
+	// (footerStyle + model … contextTokens come first).
+	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
+	for (let i = 0; i < 15; i++) settings.component.handleInput("\x1b[B");
+	assert.match(selectedLine(settings.component), /Tokens/);
+
+	settings.component.handleInput("\r"); // verbose → compact
+	assert.equal(settings.getConfig().hud.tokens, "compact");
+	assert.match(selectedLine(settings.component), /Compact/);
+	settings.component.handleInput("\r"); // compact → off
+	assert.equal(settings.getConfig().hud.tokens, "off");
+	assert.match(selectedLine(settings.component), /Off/);
+	settings.component.handleInput("\r"); // off → verbose
+	assert.equal(settings.getConfig().hud.tokens, "verbose");
+	assert.match(selectedLine(settings.component), /Full/);
+	// round-tripped back to the HUD preset
+	assert.equal(settings.getConfig().stylePreset, "hud");
+});
+
+test("classic footer keeps its Tokens item a boolean toggle", async () => {
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.footerStyle = "classic";
+	const settings = await openSettings(config);
+
+	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
+	for (let i = 0; i < 7; i++) settings.component.handleInput("\x1b[B"); // cwd..context, then Tokens
+	assert.match(selectedLine(settings.component), /Tokens/);
+
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().footerSegments.tokens, false);
+	assert.equal(settings.getConfig().hud.tokens, "verbose"); // untouched in classic mode
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().footerSegments.tokens, true);
+});
+
 test("configures telemetry from its own tab", async () => {
 	const settings = await openSettings();
 

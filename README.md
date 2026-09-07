@@ -93,6 +93,9 @@ A claude-hud style four-line dashboard (a starship-style classic preset is also 
    branch with dirty marker, ahead/behind, per-file diff totals `[+71 -5]`, session name,
    cumulative working time, cost, today's cost, live output speed (tok/s).
 2. **Context line** — usage bar with percent and token counts, cache hit rate.
+   Token stats have three presentations (`hud.tokens`): localized `verbose`
+   labels (`↑in 77M ·cache 77M`), language-independent `compact` shorthand
+   (`↑ 77M (U 855k + R 77M) │ ↓ 266k │ C 98.9%`), or `off`.
 3. **Tools line** — per-tool usage counts with ✓, running tool labels.
 4. **Environment line** — MCP server count (only when pi-mcp-adapter is actually
    installed), memory usage, compaction count, pi version.
@@ -146,7 +149,7 @@ Run `/open-tui`, or edit `~/.pi/agent/open-tui.json`. Notable keys:
 | `cursorStyle` | `"block"` | editor cursor style |
 | `telemetry.*` | on | working-indicator and post-turn telemetry fields |
 | `footerSegments.*` | mixed | classic footer segment toggles |
-| `hud.*` | on | every HUD segment individually toggleable |
+| `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
 
 ## How it works

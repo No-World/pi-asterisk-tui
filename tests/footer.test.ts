@@ -470,6 +470,110 @@ test("done segment summarizes thinking time and tool usage Claude-style", () => 
 	assert.ok(!mixed.includes("✻"), `thinking marker should be absent when there was none\n${mixed}`);
 });
 
+test("hud compact token mode renders language-independent shorthand", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const entries = [{
+		type: "message",
+		id: "usage-entry-1",
+		timestamp: new Date().toISOString(),
+		message: {
+			role: "assistant",
+			content: [],
+			usage: { input: 855_000, cacheRead: 6_900_000, cacheWrite: 0, output: 266_000, cost: { total: 0 } },
+		},
+	}];
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => entries,
+			getBranch: () => entries,
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250_000, contextWindow: 1_000_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	const cleanup = installHudFooter(
+		ctx,
+			() => state,
+			() => config,
+			() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+			{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	const hudTheme = { ...theme, underline: (text: string) => text } as Theme;
+	let component: Component | undefined;
+	try {
+		assert.ok(footerFactory);
+		const footerData = {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		} as unknown as ReadonlyFooterDataProvider;
+		component = footerFactory(
+			{ requestRender() {} } as TUI,
+			hudTheme,
+			footerData,
+		) as Component;
+
+		// compact: ↑ 7.8M (U 855k + R 6.9M) │ ↓ 266k │ C 89.0% — same in both languages
+		invalidateUsageCache();
+		config.hud.tokens = "compact";
+		config.settingsLanguage = "en";
+		const en = component.render(120).join("\n");
+		assert.ok(en.includes("↑ 7.8M (U 855k + R 6.9M)"), `compact input breakdown missing\n${en}`);
+		assert.ok(en.includes("↓ 266k"), `compact output missing\n${en}`);
+		assert.ok(en.includes("C 89.0%"), `compact cache-hit missing\n${en}`);
+		assert.ok(!en.includes("↑in "), `verbose input label leaked\n${en}`);
+		assert.ok(!en.includes("hit "), `verbose hit label leaked\n${en}`);
+
+		config.settingsLanguage = "zh";
+		const zh = component.render(120).join("\n");
+		assert.ok(zh.includes("↑ 7.8M (U 855k + R 6.9M)"), `compact should be language-independent\n${zh}`);
+		assert.ok(!zh.includes("↑输入"), `chinese verbose label leaked in compact mode\n${zh}`);
+
+		// sub-toggles stay orthogonal: no parens without breakdown, no C without cacheHit
+		config.settingsLanguage = "en";
+		config.hud.tokenBreakdown = false;
+		const noBreakdown = component.render(120).join("\n");
+		assert.ok(noBreakdown.includes("↑ 7.8M"), `bare compact input missing\n${noBreakdown}`);
+		assert.ok(!noBreakdown.includes("(U "), `breakdown leaked while disabled\n${noBreakdown}`);
+		config.hud.tokenBreakdown = true;
+		config.hud.cacheHit = false;
+		const noHit = component.render(120).join("\n");
+		assert.ok(!noHit.includes("C 89"), `cache-hit leaked while disabled\n${noHit}`);
+
+		// verbose keeps the localized labels
+		invalidateUsageCache();
+		config.hud.cacheHit = true;
+		config.hud.tokens = "verbose";
+		const verbose = component.render(120).join("\n");
+		assert.ok(verbose.includes("↑in 7.8M"), `verbose input missing\n${verbose}`);
+		assert.ok(verbose.includes("↓out 266k"), `verbose output missing\n${verbose}`);
+
+		// off hides the whole token block
+		config.hud.tokens = "off";
+		const off = component.render(120).join("\n");
+		assert.ok(!off.includes("↑ 7.8M"), `input leaked while off\n${off}`);
+		assert.ok(!off.includes("↓ 266k"), `output leaked while off\n${off}`);
+	} finally {
+		cleanup();
+		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
+	}
+});
+
 test("hud labels follow the settings language", () => {
 	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
 	const ctx = {
