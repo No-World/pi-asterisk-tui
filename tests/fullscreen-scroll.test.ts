@@ -41,7 +41,7 @@ test("loads old configs and normalizes persisted fullscreen values", () => {
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;
-		const configPath = join(agentDir, "open-tui.json");
+		const configPath = join(agentDir, "asterisk-tui.json");
 		writeFileSync(configPath, JSON.stringify({ enabled: false }), "utf8");
 		assert.equal(loadConfig().fullscreen.wheelScrollLines, 4);
 

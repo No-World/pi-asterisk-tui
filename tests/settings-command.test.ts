@@ -343,16 +343,16 @@ test("configures telemetry from its own tab", async () => {
 
 test("supports localized settings and keyboard shortcuts", async () => {
 	const settings = await openSettings();
-	assert.match(settings.component.render(80).join("\n"), /Open TUI Settings.*General.*Language/s);
+	assert.match(settings.component.render(80).join("\n"), /Asterisk TUI Settings.*General.*Language/s);
 
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput(" ");
 	assert.equal(settings.getConfig().settingsLanguage, "zh");
-	assert.match(settings.component.render(80).join("\n"), /Open TUI 设置.*常规.*语言.*简体中文/s);
+	assert.match(settings.component.render(80).join("\n"), /Asterisk TUI 设置.*常规.*语言.*简体中文/s);
 	assert.match(selectedLine(settings.component), /语言/);
 
 	const reopened = await openSettings(structuredClone(settings.getConfig()));
-	assert.match(reopened.component.render(80).join("\n"), /Open TUI 设置.*简体中文/s);
+	assert.match(reopened.component.render(80).join("\n"), /Asterisk TUI 设置.*简体中文/s);
 
 	reopened.component.handleInput("\x1b[B");
 	reopened.component.handleInput("\x1b[C");
@@ -399,7 +399,7 @@ test("falls back to English for an invalid settings language", () => {
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;
-		writeFileSync(join(agentDir, "open-tui.json"), JSON.stringify({ settingsLanguage: "de", cursorStyle: "invalid" }), "utf8");
+		writeFileSync(join(agentDir, "asterisk-tui.json"), JSON.stringify({ settingsLanguage: "de", cursorStyle: "invalid" }), "utf8");
 		assert.equal(loadConfig().settingsLanguage, "en");
 		assert.equal(loadConfig().cursorStyle, "block");
 	} finally {

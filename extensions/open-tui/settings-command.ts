@@ -28,7 +28,7 @@ const TABS: Tab[] = ["features", "icons", "collapse", "segments", "telemetry"];
 
 const COPY = {
 	en: {
-		title: "Open TUI Settings",
+		title: "Asterisk TUI Settings",
 		tabs: { features: "General", icons: "Appearance", collapse: "Collapse", segments: "Footer", telemetry: "Telemetry" },
 		hint: "Tab/Shift+Tab/←/→: tabs · ↑/↓: move · Enter/Space: change · Enter on wheel speed: type 1-10 · Esc/q: close",
 		labels: {
@@ -111,7 +111,7 @@ const COPY = {
 		},
 	},
 	zh: {
-		title: "Open TUI 设置",
+		title: "Asterisk TUI 设置",
 		tabs: { features: "常规", icons: "外观", collapse: "压缩", segments: "Footer", telemetry: "遥测" },
 		hint: "Tab/Shift+Tab/←/→：切页 · ↑/↓：移动 · Enter/Space：更改 · 滚轮速度项 Enter 输入 1-10 · Esc/q：关闭",
 		labels: {
@@ -744,8 +744,8 @@ export function registerSettingsCommand(
 		onOverlayClosed?: () => void;
 	},
 ): void {
-	pi.registerCommand("open-tui", {
-		description: "Open the open-tui settings UI",
+	pi.registerCommand("*tui", {
+		description: "Open the asterisk-tui settings UI",
 		handler: async (_args, ctx: ExtensionContext) => {
 			if (!ctx.hasUI) return;
 		await ctx.ui.custom<void>((tui: TUI, theme, _kb, done) => {

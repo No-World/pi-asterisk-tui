@@ -24,7 +24,7 @@ _Avoid_: 缺省/inherit（状态是显式的 default，不是「未设置」）�
 `turnCollapse.style` 两档：compact（压缩行紧贴上下文）/ classic（压缩行前后各空一行，相邻压缩行之间只留一行）。
 
 **思考块显示**：
-`turnCollapse.thought`，与每工具覆盖同一套四态：default（跟随模式：native→内联 / single→逐条标签 / group-same→归纳 Thought 行 / group-all→并入 ✻ 行）/ single（每条一行 ✻ 标签）/ group-same（归纳 Thought 行，不与工具合并）/ expand（内联展开）。事实源是 open-tui.json；pi 原生的 hideThinkingBlock 只是镜像，ctrl+t 翻转会被采纳为显式状态（展开→expand，折叠→single）。
+`turnCollapse.thought`，与每工具覆盖同一套四态：default（跟随模式：native→内联 / single→逐条标签 / group-same→归纳 Thought 行 / group-all→并入 ✻ 行）/ single（每条一行 ✻ 标签）/ group-same（归纳 Thought 行，不与工具合并）/ expand（内联展开）。事实源是 asterisk-tui.json（首次运行自动收养旧 open-tui.json，旧文件保留）；pi 原生的 hideThinkingBlock 只是镜像，ctrl+t 翻转会被采纳为显式状态（展开→expand，折叠→single）。
 _Avoid_: hideThinkingBlock 作为主设置（那是 pi 的消息级开关，现为镜像）、二态「思考块折叠」（旧契约）
 
 **转录折叠**：
@@ -76,7 +76,7 @@ _Avoid_: HUD 底栏
 _Avoid_: 设置面板（编辑器是输入框本体，不是配置界面）
 
 **设置面板**：
-`/open-tui` 双语面板（English / 简体中文），语言选择同时本地化 HUD 标签。
+`/*tui` 双语面板（English / 简体中文），语言选择同时本地化 HUD 标签。
 _Avoid_: pi 的 `/settings`（那是宿主的设置；本扩展的配置都在自己的设置面板里）
 
 **图标模式**：

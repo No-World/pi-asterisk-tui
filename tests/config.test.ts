@@ -1,9 +1,36 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULT_TURN_COLLAPSE, DEFAULT_HUD_CONFIG, effectiveThoughtTreatment, loadConfig, normalizeHudConfig, normalizeTurnCollapse } from "../extensions/open-tui/config.ts";
+
+test("loadConfig adopts settings from a legacy open-tui.json on first run", () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "open-tui-config-"));
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	try {
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		writeFileSync(
+			join(agentDir, "open-tui.json"),
+			JSON.stringify({ footerStyle: "classic", settingsLanguage: "zh" }),
+			"utf8",
+		);
+		const config = loadConfig();
+		assert.equal(config.footerStyle, "classic");
+		assert.equal(config.settingsLanguage, "zh");
+		// Contents were adopted into the new location; the legacy file is kept.
+		const adopted = join(agentDir, "asterisk-tui.json");
+		assert.equal(JSON.parse(readFileSync(adopted, "utf8")).settingsLanguage, "zh");
+		assert.ok(existsSync(join(agentDir, "open-tui.json")));
+		// Once the new file exists it wins over the legacy one.
+		writeFileSync(adopted, JSON.stringify({ settingsLanguage: "en" }), "utf8");
+		assert.equal(loadConfig().settingsLanguage, "en");
+	} finally {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});
 
 test("legacy boolean turnCollapse migrates to the mode contract", () => {
 	assert.deepEqual(normalizeTurnCollapse(true), { ...DEFAULT_TURN_COLLAPSE, mode: "group-all" });
@@ -68,7 +95,7 @@ test("loadConfig migrates a stored legacy hud.tokens boolean and keeps the hud p
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;
 		writeFileSync(
-			join(agentDir, "open-tui.json"),
+			join(agentDir, "asterisk-tui.json"),
 			JSON.stringify({ hud: { tokens: false } }),
 			"utf8",
 		);
@@ -77,7 +104,7 @@ test("loadConfig migrates a stored legacy hud.tokens boolean and keeps the hud p
 		// off ≠ the HUD preset default, so the derived preset downgrades to custom
 		assert.equal(config.stylePreset, "custom");
 		writeFileSync(
-			join(agentDir, "open-tui.json"),
+			join(agentDir, "asterisk-tui.json"),
 			JSON.stringify({ hud: { tokens: true } }),
 			"utf8",
 		);
@@ -96,7 +123,7 @@ test("loadConfig migrates a stored legacy boolean via deepMerge", () => {
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;
-		writeFileSync(join(agentDir, "open-tui.json"), JSON.stringify({ turnCollapse: false }), "utf8");
+		writeFileSync(join(agentDir, "asterisk-tui.json"), JSON.stringify({ turnCollapse: false }), "utf8");
 		const config = loadConfig();
 		assert.equal(config.turnCollapse.mode, "native");
 		assert.equal(config.turnCollapse.style, "compact");

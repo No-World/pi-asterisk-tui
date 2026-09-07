@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { basename, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
@@ -347,6 +347,12 @@ export function applyStylePreset(config: OpenTuiConfig, preset: StylePreset): Op
 
 export function getConfigPath(): string {
 	const agentDir = getAgentDir();
+	return join(agentDir, "asterisk-tui.json");
+}
+
+/** Pre-rename location; its settings are adopted into getConfigPath() on first run. */
+function getLegacyConfigPath(): string {
+	const agentDir = getAgentDir();
 	return join(agentDir, "open-tui.json");
 }
 
@@ -372,13 +378,28 @@ function deepMerge<T>(base: T, override: unknown): T {
 	return result as T;
 }
 
+/** Reads a file's contents; null when missing. Other errors propagate. */
+function readFileIfExists(path: string): string | null {
+	try {
+		return readFileSync(path, "utf8");
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException | null)?.code !== "ENOENT") throw err;
+		return null;
+	}
+}
+
 export function ensureConfigExists(): void {
 	const path = getConfigPath();
-	if (existsSync(path)) return;
 	try {
 		const agentDir = getAgentDir();
-		if (!existsSync(agentDir)) mkdirSync(agentDir, { recursive: true });
-		writeFileSync(path, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n", "utf8");
+		mkdirSync(agentDir, { recursive: true });
+		// First run after the rename: adopt legacy open-tui.json settings verbatim.
+		// "wx" makes the create atomic — a concurrent creator wins with EEXIST.
+		const legacySeed = readFileIfExists(getLegacyConfigPath());
+		const seed = legacySeed !== null
+			? legacySeed
+			: JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n";
+		writeFileSync(path, seed, { flag: "wx" });
 	} catch {
 		// ponytail: silent fallback — config creation is best-effort
 	}
@@ -386,13 +407,23 @@ export function ensureConfigExists(): void {
 
 export function loadConfig(notify?: (msg: string, level: "warning" | "info") => void): OpenTuiConfig {
 	const path = getConfigPath();
-	if (!existsSync(path)) {
-		ensureConfigExists();
-		return structuredClone(DEFAULT_CONFIG);
-	}
-
+	// Read-first: on the first run ensureConfigExists adopts legacy
+	// open-tui.json settings into the new location, then we read it back. If
+	// that write failed (e.g. read-only dir), read the legacy file directly —
+	// the next saveConfig writes the new location.
+	let source = path;
 	try {
-		const raw = readFileSync(path, "utf8");
+		let raw = readFileIfExists(path);
+		if (raw === null) {
+			ensureConfigExists();
+			raw = readFileIfExists(path);
+		}
+		if (raw === null) {
+			const legacyPath = getLegacyConfigPath();
+			raw = readFileIfExists(legacyPath);
+			if (raw === null) return structuredClone(DEFAULT_CONFIG);
+			source = legacyPath;
+		}
 		const parsed: unknown = JSON.parse(raw);
 		const config = deepMerge(DEFAULT_CONFIG, parsed);
 		if (config.settingsLanguage !== "en" && config.settingsLanguage !== "zh") {
@@ -416,7 +447,7 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		);
 		return config;
 	} catch (err) {
-		notify?.(`open-tui config parse error: ${err instanceof Error ? err.message : String(err)}`, "warning");
+		notify?.(`${basename(source)} parse error: ${err instanceof Error ? err.message : String(err)}`, "warning");
 		return structuredClone(DEFAULT_CONFIG);
 	}
 }
@@ -425,7 +456,7 @@ export function saveConfig(config: OpenTuiConfig): void {
 	const path = getConfigPath();
 	try {
 		const agentDir = getAgentDir();
-		if (!existsSync(agentDir)) mkdirSync(agentDir, { recursive: true });
+		mkdirSync(agentDir, { recursive: true });
 		writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
 	} catch {
 		// ponytail: silent fallback — config save is best-effort
