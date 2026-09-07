@@ -37,6 +37,12 @@ export interface TurnCollapseConfig {
 	retryErrors: boolean;
 	/** Thinking-block override — same state lattice as per-tool overrides. */
 	thought: ToolOverride;
+	/** Stream thinking content inline while it arrives; fold it back once the
+	 *  thinking phase ends (text starts or the message stops streaming). */
+	liveThinking: boolean;
+	/** Render the native output box of running tools below the spinner
+	 *  one-liner; off shows the spinner line only. */
+	liveTools: boolean;
 	/** Per-tool overrides keyed by tool name; "*" matches tools without an entry. */
 	tools: Record<string, ToolOverride>;
 	/** Non-builtin tool names observed at runtime (auto-maintained, feeds the panel). */
@@ -48,6 +54,8 @@ export const DEFAULT_TURN_COLLAPSE: TurnCollapseConfig = {
 	style: "compact",
 	retryErrors: true,
 	thought: "default",
+	liveThinking: true,
+	liveTools: true,
 	tools: {},
 	seenTools: [],
 };
@@ -102,6 +110,8 @@ export function normalizeTurnCollapse(value: unknown): TurnCollapseConfig {
 		style: COLLAPSE_STYLES.includes(raw.style as CollapseStyle) ? (raw.style as CollapseStyle) : DEFAULT_TURN_COLLAPSE.style,
 		retryErrors: raw.retryErrors !== false,
 		thought: TOOL_OVERRIDES.includes(raw.thought as ToolOverride) ? (raw.thought as ToolOverride) : "default",
+		liveThinking: raw.liveThinking !== false,
+		liveTools: raw.liveTools !== false,
 		tools,
 		seenTools: [...new Set(seenTools)].sort(),
 	};

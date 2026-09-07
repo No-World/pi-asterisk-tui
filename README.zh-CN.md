@@ -51,7 +51,11 @@ pi install git:github.com/No-World/pi-asterisk-tui
   那条消息的思维链，样式与压缩行完全一致（同色 ✻、同灰色正体文字）；也可在设置面板里
   直接开关（写入 pi 原生设置并同步当前会话）。
 - **运行中的工具**渲染为动画单行（`⠋ bash · $ npm test`），下方实时流式输出，且不会把
-  已完成的相邻工具拖出折叠行（native 模式保持纯 pi 盒子）。
+  已完成的相邻工具拖出折叠行（native 模式保持纯 pi 盒子）。`turnCollapse.liveTools: false`
+  可关掉实时输出盒，只留 spinner 单行；expand 覆盖的工具不受影响。
+- **流式思考**（`turnCollapse.liveThinking`，默认开）：流式中的 thinking-only 消息实时内联
+  显示思考内容；一旦该消息开始出正文（或停止流式），立即折回 ✻ 标签 / 归纳行，无需等
+  整个 run 结束。
 - **重试体验**：倒计时附带失败原因（`Retrying (2/10) in 5s… · 429 rate_limit_error`）；
   中间错误扣留不显示，重试成功什么都不打印，最终失败只输出最后一条（可独立开关）。
 - **紧凑间距**：✻ 行周围的 pi 内部 Spacer 与 OSC shell 集成标记一律折掉。
@@ -112,6 +116,8 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `turnCollapse.style` | `"compact"` | 压缩行间隔：`compact` / `classic` |
 | `turnCollapse.retryErrors` | `true` | 运行期间扣留重试错误 |
 | `turnCollapse.thought` | `"default"` | 思考块：`default` / `single` / `group-same` / `expand` |
+| `turnCollapse.liveThinking` | `true` | 流式期间内联显示思考内容，结束后折回 |
+| `turnCollapse.liveTools` | `true` | 运行中在 spinner 行下方渲染实时输出盒 |
 | `turnCollapse.tools` | `{}` | 每工具 `default` / `single` / `group-same` / `expand`；`*` 通配 |
 | `icons.mode` | `"auto"` | nerd / ascii / auto 图标集 |
 | `cursorStyle` | `"block"` | 编辑器光标样式 |

@@ -15,6 +15,8 @@ test("normalizeTurnCollapse fills defaults and drops invalid values", () => {
 		mode: "bogus",
 		style: "classic",
 		retryErrors: false,
+		liveThinking: "yes",
+		liveTools: false,
 		tools: { bash: "single", read: "nope", "*": "expand" },
 		seenTools: ["mcp_search", "mcp_search", 42],
 	});
@@ -23,6 +25,8 @@ test("normalizeTurnCollapse fills defaults and drops invalid values", () => {
 		style: "classic",
 		retryErrors: false,
 		thought: "default",
+		liveThinking: true,
+		liveTools: false,
 		tools: { bash: "single", "*": "expand" },
 		seenTools: ["mcp_search"],
 	});

@@ -35,8 +35,12 @@ _Avoid_: hideThinkingBlock（那是 pi 原生的消息级开关；本扩展默�
 单条消息的 `✻ Thought…`（历史）/ `✻ Thinking…`（流式）标签，单独点击只展开该消息的思维链。
 _Avoid_: ✻ 行（思考标签只管一条消息的推理；✻ 行合并整段活动）
 
+**流式思考**：
+`turnCollapse.liveThinking`（默认开）：流式中的 thinking-only 消息实时内联渲染思考内容；thinking 阶段一结束（正文出现或停止流式）立即折回思考标签 / ✻ 行，不等整个 run 结束。
+_Avoid_: 思考块显示（那是折后的四态契约；流式思考只管流式期间的实时展示）
+
 **运行中工具行**：
-工具执行时的动画单行（`⠋ bash · $ npm test`）+ 下方实时流式输出。
+工具执行时的动画单行（`⠋ bash · $ npm test`）+ 下方实时流式输出（`turnCollapse.liveTools` 可关，关后只剩单行；expand 覆盖的工具始终整盒展示）。
 _Avoid_: ✻ 行（工具完成后即并入 ✻ 行）
 
 ## 遥测

@@ -51,6 +51,8 @@ const COPY = {
 			collapseStyle: "Compressed line spacing",
 			retryErrors: "Fold retry errors",
 			thought: "Thinking blocks (✻)",
+			liveThinking: "Live thinking while streaming",
+			liveTools: "Live tool output while running",
 			otherTools: "Other tools",
 			footerStyle: "Footer style",
 			stylePreset: "Style preset",
@@ -131,6 +133,8 @@ const COPY = {
 			collapseStyle: "压缩行间隔",
 			retryErrors: "折叠重试错误",
 			thought: "思考块显示（✻）",
+			liveThinking: "流式显示思考内容",
+			liveTools: "运行中显示工具输出",
 			otherTools: "其他工具",
 			footerStyle: "Footer 样式",
 			stylePreset: "风格预设",
@@ -280,6 +284,11 @@ function toggleRetryErrors(config: OpenTuiConfig): OpenTuiConfig {
 	return { ...config, turnCollapse: { ...config.turnCollapse, retryErrors: !config.turnCollapse.retryErrors } };
 }
 
+/** Live-view toggles: streaming thinking content / running tool output. */
+function toggleLiveOption(config: OpenTuiConfig, key: "liveThinking" | "liveTools"): OpenTuiConfig {
+	return { ...config, turnCollapse: { ...config.turnCollapse, [key]: !config.turnCollapse[key] } };
+}
+
 /** Cycles a per-tool override; "default" is stored by omitting the key. */
 function cycleToolOverride(config: OpenTuiConfig, tool: string): OpenTuiConfig {
 	const current = config.turnCollapse.tools[tool] ?? "default";
@@ -426,6 +435,8 @@ function buildCollapseItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 		{ id: "style", label: copy.labels.collapseStyle, currentValue: copy.values.collapseStyles[collapse.style] },
 		{ id: "retryErrors", label: copy.labels.retryErrors, currentValue: flag(collapse.retryErrors) },
 		{ id: "thought", label: copy.labels.thought, currentValue: copy.values.thoughtStates[collapse.thought] },
+		{ id: "liveThinking", label: copy.labels.liveThinking, currentValue: flag(collapse.liveThinking) },
+		{ id: "liveTools", label: copy.labels.liveTools, currentValue: flag(collapse.liveTools) },
 	];
 	for (const name of BUILTIN_TOOLS) {
 		items.push(toolItem(name, copy.values.toolLabel(name)));
@@ -488,6 +499,7 @@ function handleSettingChange(
 		if (itemId === "mode") return cycleCollapseMode(config);
 		if (itemId === "style") return cycleCollapseStyle(config);
 		if (itemId === "retryErrors") return toggleRetryErrors(config);
+		if (itemId === "liveThinking" || itemId === "liveTools") return toggleLiveOption(config, itemId);
 		if (itemId === "thought") return cycleThoughtOverride(config);
 		if (itemId.startsWith("tool:")) return cycleToolOverride(config, itemId.slice("tool:".length));
 		return config;

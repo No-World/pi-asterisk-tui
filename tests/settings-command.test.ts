@@ -386,6 +386,12 @@ test("configures transcript compression from its own tab", async () => {
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().turnCollapse.thought, "single");
 	assert.equal(settings.getConfig().turnCollapse.mode, "native"); // untouched by the thought cycle
+	settings.component.handleInput("\x1b[B"); // Live thinking while streaming
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.liveThinking, false);
+	settings.component.handleInput("\x1b[B"); // Live tool output while running
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.liveTools, false);
 
 	settings.component.handleInput("\x1b[B"); // Tool · bash
 	settings.component.handleInput("\r");
@@ -409,8 +415,8 @@ test("lists seen extension tools only when present", async () => {
 	const withTools = await openSettings(config);
 	withTools.component.handleInput("\t");
 	withTools.component.handleInput("\t");
-	// 13 items on this tab; walk down to the seen tool (past the 10-item fold).
-	for (let i = 0; i < 12; i++) withTools.component.handleInput("\x1b[B");
+	// 15 items on this tab; walk down to the seen tool (past the 10-item fold).
+	for (let i = 0; i < 14; i++) withTools.component.handleInput("\x1b[B");
 	assert.match(selectedLine(withTools.component), /Tool · mcp_search.*Default/);
 	withTools.component.handleInput("\r");
 	assert.equal(withTools.getConfig().turnCollapse.tools.mcp_search, "single");
