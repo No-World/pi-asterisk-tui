@@ -1,7 +1,9 @@
 # npm publish — tag-triggered (v*), gated on the full CI lane.
 #
-# Requires the NPM_TOKEN repository secret (granular access token, read+write).
-# Provenance signing uses GitHub OIDC (id-token: write) — no extra setup.
+# Authenticates via npm Trusted Publishing (GitHub OIDC): no NPM_TOKEN secret.
+# Requires the trusted-publisher entry on npmjs.com:
+#   repository: No-World/pi-asterisk-tui · workflow: npm-publish.yml · environment: (none)
+# Needs npm >= 11.5 (bundled with current Node 24.x).
 
 name: npm publish
 
@@ -15,7 +17,7 @@ permissions:
 
 jobs:
   publish:
-    name: npm publish (provenance)
+    name: npm publish (trusted publishing)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +33,4 @@ jobs:
           npm test
           npm run typecheck
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public
