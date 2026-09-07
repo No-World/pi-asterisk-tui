@@ -189,7 +189,7 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx?.ui?.setWorkingMessage) return;
 		if (state.workingSince === undefined) return;
 		const elapsed = formatDuration(Date.now() - state.workingSince);
-		const outTokens = turnTelemetry.getTurnOutputTokens();
+		const outTokens = turnTelemetry.getRunOutputTokens();
 		const tools = turnTelemetry.getLiveToolCalls();
 		const toolPart = tools > 0 ? ` · ${tools} tool${tools > 1 ? "s" : ""}` : "";
 		ctx.ui.setWorkingMessage(`Working… (${elapsed} · ↓ ${fmtTokens(outTokens)} tokens${toolPart})`);

@@ -421,25 +421,25 @@ test("working output tokens count the in-flight message while streaming", () => 
 	const tracker = new TurnTelemetryTracker(() => 0);
 	const message = makeMessage(2, 50); // message_start reports a tiny initial output count
 	startTurn(tracker, message);
-	assert.equal(tracker.getTurnOutputTokens(), 2);
+	assert.equal(tracker.getRunOutputTokens(), 2);
 
 	// Deltas without provider usage: estimate takes over (4 CJK tokens > 2).
 	tracker.handle(update(message, { type: "thinking_delta", contentIndex: 0, delta: "你好世界", partial: message }));
-	assert.equal(tracker.getTurnOutputTokens(), 4);
+	assert.equal(tracker.getRunOutputTokens(), 4);
 
 	// More deltas accumulate onto the estimate (4 + floor(3) = 7).
 	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "hello world!", partial: message }));
-	assert.equal(tracker.getTurnOutputTokens(), 7);
+	assert.equal(tracker.getRunOutputTokens(), 7);
 
 	// Providers that stream cumulative usage win over the estimate.
 	const cumulative = makeMessage(40, 50);
 	tracker.handle(update(cumulative, { type: "text_delta", contentIndex: 0, delta: "x", partial: cumulative }));
-	assert.equal(tracker.getTurnOutputTokens(), 40);
+	assert.equal(tracker.getRunOutputTokens(), 40);
 
 	// Completing the message snaps the counter to exact usage.
 	const final = makeMessage(23, 50);
 	tracker.handle({ type: "message_end", message: final });
-	assert.equal(tracker.getTurnOutputTokens(), 23);
+	assert.equal(tracker.getRunOutputTokens(), 23);
 });
 
 test("working output tokens sum completed messages plus the streaming one", () => {
@@ -451,7 +451,35 @@ test("working output tokens sum completed messages plus the streaming one", () =
 	const second = makeMessage(1, 50);
 	tracker.handle({ type: "message_start", message: second });
 	tracker.handle(update(second, { type: "text_delta", contentIndex: 0, delta: "你好世界哈", partial: second }));
-	assert.equal(tracker.getTurnOutputTokens(), 25);
+	assert.equal(tracker.getRunOutputTokens(), 25);
+});
+
+test("working output tokens survive turn boundaries within an agent run", () => {
+	const tracker = new TurnTelemetryTracker(() => 0);
+	tracker.handle({ type: "agent_start" });
+
+	// Turn 1: 20 output tokens, then the assistant ends with a tool call.
+	const first = makeMessage(20, 50);
+	startTurn(tracker, first);
+	tracker.handle(update(first));
+	endTurn(tracker, first);
+
+	// A tool executing between turns must not zero the run counter (#11).
+	tracker.handle({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: {} });
+	assert.equal(tracker.getRunOutputTokens(), 20);
+
+	// Turn 2: the new message adds on top instead of restarting from 0.
+	const second = makeMessage(1, 50);
+	startTurn(tracker, second, 1);
+	tracker.handle(update(second, { type: "text_delta", contentIndex: 0, delta: "你好世界哈", partial: second }));
+	assert.equal(tracker.getRunOutputTokens(), 25);
+
+	// The run settles; the next agent run starts from a clean slate.
+	const settled = makeMessage(5, 50);
+	endTurn(tracker, settled, 1);
+	tracker.handle({ type: "agent_settled" });
+	tracker.handle({ type: "agent_start" });
+	assert.equal(tracker.getRunOutputTokens(), 0);
 });
 
 test("open-tui notifies once after a complete agent run", () => {

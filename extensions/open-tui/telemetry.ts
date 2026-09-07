@@ -103,6 +103,8 @@ export class TurnTelemetryTracker {
 	private lastMessageTps: number | null = null;
 	/** Tool executions started in the current agent run (live, for the working indicator). */
 	private liveToolCalls = 0;
+	/** Exact output tokens of completed messages in the current agent run. */
+	private agentRunOutputTokens = 0;
 	/** Per-turn summaries collected during the current agent run. */
 	private agentSummaries: TurnSummary[] = [];
 	/** Merged summary of the most recently settled agent run. */
@@ -134,22 +136,20 @@ export class TurnTelemetryTracker {
 	}
 
 	/**
-	 * Output tokens accumulated so far in the current turn: completed messages use
-	 * exact usage; the in-flight message uses provider-reported usage when available
-	 * and a delta-based estimate otherwise (anthropic-protocol backends only send
-	 * usage with the final message_delta, so without this the counter sits at 0
-	 * for the whole stream).
+	 * Output tokens accumulated so far in the current agent run: completed
+	 * messages contribute exact usage (summed across turns, so a tool executing
+	 * between turns never zeroes the counter — #11); the in-flight message uses
+	 * provider-reported usage when available and a delta-based estimate
+	 * otherwise (anthropic-protocol backends only send usage with the final
+	 * message_delta, so without this the counter sits at 0 for the whole
+	 * stream).
 	 */
-	getTurnOutputTokens(): number {
-		let sum = 0;
-		for (const message of this.turn?.messages ?? []) {
-			sum += finiteOrZero(message.usage?.output);
-		}
+	getRunOutputTokens(): number {
 		const current = this.turn?.currentMessage;
-		if (current) {
-			sum += Math.max(current.liveUsageOutput, Math.floor(current.streamedEstimate));
-		}
-		return sum;
+		const inFlight = current
+			? Math.max(current.liveUsageOutput, Math.floor(current.streamedEstimate))
+			: 0;
+		return this.agentRunOutputTokens + inFlight;
 	}
 
 	handle(event: TelemetryEvent): TurnTelemetry | undefined {
@@ -159,6 +159,7 @@ export class TurnTelemetryTracker {
 					this.agentStartMs = this.now();
 					this.agentTurns = [];
 					this.liveToolCalls = 0;
+					this.agentRunOutputTokens = 0;
 					this.agentSummaries = [];
 					this.agentRunThinkingMs = [];
 				}
@@ -293,6 +294,7 @@ export class TurnTelemetryTracker {
 			turn.currentMessage = null;
 		}
 		if (!current) turn.messageThinkingMs.push(0);
+		this.agentRunOutputTokens += finiteOrZero(message.usage?.output);
 		turn.messages.push(message);
 	}
 

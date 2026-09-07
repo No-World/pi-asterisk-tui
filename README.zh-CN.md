@@ -58,8 +58,8 @@ pi install git:github.com/No-World/pi-asterisk-tui
 
 ## 遥测
 
-- **Working 指示器**：`Working… (34s · ↓ 1.2k tokens · 3 tools)`——耗时、流式期间按增量
-  估算的输出 token（完成回填精确值）、实时工具计数。
+- **Working 指示器**：`Working… (34s · ↓ 1.2k tokens · 3 tools)`——耗时、按运行累计的
+  输出 token（流式期间增量估算、完成回填精确值，工具执行不清零）、实时工具计数。
 - **单轮遥测**：每次运行结束显示 TPS、TTFT、耗时、停顿次数/时长、输入/输出 token
   明细（含缓存读/写）、缓存命中率、模型标价 $/M 速率。
 - **Classic 底栏单轮摘要**：`✓ done 12s · ✻ 8s · 2 shell commands`。
