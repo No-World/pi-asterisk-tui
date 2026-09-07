@@ -240,7 +240,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// Compress-anything feed: config → render walk. Thought visibility is
-	// owned by turnCollapse.thought (open-tui.json); pi's hideThinkingBlock is
+	// owned by turnCollapse.thought (asterisk-tui.json); pi's hideThinkingBlock is
 	// only a mirror so pi-native rendering matches when the extension is off.
 	const applyTurnCollapseConfig = (current: OpenTuiConfig, thought?: ToolOverride) => {
 		// The hint mirrors the REGISTERED shortcut (mid-session config edits

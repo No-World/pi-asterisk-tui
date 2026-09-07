@@ -4,7 +4,7 @@
  * - "hud":     4-line claude-hud inspired layout (default)
  * - "classic": the original pi-open-tui starship-style footer
  *
- * Configure via /open-tui → Footer → Footer style.
+ * Configure via /*tui → Footer → Footer style.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";

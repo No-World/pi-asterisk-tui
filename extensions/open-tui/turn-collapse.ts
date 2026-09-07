@@ -264,7 +264,7 @@ export function findThinkingHostViaSegments(lineIndex: number): unknown | undefi
 let themeRef: Theme | undefined;
 let requestRenderRef: (() => void) | undefined;
 
-/** Collapse preferences fed from open-tui.json (index.ts wires config → here). */
+/** Collapse preferences fed from asterisk-tui.json (index.ts wires config → here). */
 export interface CollapseOptions {
 	mode: CollapseMode;
 	style: CollapseStyle;
@@ -355,7 +355,7 @@ function thoughtTreatment(): ThoughtTreatment {
 
 /**
  * Thinking-block visibility preference. The single source of truth is
- * open-tui.json (turnCollapse.thought); pi's native hideThinkingBlock is
+ * asterisk-tui.json (turnCollapse.thought); pi's native hideThinkingBlock is
  * only a mirror (index.ts writes it) so pi-native rendering matches when the
  * extension is off.
  */

@@ -1,5 +1,5 @@
 /**
- * claude-hud style footer for the vendored open-tui project.
+ * claude-hud style footer for the asterisk-tui project.
  *
  * [glm-5.3[1.0M] ◕ xhigh] │ dir git:(branch* ↑3 [+71 -5]) │ session-name │ ⏱ 1h 6m │ $6.56
  * 上下文 ███░░░░░░░ 26% (264k/1.0M)                     node v22 │ cache 95%
@@ -47,7 +47,7 @@ const THINKING_ICONS: Record<string, string> = {
 	max: "●",
 };
 
-// HUD labels follow the /open-tui panel language (settingsLanguage).
+// HUD labels follow the /*tui panel language (settingsLanguage).
 interface HudStrings {
 	contextLabel: string;
 	costLabel: string;

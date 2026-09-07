@@ -20,7 +20,7 @@ pi install git:github.com/No-World/pi-asterisk-tui
 ## ✻ Transcript
 
 The transcript renders as answer text plus compressed activity lines. How much
-compresses is the **compression mode** (`/open-tui` → Collapse):
+compresses is the **compression mode** (`/*tui` → Collapse):
 
 | Mode | Rendering |
 | --- | --- |
@@ -107,7 +107,7 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
 ## Editor & settings
 
 - Framed editor with block / bar / underline cursor styles.
-- Bilingual `/open-tui` settings panel (English / 简体中文) — the language choice also
+- Bilingual `/*tui` settings panel (English / 简体中文) — the language choice also
   localizes HUD labels — covering footer segments, HUD toggles, telemetry fields, icon
   mode (nerd / ascii / auto), cursor style, fullscreen wheel-scroll speed, and a Collapse
   tab (compression mode, line spacing, retry-error folding, thinking visibility, per-tool
@@ -132,7 +132,9 @@ overridden) so the ✻ experience works out of the box.
 
 ## Configuration
 
-Run `/open-tui`, or edit `~/.pi/agent/open-tui.json`. Notable keys:
+Run `/*tui`, or edit `~/.pi/agent/asterisk-tui.json`. Settings from a legacy
+`open-tui.json` are adopted automatically on first run; the old file is kept.
+Notable keys:
 
 | Key | Default | Effect |
 | --- | --- | --- |
