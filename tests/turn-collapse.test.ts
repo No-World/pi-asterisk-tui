@@ -793,3 +793,46 @@ test("compact style keeps per-message label lines flush", () => {
 	assert.ok(labelIdx > 0 && bashIdx === labelIdx + 1, `label flush against next line\n${lines.join("\n")}`);
 	resetCollapse();
 });
+
+test("realistic spacing: spacers and message blanks collapse around compressed lines", () => {
+	const labelWithTrailingBlank = () => {
+		const label = makeLabelMessage() as AssistantChild;
+		label.render = (width: number) => ["", " ✻ Thought…".padEnd(width), ""];
+		return label;
+	};
+	const textWithLeadingBlank = (text: string) => {
+		const msg = makeTextMessage(text) as AssistantChild;
+		msg.render = (width: number) => ["", text.padEnd(width)];
+		return msg;
+	};
+	for (const style of ["compact", "classic"] as const) {
+		resetCollapse({ mode: "single", style });
+		const container = makeContainer([
+			makeUserMessage("go"),
+			makeSpacer(),
+			labelWithTrailingBlank(),
+			makeSpacer(),
+			makeTool("read"),
+			makeSpacer(),
+			makeTool("ls"),
+			makeSpacer(),
+			labelWithTrailingBlank(),
+			makeSpacer(),
+			textWithLeadingBlank("done"),
+		]);
+		const lines = container.render(60).map((l) => l.trim());
+		const labelIdx = lines.findIndex((l) => l.includes("✻ Thought"));
+		const readIdx = lines.findIndex((l) => l.includes("▸ read"));
+		const lsIdx = lines.findIndex((l) => l.includes("▸ ls"));
+		if (style === "compact") {
+			assert.ok(labelIdx === 1 && readIdx === 2 && lsIdx === 3, `compact flush\n${lines.join("\n")}`);
+		} else {
+			// classic: single blank around each compressed line, never doubled
+			assert.equal(lines[labelIdx - 1], "", `blank before label\n${lines.join("\n")}`);
+			assert.equal(lines[labelIdx + 1], "", `single blank after label\n${lines.join("\n")}`);
+			assert.equal(lines[readIdx - 1], "", `blank before read\n${lines.join("\n")}`);
+			assert.notEqual(lines[readIdx + 2], "", `no double blank after read\n${lines.join("\n")}`);
+		}
+	}
+	resetCollapse();
+});

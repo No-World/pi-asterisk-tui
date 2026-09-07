@@ -393,6 +393,8 @@ interface ExpandedWalk {
 	pushChild: (child: unknown, lines: string[]) => void;
 	/** Compressed summary line(s) — classic style pads them with blank lines. */
 	pushCompressed: (child: unknown, lines: string[]) => void;
+	/** True when the last emitted line was a compressed line (spacer absorption). */
+	lastCompressed: () => boolean;
 	renderChild: (child: unknown) => void;
 }
 
@@ -535,7 +537,6 @@ function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: 
  */
 function renderItemTurn(turnChildren: unknown[], walk: ExpandedWalk, width: number): void {
 	let live = false;
-	let prevCompressed = false;
 	const labelRun = makeLabelRun(walk);
 	const toolRun = makeToolTypeRun(walk, () => live);
 
@@ -544,16 +545,34 @@ function renderItemTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numb
 		labelRun.flush();
 		toolRun.flush();
 	};
+	/** A folded thinking-only message renders as a standalone ✻ line. */
+	const labelCompressible = (child: unknown): boolean => {
+		if (!isAssistantMessage(child) || child.hideThinkingBlock !== true) return false;
+		if (thoughtTreatment() === "expand") return false;
+		const content = (child as { lastMessage?: { content?: Array<{ type?: string; text?: string; thinking?: string }> } })
+			.lastMessage?.content;
+		if (!Array.isArray(content)) return false;
+		const hasText = content.some(
+			(block) => block?.type === "text" && typeof block.text === "string" && block.text.trim().length > 0,
+		);
+		const hasThinking = content.some(
+			(block) => block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim().length > 0,
+		);
+		return hasThinking && !hasText;
+	};
 	const nextCompressible = (child: unknown): boolean =>
-		typeof child === "object" && child !== null && isToolBox(child) && !isToolRunning(child) &&
-		(toolTreatment(child) === "single" || toolTreatment(child) === "group-same");
+		typeof child === "object" && child !== null &&
+		((isToolBox(child) && !isToolRunning(child) &&
+			(toolTreatment(child) === "single" || toolTreatment(child) === "group-same")) ||
+			labelCompressible(child));
 
 	let index = 0;
 	while (index < turnChildren.length) {
 		const current = turnChildren[index];
 		if (isTransparentChild(current, width)) {
-			// Absorbed while runs are open or next to compressed output.
-			if (!runsOpen() && !prevCompressed && !nextCompressible(turnChildren[index + 1])) {
+			// Absorbed while runs are open, after a compressed line, or right
+			// before compressed output (label lines included).
+			if (!runsOpen() && !walk.lastCompressed() && !nextCompressible(turnChildren[index + 1])) {
 				walk.renderChild(current);
 			}
 			index++;
@@ -568,28 +587,24 @@ function renderItemTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numb
 					walk.pushChild(current, [renderToolLine(current, fg("accent", spinnerFrame()))]);
 				}
 				walk.renderChild(current);
-				prevCompressed = false;
 				index++;
 				continue;
 			}
 			if (treatment === "expand") {
 				flushAll();
 				walk.renderChild(current); // native box (mode default in native)
-				prevCompressed = false;
 				index++;
 				continue;
 			}
 			if (treatment === "single") {
 				flushAll();
 				emitSingleToolLine(current as object, walk);
-				prevCompressed = true;
 				index++;
 				continue;
 			}
 			// group-same: a type change closes the open tool group.
 			if (!toolRun.accepts(current)) toolRun.flush();
 			toolRun.push(current);
-			prevCompressed = false;
 			index++;
 			continue;
 		}
@@ -602,14 +617,12 @@ function renderItemTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numb
 		) {
 			if (!toolRun.isEmpty()) toolRun.flush(); // kinds never merge
 			labelRun.push(current);
-			prevCompressed = false;
 			index++;
 			continue;
 		}
 		// Visible content (text, per-message labels, inline thinking, errors).
 		flushAll();
 		walk.renderChild(current);
-		prevCompressed = false;
 		index++;
 	}
 	flushAll();
@@ -751,8 +764,9 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 	while (index < turnChildren.length) {
 		const current = turnChildren[index];
 		if (isTransparentChild(current, width)) {
-			// Absorbed while a run or aux group is open; otherwise padding.
-			if (runMembers.length > 0 || !labelRun.isEmpty() || !toolRun.isEmpty()) {
+			// Absorbed while a run or aux group is open, after a compressed
+			// line, or right before compressed output; otherwise padding.
+			if (runMembers.length > 0 || !labelRun.isEmpty() || !toolRun.isEmpty() || walk.lastCompressed()) {
 				index++;
 				continue;
 			}
@@ -899,6 +913,8 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	// classic style: a blank is pending after a compressed line; it is emitted
 	// lazily before the next non-blank line (adjacent blanks never double).
 	let deferredBlank = false;
+	// Walk-level spacer-absorption signal: the last emitted line was compressed.
+	let lastCompressedLine = false;
 
 	const push = (lines: string[]): void => {
 		for (const line of lines) {
@@ -907,8 +923,14 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 				cursor++;
 			}
 			deferredBlank = false;
+			// Never stack blank lines: classic padding, pi spacers, and message
+			// leading blanks collapse into a single separator.
+			if (isBlankLine(line) && out.length > 0 && isBlankLine(out[out.length - 1]!)) {
+				continue;
+			}
 			out.push(line);
 			cursor++;
+			lastCompressedLine = false;
 		}
 	};
 	const pushChild = (child: unknown, lines: string[]): void => {
@@ -925,6 +947,7 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 		}
 		pushChild(child, lines);
 		if (collapse.style === "classic") deferredBlank = true;
+		lastCompressedLine = true;
 	};
 	const renderChild = (child: unknown): void => {
 		if (isAssistantMessage(child)) syncThinkingLabel(child);
@@ -968,6 +991,7 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 				push,
 				pushChild,
 				pushCompressed,
+				lastCompressed: () => lastCompressedLine,
 				renderChild,
 			}, width);
 			i = j;
