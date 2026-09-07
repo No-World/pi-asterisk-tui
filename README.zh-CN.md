@@ -8,6 +8,12 @@
 ![预览](assets/preview_dashboard_1.png)
 
 ```bash
+pi install npm:pi-asterisk-tui
+```
+
+或从 git 安装（跟随 `main`）：
+
+```bash
 pi install git:github.com/No-World/pi-asterisk-tui
 ```
 

@@ -1,7 +1,7 @@
 {
 	"name": "pi-asterisk-tui",
-	"version": "0.3.0",
-	"description": "A polished TUI for Pi coding agent: animated logo header, Starship-style footer, rounded editor with model metadata, and prompt-box user messages.",
+	"version": "0.4.0",
+	"description": "Polished Pi coding agent TUI: transcript collapse modes (native / per-tool / grouped / run lines), claude-hud style dashboard, telemetry, and bilingual settings.",
 	"type": "module",
 	"repository": {
 		"type": "git",
@@ -33,7 +33,7 @@
 		"extensions": [
 			"./extensions/open-tui/index.ts"
 		],
-		"image": "https://raw.githubusercontent.com/OldSuns/pi-open-tui/main/assets/preview_dashboard_1.png"
+		"image": "https://raw.githubusercontent.com/No-World/pi-asterisk-tui/main/assets/preview_dashboard_1.png"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": ">=0.80",
@@ -65,6 +65,8 @@
 		"koffi@2.16.2": true,
 		"tree-sitter-bash@0.25.1": true
 	},
-	"bugs": null,
-	"homepage": null
+	"bugs": {
+		"url": "https://github.com/No-World/pi-asterisk-tui/issues"
+	},
+	"homepage": "https://github.com/No-World/pi-asterisk-tui#readme"
 }
