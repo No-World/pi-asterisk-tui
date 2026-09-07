@@ -17,6 +17,7 @@ test("normalizeTurnCollapse fills defaults and drops invalid values", () => {
 		retryErrors: false,
 		liveThinking: "yes",
 		liveTools: false,
+		expandAllKey: 42,
 		tools: { bash: "single", read: "nope", "*": "expand" },
 		seenTools: ["mcp_search", "mcp_search", 42],
 	});
@@ -27,9 +28,16 @@ test("normalizeTurnCollapse fills defaults and drops invalid values", () => {
 		thought: "default",
 		liveThinking: true,
 		liveTools: false,
+		expandAllKey: "ctrl+\\",
 		tools: { bash: "single", "*": "expand" },
 		seenTools: ["mcp_search"],
 	});
+});
+
+test("normalizeTurnCollapse keeps custom and disabled expand-all keys", () => {
+	assert.equal(normalizeTurnCollapse({ expandAllKey: "alt+o" }).expandAllKey, "alt+o");
+	assert.equal(normalizeTurnCollapse({ expandAllKey: "" }).expandAllKey, "");
+	assert.equal(normalizeTurnCollapse({ expandAllKey: "  ctrl+\\  " }).expandAllKey, "ctrl+\\");
 });
 
 test("effectiveThoughtTreatment resolves default per mode and keeps overrides absolute", () => {

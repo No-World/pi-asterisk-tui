@@ -1,5 +1,5 @@
 /**
- * Claude-style turn collapsing (fullscreen TUI).
+ * Claude-style turn collapsing (both TUI modes).
  *
  * After an agent run settles, everything it did — thinking blocks, tool and
  * bash executions — collapses into one clickable summary line:
@@ -12,14 +12,18 @@
  * one-liner plus their live output box (liveTools). Clicking the line expands
  * the whole turn (thinking stays
  * behind per-message ✻ labels, individually clickable); clicking again
- * re-collapses it.
+ * re-collapses it. In the regular TUI (no mouse capture) every compressed
+ * line carries a trailing hint with the expand-all shortcut (registerShortcut
+ * via index.ts; toggleExpandAll here).
  *
  * Mechanism (version-guarded, inert on mismatch — same policy as
  * fullscreen-scroll.ts / thinking-click.ts):
  *
- * 1. TuiAltScreen.prototype.setLayoutRoot is wrapped to discover the chat-side
- *    container: getLayoutNode walks the root stack to the ScrollView, whose
- *    child component IS pi's chat container (verified against the real runtime).
+ * 1. The shared TuiAltScreen / TuiMainScreen prototypes are wrapped. The
+ *    alt-screen path discovers the chat container through the layout box
+ *    tree (setLayoutRoot + requestRender hooks); the main-screen path walks
+ *    the children tree directly (regular mode mounts containers without
+ *    layout boxes).
  * 2. The container's render is overridden on the instance: children are grouped
  *    into turns by UserMessageComponent boundaries; a collapsed turn renders
  *    its assistant messages (thinking forced hidden), skips tool boxes and
@@ -273,6 +277,9 @@ export interface CollapseOptions {
 	liveThinking: boolean;
 	/** Render running tool output boxes below the spinner one-liner. */
 	liveTools: boolean;
+	/** Trailing hint text for compressed lines in the regular TUI (already
+	 *  localized; undefined hides it). Derived from the registered shortcut. */
+	expandAllHint?: string;
 }
 
 let collapse: CollapseOptions = {
@@ -284,6 +291,38 @@ let collapse: CollapseOptions = {
 	liveThinking: true,
 	liveTools: true,
 };
+
+/**
+ * Which renderer last requested a frame — the regular (main-screen) and
+ * fullscreen (alt-screen) wraps keep this in sync on every request. Gates
+ * the regular-only affordances: the expand-all shortcut and its hint.
+ */
+let rendererMode: "regular" | "fullscreen" | undefined;
+/** Global expand-all view state; only effective while rendererMode is regular. */
+let expandAllActive = false;
+
+const expandAllOn = (): boolean => rendererMode === "regular" && expandAllActive;
+
+/** A run renders expanded when the user clicked it OR expand-all is on. */
+const runExpanded = (head: object): boolean => expandAllOn() || expandedRuns.has(head);
+
+/** Test hook: pretend a renderer of this mode is drawing frames. */
+export function setRendererModeForTest(mode: "regular" | "fullscreen" | undefined): void {
+	rendererMode = mode;
+}
+
+/**
+ * The expand-all shortcut (regular TUI): flips every compressed line between
+ * fully expanded and collapsed. Returns the new state, or undefined when the
+ * current renderer is not the regular one (fullscreen keeps click-to-expand).
+ */
+export function toggleExpandAll(): "expanded" | "collapsed" | undefined {
+	if (rendererMode !== "regular") return undefined;
+	expandAllActive = !expandAllActive;
+	bustRenderCache();
+	requestRenderRef?.();
+	return expandAllActive ? "expanded" : "collapsed";
+}
 
 export function setCollapseOptions(options: CollapseOptions): void {
 	collapse = options;
@@ -517,7 +556,7 @@ function isTransparentChild(candidate: unknown, width: number): boolean {
 
 /** One tool, one line (`▸ bash · $ …`); clicking toggles its native box. */
 function emitSingleToolLine(child: object, walk: ExpandedWalk): void {
-	if (expandedRuns.has(child)) {
+	if (runExpanded(child)) {
 		runMembership.set(child, child);
 		walk.renderChild(child);
 		return;
@@ -537,7 +576,7 @@ function makeLabelRun(walk: ExpandedWalk) {
 		flush(): void {
 			if (members.length === 0) return;
 			const head = members[0] as object;
-			if (expandedRuns.has(head)) {
+			if (runExpanded(head)) {
 				for (const member of members) {
 					runMembership.set(member as object, head);
 					// Expand the thinking itself — same affordance as run lines.
@@ -580,7 +619,7 @@ function makeToolTypeRun(walk: ExpandedWalk, expanded: () => boolean) {
 		flush(): void {
 			if (members.length === 0) return;
 			const head = members[0] as object;
-			if (expanded() || expandedRuns.has(head)) {
+			if (expanded() || runExpanded(head)) {
 				for (const tool of members) {
 					runMembership.set(tool as object, head);
 					walk.renderChild(tool);
@@ -788,7 +827,7 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 			return sum + ((member.child as { __openTuiThinkingMs?: number }).__openTuiThinkingMs ?? 0);
 		}, 0);
 		if (!runLive && !(tools.length === 0 && thinkingMs < 1000 && !hasThinking)) {
-			if (expandedRuns.has(head)) {
+			if (runExpanded(head)) {
 				for (const member of runMembers) {
 					runMembership.set(member.child as object, head);
 					if (member.kind === "label" || member.kind === "text-tail") {
@@ -1044,6 +1083,11 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 		push(lines);
 		if (cursor > start) childSegments.push({ start, end: cursor, child });
 	};
+	/** Trailing key hint appended to compressed lines in the regular TUI. */
+	const compressedHint = (): string | undefined =>
+		rendererMode === "regular" && !expandAllOn() && collapse.expandAllHint !== undefined
+			? ` ${fg("dim", `(${collapse.expandAllHint})`)}`
+			: undefined;
 	/** Compressed lines: classic style pads them with blank lines around. */
 	const pushCompressed = (child: unknown, lines: string[]): void => {
 		if (collapse.style === "classic" && out.length > 0 && !isBlankLine(out[out.length - 1]!)) {
@@ -1051,7 +1095,11 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 			cursor++;
 			deferredBlank = false; // this blank IS the pending separator
 		}
-		pushChild(child, lines);
+		const hint = compressedHint();
+		const withHint = hint === undefined || lines.length === 0
+			? lines
+			: [...lines.slice(0, -1), lines[lines.length - 1]! + hint];
+		pushChild(child, withHint);
 		if (collapse.style === "classic") deferredBlank = true;
 		lastCompressedLine = true;
 	};
@@ -1449,72 +1497,151 @@ function findChatContainerInBoxes(root: unknown): unknown {
 	return found;
 }
 
+/** Live instance fields the regular-mode wrap needs (TuiMainScreen). */
+interface MainScreenLike {
+	children?: unknown[];
+	requestRender?: (...args: unknown[]) => void;
+}
+
+const MAIN_INSTALLED = Symbol.for("open-tui.turnCollapseMainInstalled");
+
+/**
+ * Wraps TuiMainScreen.prototype.requestRender (regular TUI): flags the
+ * renderer mode, keeps requestRenderRef pointed at the live renderer, and
+ * discovers the chat container by walking the children tree (the regular
+ * renderer mounts the document/chat containers directly — there are no
+ * layout boxes to walk). Returns the cleanup function, or undefined when the
+ * prototype was not wrappable / is already wrapped by another instance.
+ */
+export function wrapMainScreenRequestRender(proto: object | null | undefined): (() => void) | undefined {
+	const target = proto as (MainScreenLike & Record<PropertyKey, unknown>) | null | undefined;
+	if (!target || typeof target.requestRender !== "function") {
+		debug("install(main): prototype without requestRender, no-op");
+		return undefined;
+	}
+	if (target[MAIN_INSTALLED] === true) {
+		debug("install(main): already wrapped");
+		return undefined;
+	}
+	const original = target.requestRender;
+	let discovered = false;
+	target.requestRender = function (this: MainScreenLike, ...args: unknown[]) {
+		rendererMode = "regular";
+		try {
+			if (typeof this.requestRender === "function") {
+				requestRenderRef = () => this.requestRender!();
+			}
+		} catch {
+			// Ref capture is best-effort.
+		}
+		try {
+			if (!discovered) {
+				const holder = findMessageHolder(this);
+				if (holder !== undefined) {
+					debug(`discover(main-screen): attached holder ctor=${(holder as { constructor?: { name?: string } }).constructor?.name}`);
+					attachToContainer(holder);
+					discovered = true;
+				}
+			}
+		} catch {
+			// Discovery is best-effort.
+		}
+		return (original as (this: MainScreenLike, ...args: unknown[]) => unknown).apply(this, args);
+	};
+	target[MAIN_INSTALLED] = true;
+	debug("install(main): wrapped requestRender");
+	return () => {
+		delete target[MAIN_INSTALLED];
+		target.requestRender = original;
+	};
+}
+
 /**
  * Installs turn collapsing for the whole process by wrapping the shared
  * TuiAltScreen prototype (the extension resolves the same pi-tui module
  * instance pi core uses). Discovery hooks both setLayoutRoot (mode switches)
  * and requestRender (startup: the initial layout root is mounted before
  * extensions load, so the setLayoutRoot call is already gone by the time we
- * wrap). Silently no-ops on unknown shapes.
+ * wrap). The TuiMainScreen prototype gets the same treatment for sessions
+ * that run in (or switch to) the regular TUI. Silently no-ops on unknown
+ * shapes.
  */
 export function installTurnCollapse(): () => void {
 	try {
 		// eslint-disable-next-line @typescript-eslint/no-require-imports
 		const piTui = require("@earendil-works/pi-tui") as {
 			TuiAltScreen?: { prototype?: ViewportAltScreen & Record<PropertyKey, unknown> };
+			TuiMainScreen?: { prototype?: object };
 		};
 		const proto = piTui?.TuiAltScreen?.prototype;
 		debug(`install: proto=${proto !== undefined} setLayoutRoot=${typeof proto?.setLayoutRoot}`);
+		let cleanupAlt: (() => void) | undefined;
 		if (!proto || typeof proto.setLayoutRoot !== "function" || typeof proto.requestRender !== "function") {
-			return () => {};
-		}
-		if (proto[COLLAPSE_INSTALLED] === true) {
+			// No usable alt-screen prototype; the main-screen wrap below still
+			// covers regular-mode sessions.
+		} else if (proto[COLLAPSE_INSTALLED] === true) {
 			debug("install: already installed");
-			return () => {};
-		}
-		let discovered = false;
-		const tryDiscover = (instance: ViewportAltScreen): void => {
-			if (discovered) return;
-			const root = (instance as { currentLayout?: { root?: unknown } }).currentLayout?.root;
-			if (typeof root !== "object" || root === null) return;
-			const wrapper = findChatContainerInBoxes(root);
-			if (wrapper === undefined) return;
-			// The scroll child may be a plain wrapper; the messages live in a
-			// nested container that directly holds user/assistant components.
-			const holder = findMessageHolder(wrapper);
-			if (holder === undefined) return; // no messages yet — retry on later renders
-			debug(`discover(requestRender): attached holder ctor=${(holder as { constructor?: { name?: string } }).constructor?.name}`);
-			attachToContainer(holder);
-			discovered = true;
-		};
-		const originalSetLayoutRoot = proto.setLayoutRoot as (this: ViewportAltScreen, component: unknown) => void;
-		proto.setLayoutRoot = function (this: ViewportAltScreen & { requestRender?: () => void }, component: unknown) {
-			const result = originalSetLayoutRoot.call(this, component);
-			try {
-				if (typeof this.requestRender === "function") {
-					requestRenderRef = () => this.requestRender!();
+		} else {
+			let discovered = false;
+			const tryDiscover = (instance: ViewportAltScreen): void => {
+				if (discovered) return;
+				const root = (instance as { currentLayout?: { root?: unknown } }).currentLayout?.root;
+				if (typeof root !== "object" || root === null) return;
+				const wrapper = findChatContainerInBoxes(root);
+				if (wrapper === undefined) return;
+				// The scroll child may be a plain wrapper; the messages live in a
+				// nested container that directly holds user/assistant components.
+				const holder = findMessageHolder(wrapper);
+				if (holder === undefined) return; // no messages yet — retry on later renders
+				debug(`discover(requestRender): attached holder ctor=${(holder as { constructor?: { name?: string } }).constructor?.name}`);
+				attachToContainer(holder);
+				discovered = true;
+			};
+			const originalSetLayoutRoot = proto.setLayoutRoot as (this: ViewportAltScreen, component: unknown) => void;
+			proto.setLayoutRoot = function (this: ViewportAltScreen & { requestRender?: () => void }, component: unknown) {
+				const result = originalSetLayoutRoot.call(this, component);
+				try {
+					rendererMode = "fullscreen";
+					if (typeof this.requestRender === "function") {
+						requestRenderRef = () => this.requestRender!();
+					}
+				} catch {
+					// Ref capture is best-effort.
 				}
-			} catch {
-				// Ref capture is best-effort.
-			}
-			return result;
-		};
-		const originalRequestRender = proto.requestRender as (this: ViewportAltScreen, ...args: unknown[]) => void;
-		proto.requestRender = function (this: ViewportAltScreen, ...args: unknown[]) {
-			try {
-				tryDiscover(this);
-			} catch {
-				// Discovery is best-effort.
-			}
-			return originalRequestRender.apply(this, args);
-		};
-		proto[COLLAPSE_INSTALLED] = true;
+				return result;
+			};
+			const originalRequestRender = proto.requestRender as (this: ViewportAltScreen, ...args: unknown[]) => void;
+			proto.requestRender = function (this: ViewportAltScreen, ...args: unknown[]) {
+				rendererMode = "fullscreen";
+				try {
+					if (typeof this.requestRender === "function") {
+						requestRenderRef = () => this.requestRender!();
+					}
+				} catch {
+					// Ref capture is best-effort.
+				}
+				try {
+					tryDiscover(this);
+				} catch {
+					// Discovery is best-effort.
+				}
+				return originalRequestRender.apply(this, args);
+			};
+			proto[COLLAPSE_INSTALLED] = true;
+			const cleanupAltFn = () => {
+				delete proto[COLLAPSE_INSTALLED];
+				proto.setLayoutRoot = originalSetLayoutRoot;
+				proto.requestRender = originalRequestRender;
+			};
+			cleanupAlt = cleanupAltFn;
+			debug("install: wrapped setLayoutRoot + requestRender");
+		}
+		const cleanupMain = wrapMainScreenRequestRender(piTui?.TuiMainScreen?.prototype);
+		if (cleanupAlt === undefined && cleanupMain === undefined) return () => {};
 		const cleanupRetryPatch = installRetrySummaryPatch();
-		debug("install: wrapped setLayoutRoot + requestRender");
 		return () => {
-			delete proto[COLLAPSE_INSTALLED];
-			proto.setLayoutRoot = originalSetLayoutRoot;
-			proto.requestRender = originalRequestRender;
+			cleanupAlt?.();
+			cleanupMain?.();
 			cleanupRetryPatch();
 			detachFromContainer();
 		};

@@ -28,8 +28,12 @@ _Avoid_: 缺省/inherit（状态是显式的 default，不是「未设置」）�
 _Avoid_: hideThinkingBlock 作为主设置（那是 pi 的消息级开关，现为镜像）、二态「思考块折叠」（旧契约）
 
 **转录折叠**：
-把对话渲染重组为「正文 + 压缩行」的整体机制（设置项 `turnCollapse`，含模式/风格/每工具覆盖）。
-_Avoid_: hideThinkingBlock（那是 pi 原生的消息级开关；本扩展默认它开，但折叠是自己的渲染层）
+把对话渲染重组为「正文 + 压缩行」的整体机制（设置项 `turnCollapse`，含模式/风格/每工具覆盖）。两种 TUI 模式都生效。
+_Avoid_: hideThinkingBlock（那是 pi 原生的消息级开关；本扩展默认它开，但折叠是自己的渲染层）、全屏专属（旧表述——regular 模式现在同样压缩）
+
+**全部展开**：
+regular 模式（无鼠标捕获）下的全局 toggle：按 `turnCollapse.expandAllKey`（默认 `ctrl+\`，压缩行行尾标注当前生效键）把所有压缩行整段展开（思维链 + 全部工具输出），再按收起。单一事实源是注册进 pi 的那个键——行尾标注随注册值渲染，配置改动重启/重载后生效。
+_Avoid_: 点击展开（那是全屏模式的逐行交互）、ctrl+o / app.tools.expand（pi 原生工具输出切换，作用于盒子内部，不解开压缩行）、keybindings.json 重绑（pi 键位系统不接受扩展命名键位）
 
 **思考标签**：
 单条消息的 `✻ Thought…`（历史）/ `✻ Thinking…`（流式）标签，单独点击只展开该消息的思维链。

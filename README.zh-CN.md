@@ -58,6 +58,9 @@ pi install git:github.com/No-World/pi-asterisk-tui
   整个 run 结束。
 - **重试体验**：倒计时附带失败原因（`Retrying (2/10) in 5s… · 429 rate_limit_error`）；
   中间错误扣留不显示，重试成功什么都不打印，最终失败只输出最后一条（可独立开关）。
+- **普通模式支持**：压缩行在 regular 模式（非全屏 TUI）同样生效——每条压缩行行尾标注
+  当前生效的全部展开快捷键（如 `(ctrl+\ 展开)`），按一下整段展开（思维链 + 全部工具
+  输出），再按一下全部收起；全屏模式仍以点击逐行展开为准。
 - **紧凑间距**：✻ 行周围的 pi 内部 Spacer 与 OSC shell 集成标记一律折掉。
 
 ## 遥测
@@ -101,9 +104,10 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 - Pi 0.80+
 - UTF-8 终端；完整图标集需要 [Nerd Font](https://www.nerdfonts.com/font-downloads)
   （内置 ASCII 图标）
-- **全屏 TUI**（`/settings` → TUI mode，或 `~/.pi/agent/settings.json` 里
-  `"tuiMode": "fullscreen"`）——鼠标交互依赖 pi 的全屏鼠标捕获；其他功能在普通模式
-  下均可用。
+- 两种 TUI 模式均可用：压缩行在普通（regular）模式下通过快捷键全部展开/收起
+  （默认 `ctrl+\`，压缩行行尾有标注）；**点击逐行展开/收起**依赖 pi 的全屏鼠标捕获
+  （`/settings` → TUI mode，或 `~/.pi/agent/settings.json` 里 `"tuiMode":
+  "fullscreen"`）。
 
 ## 配置
 
@@ -118,6 +122,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `turnCollapse.thought` | `"default"` | 思考块：`default` / `single` / `group-same` / `expand` |
 | `turnCollapse.liveThinking` | `true` | 流式期间内联显示思考内容，结束后折回 |
 | `turnCollapse.liveTools` | `true` | 运行中在 spinner 行下方渲染实时输出盒 |
+| `turnCollapse.expandAllKey` | `"ctrl+\\"` | 普通模式全部展开/收起快捷键（pi KeyId；空串禁用；重启/重载后生效） |
 | `turnCollapse.tools` | `{}` | 每工具 `default` / `single` / `group-same` / `expand`；`*` 通配 |
 | `icons.mode` | `"auto"` | nerd / ascii / auto 图标集 |
 | `cursorStyle` | `"block"` | 编辑器光标样式 |

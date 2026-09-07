@@ -13,6 +13,9 @@ import {
 	setThinkingDurations,
 	setThoughtPreference,
 	setTurnCollapseEnabled,
+	setRendererModeForTest,
+	toggleExpandAll,
+	wrapMainScreenRequestRender,
 } from "../extensions/open-tui/turn-collapse.ts";
 
 interface Child {
@@ -994,4 +997,131 @@ test("compact style keeps text-bearing labels flush with their text", () => {
 	const labelIdx = lines.findIndex((l) => l.includes("✻ Thought"));
 	assert.ok(labelIdx > 0 && lines[labelIdx + 1] === "答案正文", `flush\n${lines.join("\n")}`);
 	resetCollapse();
+});
+
+test("regular mode: every compressed line carries the expand-all hint", () => {
+	setCollapseOptions({
+		mode: "group-same",
+		style: "compact",
+		tools: {},
+		thought: "default",
+		retryErrors: true,
+		liveThinking: true,
+		liveTools: true,
+		expandAllHint: "ctrl+\\ 展开",
+	});
+	setThinkingDurations([4_000]);
+	setRendererModeForTest("regular");
+	try {
+		const container = makeContainer([makeUserMessage("go"), makeLabelMessage(), makeBash("echo hi"), makeTool("read")]);
+		const lines = container.render(60);
+		const compressed = lines.filter((l) => l.includes("✻") && l.trim().length > 0);
+		assert.ok(compressed.length >= 2, `multiple compressed lines\n${lines.join("\n")}`);
+		for (const line of compressed) {
+			assert.ok(line.includes("(ctrl+\\ 展开)"), `hint on ${JSON.stringify(line)}`);
+		}
+
+		// Fullscreen keeps click-to-expand: no hint there.
+		setCollapseOptions({
+			mode: "group-same",
+			style: "compact",
+			tools: {},
+			thought: "default",
+			retryErrors: true,
+			liveThinking: true,
+			liveTools: true,
+			expandAllHint: "ctrl+\\ 展开",
+		});
+		setRendererModeForTest("fullscreen");
+		assert.ok(container.render(60).every((l) => !l.includes("展开")), "no hint in fullscreen");
+
+		// While expanded the hint disappears with the compressed lines.
+		setRendererModeForTest("regular");
+		setCollapseOptions({
+			mode: "group-same",
+			style: "compact",
+			tools: {},
+			thought: "default",
+			retryErrors: true,
+			liveThinking: true,
+			liveTools: true,
+			expandAllHint: "ctrl+\\ 展开",
+		});
+		assert.equal(toggleExpandAll(), "expanded");
+		const expanded = container.render(60);
+		assert.ok(expanded.some((l) => l.includes("$ echo hi")), `tools expanded\n${expanded.join("\n")}`);
+		assert.ok(expanded.every((l) => !l.includes("展开")), "no hint while expanded");
+		assert.equal(toggleExpandAll(), "collapsed");
+		assert.ok(container.render(60).some((l) => l.includes("(ctrl+\\ 展开)")), "hint returns after collapse");
+	} finally {
+		setRendererModeForTest(undefined);
+		setThinkingDurations(undefined);
+		setTurnCollapseEnabled(true);
+	}
+});
+
+test("expand-all shortcut expands and collapses every run (regular mode)", () => {
+	setTurnCollapseEnabled(true);
+	setThinkingDurations([4_000]);
+	setRendererModeForTest("regular");
+	try {
+		const labelMsg = makeLabelMessage();
+		const container = makeContainer([
+			makeUserMessage("a"), labelMsg, makeBash("echo one"),
+			makeUserMessage("b"), makeLabelMessage(), makeBash("echo two"),
+		]);
+		const collapsed = container.render(60).join("\n");
+		assert.ok(collapsed.includes("Thought for 4s"), `run line\n${collapsed}`);
+		assert.ok(!collapsed.includes("$ echo one"), "tools collapsed");
+
+		assert.equal(toggleExpandAll(), "expanded");
+		const expanded = container.render(60).join("\n");
+		assert.ok(expanded.includes("$ echo one") && expanded.includes("$ echo two"), `both runs expanded\n${expanded}`);
+		assert.equal(labelMsg.hideThinkingBlock, false, "thinking opened with the run");
+
+		assert.equal(toggleExpandAll(), "collapsed");
+		const recollapsed = container.render(60).join("\n");
+		assert.ok(!recollapsed.includes("$ echo one"), "runs re-collapsed");
+		assert.equal(labelMsg.hideThinkingBlock, true, "thinking re-hidden");
+	} finally {
+		setRendererModeForTest(undefined);
+		setThinkingDurations(undefined);
+	}
+});
+
+test("expand-all is a no-op outside the regular TUI", () => {
+	setTurnCollapseEnabled(true);
+	setRendererModeForTest("fullscreen");
+	try {
+		const container = makeContainer([makeUserMessage("go"), makeLabelMessage(), makeBash("echo x")]);
+		container.render(60);
+		assert.equal(toggleExpandAll(), undefined);
+		assert.ok(!container.render(60).join("\n").includes("$ echo x"), "unchanged");
+	} finally {
+		setRendererModeForTest(undefined);
+	}
+});
+
+test("main-screen requestRender wrap discovers the chat container and flags regular mode", () => {
+	const chat = makeContainer([makeUserMessage("go"), makeLabelMessage(), makeBash("echo hi")]);
+	const originalRender = chat.render;
+	const instance = {
+		requestRender() {},
+		children: [{ children: [chat] }],
+	};
+	const originalRequestRender = () => {};
+	const proto = { requestRender: originalRequestRender };
+	try {
+		const cleanup = wrapMainScreenRequestRender(proto);
+		assert.ok(cleanup, "wrapped");
+		proto.requestRender.call(instance);
+		assert.equal(toggleExpandAll(), "expanded", "regular mode flagged by the wrap");
+		assert.equal(toggleExpandAll(), "collapsed", "reset for later tests");
+		cleanup();
+	} finally {
+		uninstallTurnCollapse();
+		chat.render = originalRender;
+		setRendererModeForTest(undefined);
+	}
+	assert.equal(proto.requestRender, originalRequestRender, "prototype restored");
 });

@@ -46,3 +46,4 @@ Date: YYYY-MM-DD
 | [0001](./0001-docs-governance-and-mechanical-gates.md) | 文档治理与机械门禁先行（ADR / PITFALLS / 术语表 / check-docs） | 2026-09-04 | Accepted |
 | [0002](./0002-pr-discipline-and-ci-lane.md) | PR 纪律与 CI 门禁 lane（PR 驱动合入 + issue 绑定声明 + agent 不自批不自合） | 2026-09-04 | Accepted |
 | [0003](./0003-transcript-collapse-contract.md) | 转录压缩契约：四档模式 × 每工具覆盖 × 间隔风格（含 Thought 代理 pi 原生设置） | 2026-09-06 | Accepted |
+| [0004](./0004-regular-mode-collapse-and-expand-all.md) | 压缩行适配 regular 模式：TuiMainScreen 发现 + 全部展开快捷键（ctrl+\ 默认，单一事实源标注） | 2026-09-08 | Accepted |
