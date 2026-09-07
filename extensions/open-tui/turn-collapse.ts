@@ -77,6 +77,27 @@ const expandedRuns = new WeakSet<object>();
 let collapsedRunHeads = new Set<object>();
 /** member child -> run head (expanded runs collapse via any member line). */
 const runMembership = new Map<object, object>();
+/**
+ * Idle render cache: while no agent run is active and nothing changed, the
+ * walk output is reused instead of re-walking the whole transcript (scroll
+ * and HUD ticks re-render without content changes). Busted by every render
+ * request, config change, click, and attach/detach.
+ */
+let renderCache: {
+	container: unknown;
+	width: number;
+	at: number;
+	lines: string[];
+	segments: typeof childSegments;
+	heads: Set<object>;
+} | undefined;
+
+/** Idle cache window: unknown-source mutations (e.g. ctrl+t rebuilds) self-heal within this. */
+const RENDER_CACHE_TTL_MS = 250;
+
+function bustRenderCache(): void {
+	renderCache = undefined;
+}
 /** Spinner frames for running tool lines. */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -147,6 +168,7 @@ export function handleToolLineClick(lineIndex: number, line: string): boolean {
 			} else {
 				expandedRuns.add(head);
 			}
+			bustRenderCache();
 			requestRenderRef?.();
 			return true;
 		}
@@ -193,6 +215,7 @@ let assistantOrdinal = 0;
 export function setThinkingDurations(durations: number[] | undefined): void {
 	thinkingDurations = durations;
 	assistantOrdinal = 0;
+	bustRenderCache();
 }
 
 function resetAssistantOrdinal(): void {
@@ -243,12 +266,14 @@ let collapse: CollapseOptions = { mode: "group-all", style: "compact", tools: {}
 
 export function setCollapseOptions(options: CollapseOptions): void {
 	collapse = options;
+	bustRenderCache();
 	applyThinkingVisibilityToContainer();
 }
 
 /** Compat/test helper: boolean collapse switch (true = group-all, false = native). */
 export function setTurnCollapseEnabled(value: boolean): void {
 	collapse = { ...collapse, mode: value ? "group-all" : "native" };
+	bustRenderCache();
 	applyThinkingVisibilityToContainer();
 }
 
@@ -270,6 +295,7 @@ let lastObservedPiFlag: boolean | undefined;
 export function setThoughtPreference(state: ToolOverride): void {
 	thoughtPref = state;
 	collapse = { ...collapse, thought: state };
+	bustRenderCache();
 	applyThinkingVisibilityToContainer();
 	requestRenderRef?.();
 }
@@ -883,7 +909,10 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 const ZERO_WIDTH_LINE = /^(?:\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))*$/;
 
 function isBlankLine(line: string): boolean {
-	return line === "" || ZERO_WIDTH_LINE.test(line);
+	if (line === "") return true;
+	// Fast reject: a line starting with a printable char cannot be zero-width-only.
+	if (!line.startsWith("\x1b")) return false;
+	return ZERO_WIDTH_LINE.test(line);
 }
 
 function startsWithLabel(lines: string[]): boolean {
@@ -895,6 +924,16 @@ let renderLogState: string | undefined;
 let dumpCount = 0;
 
 function renderCollapsed(container: ChatContainer, original: (width: number) => string[], width: number): string[] {
+	const frameStart = PROFILE_LOG ? Date.now() : 0;
+	// Idle cache hit: nothing changed since the last walk (scroll, HUD ticks).
+	if (
+		renderCache && !agentActive && renderCache.container === container && renderCache.width === width &&
+		Date.now() - renderCache.at < RENDER_CACHE_TTL_MS
+	) {
+		childSegments = renderCache.segments;
+		collapsedRunHeads = renderCache.heads;
+		return renderCache.lines;
+	}
 	// The walk below replaces Container.render entirely. Disabling collapse does
 	// not skip it: per-message labels and click segments still need the walk.
 	void original;
@@ -917,6 +956,17 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	let lastCompressedLine = false;
 
 	const push = (lines: string[]): void => {
+		if (!deferredBlank && lines.length > 8) {
+			// Batch fast path (big children): boundary blank-collapse only.
+			let batch = lines;
+			if (out.length > 0 && isBlankLine(lines[0]!) && isBlankLine(out[out.length - 1]!)) {
+				batch = lines.slice(1);
+			}
+			out.push(...batch);
+			cursor += batch.length;
+			lastCompressedLine = false;
+			return;
+		}
 		for (const line of lines) {
 			if (deferredBlank && !isBlankLine(line)) {
 				out.push("");
@@ -1015,7 +1065,35 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	if (DEBUG_LOG && (dumpCount = (dumpCount + 1) % 300) === 1) {
 		out.forEach((line, idx) => debug(`L${idx}: ${JSON.stringify(line.slice(0, 120))}`));
 	}
+	profileFrame(container, width, out.length, Date.now() - frameStart);
+	if (!agentActive) {
+		renderCache = { container, width, at: Date.now(), lines: out, segments: childSegments, heads: collapsedRunHeads };
+	}
 	return out;
+}
+
+/**
+ * Opt-in frame probe (OPEN_TUI_PROFILE=<path>): logs walk duration, child and
+ * line counts for slow frames — rate-limited to one line per second, zero cost
+ * when unset. Answers "is the transcript walk the lag source" with data.
+ */
+const PROFILE_LOG = process.env.OPEN_TUI_PROFILE;
+let profileLastLog = 0;
+function profileFrame(container: ChatContainer, width: number, lines: number, durationMs: number): void {
+	if (!PROFILE_LOG || durationMs < 4) return;
+	const now = Date.now();
+	if (now - profileLastLog < 1000) return;
+	profileLastLog = now;
+	try {
+		// eslint-disable-next-line @typescript-eslint/no-require-imports
+		const fs = require("node:fs") as typeof import("node:fs");
+		fs.appendFileSync(
+			PROFILE_LOG,
+			`${now} walk ${durationMs.toFixed(1)}ms children=${(container.children ?? []).length} lines=${lines} width=${width} mode=${collapse.mode} style=${collapse.style}\n`,
+		);
+	} catch {
+		// Diagnostics are best-effort.
+	}
 }
 
 let attachedContainer: unknown;
@@ -1028,11 +1106,13 @@ let errorSink: ((children: unknown[]) => void) | undefined;
 /** Called by index.ts: true while an agent run is streaming/retrying. */
 export function setAgentActive(active: boolean): void {
 	agentActive = active;
+	bustRenderCache();
 	if (!active) flushHeldErrors();
 }
 
 function flushHeldErrors(): void {
 	heldErrorSummary = undefined;
+	bustRenderCache();
 	if (heldErrorGroup.length === 0 || errorSink === undefined) return;
 	const group = heldErrorGroup;
 	heldErrorGroup = [];
@@ -1161,6 +1241,7 @@ function detachFromContainer(): void {
 	(globalThis as Record<symbol, unknown>)[CONTAINER_SLOT] = undefined;
 	attachedContainer = undefined;
 	childSegments = [];
+	bustRenderCache();
 	errorSink = undefined;
 	heldErrorGroup = [];
 	heldErrorSummary = undefined;
@@ -1216,6 +1297,7 @@ function attachToContainer(container: unknown): void {
 	}
 	target[ATTACHED] = true;
 	attachedContainer = container;
+	bustRenderCache();
 	(globalThis as Record<symbol, unknown>)[CONTAINER_SLOT] = container;
 	const addChildRaw = target.addChild as ((child: unknown) => void) | undefined;
 	if (typeof addChildRaw === "function") {
@@ -1238,6 +1320,7 @@ function attachToContainer(container: unknown): void {
 				heldErrorGroup = [];
 				heldErrorSummary = undefined;
 			}
+			bustRenderCache();
 			addChild(child);
 		};
 	}
@@ -1413,6 +1496,7 @@ export function makeInterceptedContainer(): {
 				heldErrorGroup = [];
 				heldErrorSummary = undefined;
 			}
+			bustRenderCache();
 			state.children.push(child);
 		},
 		render(width: number): string[] {
