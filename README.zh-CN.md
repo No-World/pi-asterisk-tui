@@ -13,24 +13,41 @@ pi install git:github.com/No-World/pi-asterisk-tui
 
 ## ✻ 转录
 
-对话记录渲染为正文 + 每段活动一行 `✻`：
+对话渲染为正文 + 压缩活动行。压缩到什么程度由**压缩模式**决定（`/open-tui` → 压缩页）：
+
+| 模式 | 渲染 |
+| --- | --- |
+| `native` | pi 原生渲染，不压缩 |
+| `single` | 每个工具单独一行（`▸ bash · $ npm test`），互不归纳 |
+| `group-same` | 连续同类工具归纳（`✻ read 3 files`）；思考单独归纳为 `✻ Thought for 11s`，互不合并 |
+| `group-all` | Claude-Code 风格：连续思考 + 工具归纳为一行（默认） |
 
 ```
 ✻ Thought for 19s, searched for 9 patterns, listed 1 directory, ran 1 shell command
 ```
 
-- **Run 行**：连续的思考块与工具调用合并为一行，动词读起来像一句话——`ran 3 shell
-  commands`、`edited 2 files`、`read 5 files`、`listed 2 directories`、`searched for 9
-  patterns`、`called playwright ×2`（前面没有思考时首字母大写）。思考时长来自实时
-  遥测；历史轮次显示为 `✻ Thought, ran 1 shell command`。
-- **一次点击展开/收回**：点击 run 行，完整思维链与所有工具的输出盒同时展开——包括
+- **Run 行**（group-all）：动词读起来像一句话——`ran 3 shell commands`、`edited 2
+  files`、`read 5 files`、`listed 2 directories`、`searched for 9 patterns`、`called
+  playwright ×2`（前面没有思考时首字母大写）。思考时长来自实时遥测；历史轮次显示为
+  `✻ Thought, ran 1 shell command`。
+- **每工具覆盖**：每个工具可独立设为 default（跟随模式）/ single（单行）/ group-same（
+  同类归纳行，不并入 ✻ 行）/ expand（原生盒子），`*` 通配未点名的工具。逐项状态是**绝对的**
+  ——不随模式退化，group-same 在原生模式下照样归纳。
+- **思考块**与工具共用同一套四态（`turnCollapse.thought`）：default（跟随模式）/ single（
+  每条一行 ✻ 标签）/ group-same（归纳 Thought 行，不与工具合并）/ expand（内联展开，
+  pi 原生）。整段并入 ✻ 行只有「模式 group-all + default」一条路径；pi 原生的
+  hideThinkingBlock 仅作镜像，ctrl+t 翻转会被采纳为显式状态。
+- **压缩行间隔**：compact（紧凑）或 classic（经典，压缩行前后各空一行，相邻压缩行之间
+  只留一行；✻ 标签行也按压缩行对待，标签与后续正文之间同样空一行）。
+- **一次点击展开/收回**：点击压缩行，完整思维链与所有工具的输出盒同时展开——包括
   带正文消息的思考，无需二次点击标签；点击任一成员行全部收回。
 - **逐消息思考标签**：`✻ Thought…`（历史）/ `✻ Thinking…`（流式中），可单独点击只展开
-  那条消息的思维链，样式与 run 行完全一致（同色 ✻、同灰色正体文字）。
+  那条消息的思维链，样式与压缩行完全一致（同色 ✻、同灰色正体文字）；也可在设置面板里
+  直接开关（写入 pi 原生设置并同步当前会话）。
 - **运行中的工具**渲染为动画单行（`⠋ bash · $ npm test`），下方实时流式输出，且不会把
-  已完成的相邻工具拖出折叠行。
+  已完成的相邻工具拖出折叠行（native 模式保持纯 pi 盒子）。
 - **重试体验**：倒计时附带失败原因（`Retrying (2/10) in 5s… · 429 rate_limit_error`）；
-  中间错误扣留不显示，重试成功什么都不打印，最终失败只输出最后一条。
+  中间错误扣留不显示，重试成功什么都不打印，最终失败只输出最后一条（可独立开关）。
 - **紧凑间距**：✻ 行周围的 pi 内部 Spacer 与 OSC shell 集成标记一律折掉。
 
 ## 遥测
@@ -61,8 +78,9 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 
 - 带边框编辑器，块状 / 竖线 / 下划线三种光标样式。
 - 双语 `/open-tui` 设置面板（英文 / 简体中文，语言选择同时作用于 HUD 标签）：底栏
-  段落、HUD 开关、遥测字段、图标模式（nerd / ascii / auto）、光标样式、全屏滚轮速度
-  ——含命名风格预设（hud / classic / custom）。
+  段落、HUD 开关、遥测字段、图标模式（nerd / ascii / auto）、光标样式、全屏滚轮速度，
+  以及「压缩」页（压缩模式、压缩行间隔、重试错误折叠、思考块开关、每工具覆盖——
+  扩展/MCP 工具在出现过一次后才列出）——含命名风格预设（hud / classic / custom）。
 - 版本守护的兼容层：全屏滚轮速度依赖的运行时结构变化时自动回退 pi 默认值。
 
 全新安装会把 pi 的 `hideThinkingBlock` 默认置为 `true`（已有选择永不覆盖），✻ 体验
@@ -84,7 +102,11 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | 键 | 默认 | 作用 |
 | --- | --- | --- |
 | `footerStyle` | `"hud"` | `hud` / `classic` 底栏预设 |
-| `turnCollapse` | `true` | ✻ run 行与工具分组 |
+| `turnCollapse.mode` | `"group-all"` | 压缩模式：`native` / `single` / `group-same` / `group-all` |
+| `turnCollapse.style` | `"compact"` | 压缩行间隔：`compact` / `classic` |
+| `turnCollapse.retryErrors` | `true` | 运行期间扣留重试错误 |
+| `turnCollapse.thought` | `"default"` | 思考块：`default` / `single` / `group-same` / `expand` |
+| `turnCollapse.tools` | `{}` | 每工具 `default` / `single` / `group-same` / `expand`；`*` 通配 |
 | `icons.mode` | `"auto"` | nerd / ascii / auto 图标集 |
 | `cursorStyle` | `"block"` | 编辑器光标样式 |
 | `telemetry.*` | 开 | Working 指示器与轮末遥测字段 |

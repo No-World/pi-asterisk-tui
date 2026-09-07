@@ -13,28 +13,50 @@ pi install git:github.com/No-World/pi-asterisk-tui
 
 ## ✻ Transcript
 
-The transcript renders as answer text plus one `✻` line per activity phase:
+The transcript renders as answer text plus compressed activity lines. How much
+compresses is the **compression mode** (`/open-tui` → Collapse):
+
+| Mode | Rendering |
+| --- | --- |
+| `native` | untouched pi rendering — no compression |
+| `single` | one line per tool (`▸ bash · $ npm test`), nothing merged |
+| `group-same` | consecutive same-type tools merge (`✻ read 3 files`); thinking merges its own `✻ Thought for 11s` line — kinds never mix |
+| `group-all` | Claude-Code style: consecutive thinking + tools merge into one line (default) |
 
 ```
 ✻ Thought for 19s, searched for 9 patterns, listed 1 directory, ran 1 shell command
 ```
 
-- **Run lines**: consecutive thinking blocks and tool calls merge into one line, verbs
-  reading like a sentence — `ran 3 shell commands`, `edited 2 files`, `read 5 files`,
-  `listed 2 directories`, `searched for 9 patterns`, `called playwright ×2` (leading verb
-  capitalized when no thinking precedes). Thinking durations come from live telemetry;
-  history turns read `✻ Thought, ran 1 shell command`.
-- **One-click expand/collapse**: click a run line to open the full reasoning and every
-  tool's bordered output at once — including the thinking of text-bearing messages, no
-  second tap on labels. Click any member line to fold it all back.
+- **Run lines** (group-all): verbs read like a sentence — `ran 3 shell commands`,
+  `edited 2 files`, `read 5 files`, `listed 2 directories`, `searched for 9 patterns`,
+  `called playwright ×2` (leading verb capitalized when no thinking precedes). Thinking
+  durations come from live telemetry; history turns read `✻ Thought, ran 1 shell command`.
+- **Per-tool overrides**: every tool can be set to `default` (follow the mode),
+  `single` (one line), `group-same` (same-type group line, never absorbed into
+  run lines) or `expand` (native box); `*` matches unnamed tools. Per-item
+  states are absolute — group-same groups even in native mode.
+- **Thinking blocks** share the same lattice (`turnCollapse.thought`):
+  `default` (follow the mode) / `single` (one ✻ label per message) /
+  `group-same` (grouped Thought line, never merged with tools) / `expand`
+  (inline, pi native). Whole-run absorption exists only via group-all mode +
+  default. pi's native `hideThinkingBlock` is kept as a mirror (ctrl+t flips
+  are adopted as explicit states).
+- **Line spacing**: `compact` (flush) or `classic` (blank line around compressed lines,
+  adjacent compressed lines separated by a single blank; ✻ label lines count as
+  compressed lines, keeping them apart from their text tails).
+- **One-click expand/collapse**: click a compressed line to open the full reasoning and
+  every tool's bordered output at once — including the thinking of text-bearing messages,
+  no second tap on labels. Click any member line to fold it all back.
 - **Per-message thinking labels**: `✻ Thought…` (history) / `✻ Thinking…` (streaming),
   individually clickable to expand just that message's reasoning, styled identically to
   run lines (same accent ✻, same muted upright text).
 - **Running tools** render as an animated one-liner (`⠋ bash · $ npm test`) with live
-  output streaming beneath — and never drag completed neighbors out of their folded lines.
+  output streaming beneath — and never drag completed neighbors out of their folded lines
+  (native mode keeps pure pi boxes).
 - **Retry UX**: the countdown carries the failure reason
   (`Retrying (2/10) in 5s… · 429 rate_limit_error`); intermediate errors are held back,
-  a successful retry prints nothing, and only the last error shows if the run fails.
+  a successful retry prints nothing, and only the last error shows if the run fails
+  (togglable independently of the mode).
 - **Compact spacing**: pi's internal spacer padding and OSC shell-integration markers
   around ✻ lines are folded away.
 
@@ -67,8 +89,10 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
 - Framed editor with block / bar / underline cursor styles.
 - Bilingual `/open-tui` settings panel (English / 简体中文) — the language choice also
   localizes HUD labels — covering footer segments, HUD toggles, telemetry fields, icon
-  mode (nerd / ascii / auto), cursor style, and fullscreen wheel-scroll speed — with named
-  style presets (hud / classic / custom).
+  mode (nerd / ascii / auto), cursor style, fullscreen wheel-scroll speed, and a Collapse
+  tab (compression mode, line spacing, retry-error folding, thinking visibility, per-tool
+  overrides — extension/MCP tools appear there once seen) — with named style presets
+  (hud / classic / custom).
 - Version-guarded compatibility shims: fullscreen wheel speed falls back to pi defaults if
   the runtime shape changes.
 
@@ -91,7 +115,11 @@ Run `/open-tui`, or edit `~/.pi/agent/open-tui.json`. Notable keys:
 | Key | Default | Effect |
 | --- | --- | --- |
 | `footerStyle` | `"hud"` | `hud` / `classic` footer presets |
-| `turnCollapse` | `true` | ✻ run lines and tool grouping |
+| `turnCollapse.mode` | `"group-all"` | `native` / `single` / `group-same` / `group-all` compression |
+| `turnCollapse.style` | `"compact"` | `compact` / `classic` spacing around compressed lines |
+| `turnCollapse.retryErrors` | `true` | hold retry errors during a run |
+| `turnCollapse.thought` | `"default"` | thinking: `default` / `single` / `group-same` / `expand` |
+| `turnCollapse.tools` | `{}` | per-tool `default` / `single` / `group-same` / `expand`; `*` wildcard |
 | `icons.mode` | `"auto"` | nerd / ascii / auto icon set |
 | `cursorStyle` | `"block"` | editor cursor style |
 | `telemetry.*` | on | working-indicator and post-turn telemetry fields |

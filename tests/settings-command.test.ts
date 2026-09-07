@@ -252,6 +252,7 @@ test("keeps the changed setting selected", async () => {
 
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
@@ -269,9 +270,11 @@ test("remembers the selection for each tab", async () => {
 
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
+	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
@@ -283,6 +286,7 @@ test("remembers the selection for each tab", async () => {
 test("configures telemetry from its own tab", async () => {
 	const settings = await openSettings();
 
+	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
@@ -323,6 +327,7 @@ test("configures the extension status line with Space", async () => {
 	const settings = await openSettings(config);
 	settings.component.handleInput("\x1b[C");
 	settings.component.handleInput("\x1b[C");
+	settings.component.handleInput("\x1b[C");
 	for (let i = 0; i < 9; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Extension status line/);
 
@@ -360,4 +365,53 @@ test("falls back to English for an invalid settings language", () => {
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		rmSync(agentDir, { recursive: true, force: true });
 	}
+});
+
+test("configures transcript compression from its own tab", async () => {
+	const settings = await openSettings();
+
+	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
+	assert.match(selectedLine(settings.component), /Transcript compression/);
+
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.mode, "native");
+	settings.component.handleInput("\x1b[B"); // Compressed line spacing
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.style, "classic");
+	settings.component.handleInput("\x1b[B"); // Fold retry errors
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.retryErrors, false);
+	settings.component.handleInput("\x1b[B"); // Thinking blocks
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.thought, "single");
+	assert.equal(settings.getConfig().turnCollapse.mode, "native"); // untouched by the thought cycle
+
+	settings.component.handleInput("\x1b[B"); // Tool · bash
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.tools.bash, "single");
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.tools.bash, "group-same");
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.tools.bash, "expand");
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.tools.bash, undefined); // default removes the key
+});
+
+test("lists seen extension tools only when present", async () => {
+	const withoutTools = await openSettings();
+	withoutTools.component.handleInput("\t");
+	withoutTools.component.handleInput("\t");
+	assert.doesNotMatch(withoutTools.component.render(80).join("\n"), /mcp/);
+
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.turnCollapse.seenTools = ["mcp_search"];
+	const withTools = await openSettings(config);
+	withTools.component.handleInput("\t");
+	withTools.component.handleInput("\t");
+	// 13 items on this tab; walk down to the seen tool (past the 10-item fold).
+	for (let i = 0; i < 12; i++) withTools.component.handleInput("\x1b[B");
+	assert.match(selectedLine(withTools.component), /Tool · mcp_search.*Default/);
+	withTools.component.handleInput("\r");
+	assert.equal(withTools.getConfig().turnCollapse.tools.mcp_search, "single");
 });

@@ -1,11 +1,12 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, saveConfig } from "./config.ts";
-import { ensureHideThinkingDefault } from "./pi-settings.ts";
+import { type OpenTuiConfig, type CollapseMode, BUILTIN_TOOLS, DEFAULT_CONFIG, ensureConfigExists, loadConfig, normalizeTurnCollapse, saveConfig, thoughtExpanded, type ToolOverride } from "./config.ts";
+import { ensureHideThinkingDefault, readHideThinkingBlock, writeHideThinkingBlock } from "./pi-settings.ts";
 import {
 	installTurnCollapse,
 	setAgentActive,
+	setCollapseOptions,
 	setThinkingDurations,
-	setTurnCollapseEnabled,
+	setThoughtPreference,
 	setTurnCollapseTheme,
 	uninstallTurnCollapse,
 } from "./turn-collapse.ts";
@@ -207,9 +208,43 @@ export default function (pi: ExtensionAPI) {
 		lastCtx?.ui?.setWorkingMessage?.(); // restore default "Working..."
 	};
 
-	// Claude-style transcript labels for hidden thinking blocks (ctrl+t toggles
-	// pi's hideThinkingBlock; the label is global, so it stays duration-less —
-	// accurate per-turn numbers live in the footer summary instead).
+	// Compress-anything feed: config → render walk. Thought visibility is
+	// owned by turnCollapse.thought (open-tui.json); pi's hideThinkingBlock is
+	// only a mirror so pi-native rendering matches when the extension is off.
+	const applyTurnCollapseConfig = (current: OpenTuiConfig, thought?: ToolOverride) => {
+		setCollapseOptions({
+			mode: current.turnCollapse.mode,
+			style: current.turnCollapse.style,
+			tools: current.turnCollapse.tools,
+			thought: thought ?? current.turnCollapse.thought,
+			retryErrors: current.turnCollapse.retryErrors,
+		});
+	};
+
+	/** A previously ctrl+t-expanded pi flag upgrades an undecided (default) thought. */
+	const resolveSessionThought = (current: OpenTuiConfig): ToolOverride => {
+		if (readHideThinkingBlock() === false && current.turnCollapse.thought === "default") return "expand";
+		return current.turnCollapse.thought;
+	};
+
+	/** Keeps pi's native flag mirroring the effective fold state (single write on change). */
+	const syncThoughtMirror = (mode: CollapseMode, thought: ToolOverride): void => {
+		const hidden = !thoughtExpanded(mode, thought);
+		if (readHideThinkingBlock() !== hidden) writeHideThinkingBlock(hidden);
+	};
+
+	// Non-builtin (extension/MCP) tool names observed this session — persisted
+	// so the settings panel lists them only once such tools actually exist.
+	const observeToolName = (name: string) => {
+		if (BUILTIN_TOOLS.includes(name)) return;
+		if (config.turnCollapse.seenTools.includes(name)) return;
+		config.turnCollapse = normalizeTurnCollapse({
+			...config.turnCollapse,
+			seenTools: [...config.turnCollapse.seenTools, name],
+		});
+		saveConfig(config);
+	};
+
 	const setThinkingLabel = (ctx: ExtensionContext | undefined, label: string) => {
 		if (!ctx || !isTuiContext(ctx)) return;
 		ctx.ui?.setHiddenThinkingLabel?.(label);
@@ -233,7 +268,10 @@ export default function (pi: ExtensionAPI) {
 			// mode switches and sessions that start in regular mode.
 			cleanupThinkingClick?.();
 			cleanupThinkingClick = installThinkingClickExpand();
-			setTurnCollapseEnabled(config.turnCollapse);
+			const sessionThought = resolveSessionThought(config);
+			applyTurnCollapseConfig(config, sessionThought);
+			setThoughtPreference(sessionThought);
+			syncThoughtMirror(config.turnCollapse.mode, sessionThought);
 			setTurnCollapseTheme(ctx.ui.theme);
 			setThinkingDurations(undefined); // per-session; fed at agent_settled
 			cleanupTurnCollapse?.();
@@ -305,6 +343,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("tool_execution_start", (event) => {
 		turnTelemetry.handle(event);
+		if (typeof event.toolName === "string") observeToolName(event.toolName);
 	});
 
 	pi.on("turn_end", (event) => {
@@ -361,8 +400,14 @@ export default function (pi: ExtensionAPI) {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
 			const wheelScrollLinesChanged = config.fullscreen.wheelScrollLines !== newConfig.fullscreen.wheelScrollLines;
 			const footerStyleChanged = config.footerStyle !== newConfig.footerStyle;
+			const turnCollapseChanged = config.turnCollapse !== newConfig.turnCollapse;
 			saveConfig(newConfig);
 			config = newConfig;
+			if (turnCollapseChanged) {
+				applyTurnCollapseConfig(newConfig);
+				setThoughtPreference(newConfig.turnCollapse.thought);
+				syncThoughtMirror(newConfig.turnCollapse.mode, newConfig.turnCollapse.thought);
+			}
 			if (cursorStyleChanged && active && editor) {
 				editor.setCursorStyle(newConfig.cursorStyle);
 			}
