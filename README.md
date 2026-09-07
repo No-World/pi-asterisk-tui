@@ -69,6 +69,10 @@ compresses is the **compression mode** (`/open-tui` → Collapse):
   (`Retrying (2/10) in 5s… · 429 rate_limit_error`); intermediate errors are held back,
   a successful retry prints nothing, and only the last error shows if the run fails
   (togglable independently of the mode).
+- **Regular-mode support**: compressed lines work in the regular (non-fullscreen)
+  TUI too — every line ends with the effective expand-all shortcut hint (e.g.
+  `(ctrl+\ to expand)`); pressing it expands every run (reasoning + all tool
+  output), pressing again collapses all. Fullscreen keeps per-run click-to-expand.
 - **Compact spacing**: pi's internal spacer padding and OSC shell-integration markers
   around ✻ lines are folded away.
 
@@ -116,9 +120,11 @@ overridden) so the ✻ experience works out of the box.
 - Pi 0.80+
 - UTF-8 terminal; a [Nerd Font](https://www.nerdfonts.com/font-downloads) for the full icon
   set (ASCII icons are built in)
-- **Fullscreen TUI** (`/settings` → TUI mode, or `"tuiMode": "fullscreen"` in
-  `~/.pi/agent/settings.json`) for mouse interactions — click-to-expand needs pi's
-  fullscreen mouse capture. Everything else works in regular mode.
+- Both TUI modes work: in regular mode compressed lines expand/collapse via the
+  expand-all shortcut (default `ctrl+\`, annotated at the end of each compressed
+  line); **per-run click-to-expand** needs pi's fullscreen mouse capture
+  (`/settings` → TUI mode, or `"tuiMode": "fullscreen"` in
+  `~/.pi/agent/settings.json`).
 
 ## Configuration
 
@@ -133,6 +139,7 @@ Run `/open-tui`, or edit `~/.pi/agent/open-tui.json`. Notable keys:
 | `turnCollapse.thought` | `"default"` | thinking: `default` / `single` / `group-same` / `expand` |
 | `turnCollapse.liveThinking` | `true` | stream thinking inline while it arrives; fold back after |
 | `turnCollapse.liveTools` | `true` | render running tool output boxes below the spinner line |
+| `turnCollapse.expandAllKey` | `"ctrl+\\"` | expand-all shortcut in regular mode (pi KeyId; empty disables; applies after restart/reload) |
 | `turnCollapse.tools` | `{}` | per-tool `default` / `single` / `group-same` / `expand`; `*` wildcard |
 | `icons.mode` | `"auto"` | nerd / ascii / auto icon set |
 | `cursorStyle` | `"block"` | editor cursor style |

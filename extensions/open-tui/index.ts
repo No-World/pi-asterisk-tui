@@ -8,6 +8,7 @@ import {
 	setThinkingDurations,
 	setThoughtPreference,
 	setTurnCollapseTheme,
+	toggleExpandAll,
 	uninstallTurnCollapse,
 } from "./turn-collapse.ts";
 import { installEditor } from "./editor.ts";
@@ -75,6 +76,36 @@ export default function (pi: ExtensionAPI) {
 	let cleanupTurnCollapse: (() => void) | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
+	let expandAllStatusTimer: ReturnType<typeof setTimeout> | undefined;
+
+	// Shortcuts register once per extension load, so the key is read from disk
+	// here (session_start reloads config for everything else). The registered
+	// key stays the single source of truth for dispatch AND the compressed-line
+	// hint; config edits take effect after restart/reload.
+	const expandAllLoadConfig = loadConfig();
+	const shortcutApiAvailable = typeof pi.registerShortcut === "function";
+	const registeredExpandAllKey = shortcutApiAvailable ? expandAllLoadConfig.turnCollapse.expandAllKey : "";
+	if (registeredExpandAllKey !== "") {
+		pi.registerShortcut(registeredExpandAllKey as Parameters<ExtensionAPI["registerShortcut"]>[0], {
+			description: expandAllLoadConfig.settingsLanguage === "zh"
+				? "展开/收起全部压缩行（普通模式）"
+				: "Expand/collapse all compressed lines (regular mode)",
+			handler: (ctx) => {
+				const next = toggleExpandAll();
+				if (next === undefined) return; // fullscreen keeps click-to-expand
+				const zh = config.settingsLanguage === "zh";
+				const action = next === "expanded"
+					? (zh ? "已全部展开" : "expanded all compressed lines")
+					: (zh ? "已收起压缩行" : "collapsed compressed lines");
+				ctx.ui?.setStatus?.("open-tui.expandAll", `✻ ${action}`);
+				if (expandAllStatusTimer !== undefined) clearTimeout(expandAllStatusTimer);
+				expandAllStatusTimer = setTimeout(() => {
+					lastCtx?.ui?.setStatus?.("open-tui.expandAll", undefined);
+					expandAllStatusTimer = undefined;
+				}, 2000);
+			},
+		});
+	}
 
 	const getThinkingLevel = () => (sessionLifecycle.isCurrent() ? pi.getThinkingLevel() : "off");
 
@@ -212,6 +243,11 @@ export default function (pi: ExtensionAPI) {
 	// owned by turnCollapse.thought (open-tui.json); pi's hideThinkingBlock is
 	// only a mirror so pi-native rendering matches when the extension is off.
 	const applyTurnCollapseConfig = (current: OpenTuiConfig, thought?: ToolOverride) => {
+		// The hint mirrors the REGISTERED shortcut (mid-session config edits
+		// cannot re-register), not the config value.
+		const expandAllHint = registeredExpandAllKey === ""
+			? undefined
+			: registeredExpandAllKey + " " + (current.settingsLanguage === "zh" ? "展开" : "to expand");
 		setCollapseOptions({
 			mode: current.turnCollapse.mode,
 			style: current.turnCollapse.style,
@@ -220,6 +256,7 @@ export default function (pi: ExtensionAPI) {
 			retryErrors: current.turnCollapse.retryErrors,
 			liveThinking: current.turnCollapse.liveThinking,
 			liveTools: current.turnCollapse.liveTools,
+			expandAllHint,
 		});
 	};
 

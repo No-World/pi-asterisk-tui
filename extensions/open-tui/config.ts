@@ -43,6 +43,10 @@ export interface TurnCollapseConfig {
 	/** Render the native output box of running tools below the spinner
 	 *  one-liner; off shows the spinner line only. */
 	liveTools: boolean;
+	/** Key id (pi KeyId string) that expands/collapses every compressed line
+	 *  in the regular TUI, where mouse clicks are unavailable. Empty disables
+	 *  the shortcut and the trailing hint. Takes effect after restart/reload. */
+	expandAllKey: string;
 	/** Per-tool overrides keyed by tool name; "*" matches tools without an entry. */
 	tools: Record<string, ToolOverride>;
 	/** Non-builtin tool names observed at runtime (auto-maintained, feeds the panel). */
@@ -56,6 +60,7 @@ export const DEFAULT_TURN_COLLAPSE: TurnCollapseConfig = {
 	thought: "default",
 	liveThinking: true,
 	liveTools: true,
+	expandAllKey: "ctrl+\\",
 	tools: {},
 	seenTools: [],
 };
@@ -112,6 +117,7 @@ export function normalizeTurnCollapse(value: unknown): TurnCollapseConfig {
 		thought: TOOL_OVERRIDES.includes(raw.thought as ToolOverride) ? (raw.thought as ToolOverride) : "default",
 		liveThinking: raw.liveThinking !== false,
 		liveTools: raw.liveTools !== false,
+		expandAllKey: typeof raw.expandAllKey === "string" ? raw.expandAllKey.trim() : DEFAULT_TURN_COLLAPSE.expandAllKey,
 		tools,
 		seenTools: [...new Set(seenTools)].sort(),
 	};
