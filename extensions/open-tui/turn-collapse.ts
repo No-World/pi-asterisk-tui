@@ -27,7 +27,7 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { CollapseMode, CollapseStyle, ToolOverride } from "./config.ts";
+import { effectiveThoughtTreatment, type CollapseMode, type CollapseStyle, type ThoughtTreatment, type ToolOverride } from "./config.ts";
 
 interface Child {
 	render?: (width: number) => string[];
@@ -233,50 +233,56 @@ export interface CollapseOptions {
 	mode: CollapseMode;
 	style: CollapseStyle;
 	tools: Record<string, ToolOverride>;
+	/** Thinking-block override — same lattice as per-tool overrides. */
+	thought: ToolOverride;
 	/** Hold retry errors during a run (independent of the compression mode). */
 	retryErrors: boolean;
 }
 
-let collapse: CollapseOptions = { mode: "group-all", style: "compact", tools: {}, retryErrors: true };
+let collapse: CollapseOptions = { mode: "group-all", style: "compact", tools: {}, thought: "default", retryErrors: true };
 
 export function setCollapseOptions(options: CollapseOptions): void {
 	collapse = options;
+	applyThinkingVisibilityToContainer();
 }
 
 /** Compat/test helper: boolean collapse switch (true = group-all, false = native). */
 export function setTurnCollapseEnabled(value: boolean): void {
 	collapse = { ...collapse, mode: value ? "group-all" : "native" };
+	applyThinkingVisibilityToContainer();
+}
+
+/** Effective thinking treatment for the current mode + override. */
+function thoughtTreatment(): ThoughtTreatment {
+	return effectiveThoughtTreatment(collapse.mode, collapse.thought);
 }
 
 /**
- * Thought visibility is pi's native hideThinkingBlock setting; the settings
- * panel writes it there (pi-settings.ts). This preference mirrors it so the
- * render walk knows whether thinking-only messages may collapse behind ✻
- * lines, and so new messages stay in sync within the session — pi's in-memory
- * flag cannot be reached from the extension API.
+ * Thinking-block visibility preference. The single source of truth is
+ * open-tui.json (turnCollapse.thought); pi's native hideThinkingBlock is
+ * only a mirror (index.ts writes it) so pi-native rendering matches when the
+ * extension is off.
  */
-let thoughtHiddenPref: boolean | undefined;
+let thoughtPref: ToolOverride | undefined;
 /** pi's global flag as last seen on an arriving message (ctrl+t detector). */
 let lastObservedPiFlag: boolean | undefined;
 
-function thoughtHidden(): boolean {
-	return thoughtHiddenPref !== false;
-}
-
-export function setThoughtHiddenPreference(hidden: boolean): void {
-	thoughtHiddenPref = hidden;
+export function setThoughtPreference(state: ToolOverride): void {
+	thoughtPref = state;
+	collapse = { ...collapse, thought: state };
 	applyThinkingVisibilityToContainer();
 	requestRenderRef?.();
 }
 
-/** Flips every live assistant message to the declared thought preference. */
+/** Flips every live assistant message to the effective fold state. */
 export function applyThinkingVisibilityToContainer(): void {
-	if (thoughtHiddenPref === undefined) return;
+	if (thoughtPref === undefined) return;
+	const hidden = thoughtTreatment() !== "expand";
 	const container = (globalThis as Record<symbol, unknown>)[CONTAINER_SLOT];
 	if (typeof container !== "object" || container === null) return;
 	for (const child of ((container as ChatContainer).children ?? []) as unknown[]) {
-		if (isAssistantMessage(child) && child.hideThinkingBlock !== thoughtHiddenPref) {
-			child.setHideThinkingBlock(thoughtHiddenPref);
+		if (isAssistantMessage(child) && child.hideThinkingBlock !== hidden) {
+			child.setHideThinkingBlock(hidden);
 		}
 	}
 }
@@ -289,16 +295,19 @@ function toolNameOf(child: unknown): string {
 }
 
 /** Effective treatment of a tool: per-tool override, else the mode default. */
-function toolTreatment(child: unknown): "single" | "expand" | "group" {
+function toolTreatment(child: unknown): "single" | "expand" | "group-same" | "run" {
 	const override = collapse.tools[toolNameOf(child)] ?? collapse.tools["*"];
 	if (override === "single" || override === "expand") return override;
+	if (override === "group-same") return "group-same";
 	switch (collapse.mode) {
 		case "native":
 			return "expand";
 		case "single":
 			return "single";
+		case "group-same":
+			return "group-same";
 		default:
-			return "group";
+			return "run";
 	}
 }
 
@@ -416,7 +425,7 @@ function classifyAssistant(child: unknown): "label" | "transparent" | "text" | "
 	);
 	(child as { __openTuiHasThinking?: boolean }).__openTuiHasThinking = hasThinking;
 	if (hasText) return "text";
-	if (hasThinking) return thoughtHidden() ? "label" : "other";
+	if (hasThinking) return thoughtTreatment() === "expand" ? "other" : "label";
 	return "transparent";
 }
 
@@ -438,152 +447,115 @@ function emitSingleToolLine(child: object, walk: ExpandedWalk): void {
 	walk.pushCompressed(child, [renderToolLine(child, fg("accent", "▸"))]);
 }
 
+/** Shared emitter for a Thought line (consecutive thinking-only messages). */
+function makeLabelRun(walk: ExpandedWalk) {
+	let members: unknown[] = [];
+	return {
+		isEmpty: (): boolean => members.length === 0,
+		push(child: unknown): void {
+			members.push(child);
+		},
+		flush(): void {
+			if (members.length === 0) return;
+			const head = members[0] as object;
+			if (expandedRuns.has(head)) {
+				for (const member of members) {
+					runMembership.set(member as object, head);
+					// Expand the thinking itself — same affordance as run lines.
+					if ((member as AssistantLike).hideThinkingBlock !== false) {
+						(member as AssistantLike).setHideThinkingBlock(false);
+					}
+					walk.renderChild(member);
+				}
+			} else {
+				collapsedRunHeads.add(head);
+				for (const member of members) {
+					runMembership.set(member as object, head);
+					if ((member as AssistantLike).hideThinkingBlock !== true) {
+						(member as AssistantLike).setHideThinkingBlock(true);
+					}
+				}
+				const thinkingMs = members.reduce<number>(
+					(sum, member) => sum + ((member as { __openTuiThinkingMs?: number }).__openTuiThinkingMs ?? 0),
+					0,
+				);
+				const text = thinkingMs >= 1000 ? `Thought for ${formatDuration(thinkingMs)}` : "Thought";
+				walk.pushCompressed(head, [` ${fg("accent", "✻")} ${fg("muted", text)}`]);
+			}
+			members = [];
+		},
+	};
+}
+
+/** Shared emitter for a same-type tool group line (`✻ read 3 files`). */
+function makeToolTypeRun(walk: ExpandedWalk, expanded: () => boolean) {
+	let members: unknown[] = [];
+	return {
+		isEmpty: (): boolean => members.length === 0,
+		accepts(child: unknown): boolean {
+			return members.length === 0 || toolNameOf(child) === toolNameOf(members[members.length - 1]);
+		},
+		push(child: unknown): void {
+			members.push(child);
+		},
+		flush(): void {
+			if (members.length === 0) return;
+			const head = members[0] as object;
+			if (expanded() || expandedRuns.has(head)) {
+				for (const tool of members) {
+					runMembership.set(tool as object, head);
+					walk.renderChild(tool);
+				}
+			} else {
+				collapsedRunHeads.add(head);
+				for (const tool of members) {
+					runMembership.set(tool as object, head);
+				}
+				walk.pushCompressed(head, [renderGroupLine(members)]);
+			}
+			members = [];
+		},
+	};
+}
+
 /** Render a finished turn according to the compression mode. */
 function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: number): void {
-	switch (collapse.mode) {
-		case "native":
-			renderNativeTurn(turnChildren, walk, width);
-			return;
-		case "single":
-			renderSingleTurn(turnChildren, walk, width);
-			return;
-		case "group-same":
-			renderGroupedTurn(turnChildren, walk, width);
-			return;
-		default:
-			renderRunTurn(turnChildren, walk, width);
+	if (collapse.mode === "group-all") {
+		renderRunTurn(turnChildren, walk, width);
+	} else {
+		renderItemTurn(turnChildren, walk, width);
 	}
 }
 
 /**
- * native mode: pi rendering untouched — native tool boxes and per-message
- * labels. Only tools with a per-tool "single" override compress.
+ * Unified walk for the native / single / group-same modes. The mode only
+ * decides what "default" resolves to (toolTreatment / thoughtTreatment);
+ * every per-item state is absolute. Effective treatments here are expand /
+ * single / group-same — run absorption only exists in group-all mode.
  */
-function renderNativeTurn(turnChildren: unknown[], walk: ExpandedWalk, width: number): void {
-	const compressible = (child: unknown): boolean =>
-		isToolBox(child) && !isToolRunning(child) && toolTreatment(child) === "single";
-	let prevCompressed = false;
-	for (let i = 0; i < turnChildren.length; i++) {
-		const current = turnChildren[i];
-		if (isTransparentChild(current, width)) {
-			// Spacers next to compressed lines are absorbed; classic spacing
-			// (or compact flushness) takes over.
-			if (!prevCompressed && !compressible(turnChildren[i + 1])) walk.renderChild(current);
-			continue;
-		}
-		if (compressible(current)) {
-			emitSingleToolLine(current as object, walk);
-			prevCompressed = true;
-			continue;
-		}
-		walk.renderChild(current); // labels keep ✻ styling; running tools stay native boxes
-		prevCompressed = false;
-	}
-}
-
-/** single mode: every finished tool is its own line; nothing merges. */
-function renderSingleTurn(turnChildren: unknown[], walk: ExpandedWalk, width: number): void {
-	const compressible = (child: unknown): boolean =>
-		isToolBox(child) && !isToolRunning(child) && toolTreatment(child) !== "expand";
-	let prevCompressed = false;
-	for (let i = 0; i < turnChildren.length; i++) {
-		const current = turnChildren[i];
-		if (isTransparentChild(current, width)) {
-			if (!prevCompressed && !compressible(turnChildren[i + 1])) walk.renderChild(current);
-			continue;
-		}
-		if (isToolBox(current)) {
-			if (isToolRunning(current)) {
-				if (toolTreatment(current) !== "expand") {
-					walk.pushChild(current, [renderToolLine(current, fg("accent", spinnerFrame()))]);
-				}
-				walk.renderChild(current);
-				prevCompressed = false;
-				continue;
-			}
-			if (toolTreatment(current) === "expand") {
-				walk.renderChild(current);
-				prevCompressed = false;
-			} else {
-				emitSingleToolLine(current as object, walk);
-				prevCompressed = true;
-			}
-			continue;
-		}
-		walk.renderChild(current); // labels stay per-message ✻ lines
-		prevCompressed = false;
-	}
-}
-
-/**
- * group-same mode: consecutive same-type tools merge per type (`✻ read 3
- * files`), consecutive thinking-only messages merge into one Thought line —
- * but the two kinds never merge with each other. Expand overrides break out
- * of every merge; while a tool runs, finished work stays expanded.
- */
-function renderGroupedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: number): void {
-	let labelMembers: unknown[] = [];
-	let toolMembers: unknown[] = [];
+function renderItemTurn(turnChildren: unknown[], walk: ExpandedWalk, width: number): void {
 	let live = false;
+	let prevCompressed = false;
+	const labelRun = makeLabelRun(walk);
+	const toolRun = makeToolTypeRun(walk, () => live);
 
-	const flushLabels = (): void => {
-		if (labelMembers.length === 0) return;
-		const head = labelMembers[0] as object;
-		if (expandedRuns.has(head)) {
-			for (const member of labelMembers) {
-				runMembership.set(member as object, head);
-				// Expand the thinking itself — same affordance as group-all runs.
-				if ((member as AssistantLike).hideThinkingBlock !== false) {
-					(member as AssistantLike).setHideThinkingBlock(false);
-				}
-				walk.renderChild(member);
-			}
-		} else {
-			collapsedRunHeads.add(head);
-			for (const member of labelMembers) {
-				runMembership.set(member as object, head);
-				if ((member as AssistantLike).hideThinkingBlock !== true) {
-					(member as AssistantLike).setHideThinkingBlock(true);
-				}
-			}
-			const thinkingMs = labelMembers.reduce<number>(
-				(sum, member) => sum + ((member as { __openTuiThinkingMs?: number }).__openTuiThinkingMs ?? 0),
-				0,
-			);
-			const text = thinkingMs >= 1000 ? `Thought for ${formatDuration(thinkingMs)}` : "Thought";
-			walk.pushCompressed(head, [` ${fg("accent", "✻")} ${fg("muted", text)}`]);
-		}
-		labelMembers = [];
-	};
-
-	const flushTools = (): void => {
-		if (toolMembers.length === 0) return;
-		const head = toolMembers[0] as object;
-		if (live || expandedRuns.has(head)) {
-			for (const tool of toolMembers) {
-				runMembership.set(tool as object, head);
-				walk.renderChild(tool);
-			}
-		} else {
-			collapsedRunHeads.add(head);
-			for (const tool of toolMembers) {
-				runMembership.set(tool as object, head);
-			}
-			walk.pushCompressed(head, [renderGroupLine(toolMembers)]);
-		}
-		toolMembers = [];
-	};
-
+	const runsOpen = (): boolean => !labelRun.isEmpty() || !toolRun.isEmpty();
 	const flushAll = (): void => {
-		flushLabels();
-		flushTools();
+		labelRun.flush();
+		toolRun.flush();
 	};
+	const nextCompressible = (child: unknown): boolean =>
+		typeof child === "object" && child !== null && isToolBox(child) && !isToolRunning(child) &&
+		(toolTreatment(child) === "single" || toolTreatment(child) === "group-same");
 
 	let index = 0;
 	while (index < turnChildren.length) {
 		const current = turnChildren[index];
 		if (isTransparentChild(current, width)) {
-			if (labelMembers.length === 0 && toolMembers.length === 0) walk.renderChild(current);
+			// Absorbed while runs are open or next to compressed output.
+			if (!runsOpen() && !prevCompressed && !nextCompressible(turnChildren[index + 1])) {
+				walk.renderChild(current);
+			}
 			index++;
 			continue;
 		}
@@ -596,49 +568,48 @@ function renderGroupedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: n
 					walk.pushChild(current, [renderToolLine(current, fg("accent", spinnerFrame()))]);
 				}
 				walk.renderChild(current);
-				index++;
-				continue;
-			}
-			if (live) {
-				if (treatment === "single") emitSingleToolLine(current as object, walk);
-				else walk.renderChild(current);
+				prevCompressed = false;
 				index++;
 				continue;
 			}
 			if (treatment === "expand") {
 				flushAll();
-				walk.renderChild(current);
+				walk.renderChild(current); // native box (mode default in native)
+				prevCompressed = false;
 				index++;
 				continue;
 			}
 			if (treatment === "single") {
-				flushTools();
+				flushAll();
 				emitSingleToolLine(current as object, walk);
+				prevCompressed = true;
 				index++;
 				continue;
 			}
-			// Same-type grouping: a type change closes the open tool group.
-			if (toolMembers.length > 0 && toolNameOf(current) !== toolNameOf(toolMembers[toolMembers.length - 1])) {
-				flushTools();
-			}
-			toolMembers.push(current);
+			// group-same: a type change closes the open tool group.
+			if (!toolRun.accepts(current)) toolRun.flush();
+			toolRun.push(current);
+			prevCompressed = false;
 			index++;
 			continue;
 		}
 		const kind = classifyAssistant(current);
 		if (
 			kind === "label" &&
+			thoughtTreatment() === "group-same" &&
 			!live &&
 			(current as { isStreaming?: unknown }).isStreaming !== true
 		) {
-			if (toolMembers.length > 0) flushTools(); // kinds never merge
-			labelMembers.push(current);
+			if (!toolRun.isEmpty()) toolRun.flush(); // kinds never merge
+			labelRun.push(current);
+			prevCompressed = false;
 			index++;
 			continue;
 		}
-		// Visible content (text, inline thinking, streaming labels) ends groups.
+		// Visible content (text, per-message labels, inline thinking, errors).
 		flushAll();
 		walk.renderChild(current);
+		prevCompressed = false;
 		index++;
 	}
 	flushAll();
@@ -706,6 +677,12 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 	let index = 0;
 	let runMembers: RunMember[] = [];
 	let runLive = false;
+	const labelRun = makeLabelRun(walk);
+	const toolRun = makeToolTypeRun(walk, () => runLive);
+	const flushAux = (): void => {
+		labelRun.flush();
+		toolRun.flush();
+	};
 
 	const flushRun = (): void => {
 		if (runMembers.length === 0) return;
@@ -774,8 +751,8 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 	while (index < turnChildren.length) {
 		const current = turnChildren[index];
 		if (isTransparentChild(current, width)) {
-			// Absorbed while a run is open; otherwise rendered as padding.
-			if (runMembers.length > 0) {
+			// Absorbed while a run or aux group is open; otherwise padding.
+			if (runMembers.length > 0 || !labelRun.isEmpty() || !toolRun.isEmpty()) {
 				index++;
 				continue;
 			}
@@ -788,11 +765,19 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 			if (treatment === "expand") {
 				// Per-tool native override: a visible boundary for runs.
 				flushRun();
+				flushAux();
 				walk.renderChild(current);
 			} else if (treatment === "single") {
 				flushRun();
+				flushAux();
 				emitSingleToolLine(current as object, walk);
+			} else if (treatment === "group-same") {
+				// Same-type group line, never absorbed into run lines.
+				flushRun();
+				if (!toolRun.accepts(current)) toolRun.flush();
+				toolRun.push(current);
 			} else {
+				flushAux();
 				runMembers.push({ kind: "tool", child: current });
 			}
 			index++;
@@ -802,25 +787,24 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 			const treatment = toolTreatment(current);
 			if (treatment === "expand") {
 				flushRun();
+				flushAux();
 				walk.renderChild(current);
 				index++;
 				continue;
 			}
-			if (treatment === "single") {
+			if (treatment === "single" || treatment === "group-same") {
 				flushRun();
-				// Running single-override tool: spinner one-liner + live box;
-				// it collapses to its own line once finished.
-				if (isToolRunning(current)) {
-					walk.pushChild(current, [renderToolLine(current, fg("accent", spinnerFrame()))]);
-					walk.renderChild(current);
-				} else {
-					emitSingleToolLine(current as object, walk);
-				}
+				flushAux();
+				// Running override tool: spinner one-liner + live box; it
+				// collapses to its own line (or type group) once finished.
+				walk.pushChild(current, [renderToolLine(current, fg("accent", spinnerFrame()))]);
+				walk.renderChild(current);
 				index++;
 				continue;
 			}
 			// A running tool must not drag already-completed members into the
 			// live (expanded) render — fold them into their own line first.
+			flushAux();
 			if (runMembers.length > 0 && !runLive) flushRun();
 			runMembers.push({ kind: "tool", child: current });
 			runLive = true;
@@ -829,16 +813,38 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 		}
 		const kind = classifyAssistant(current);
 		if (kind === "label") {
-			if ((current as { isStreaming?: unknown }).isStreaming === true && runMembers.length > 0 && !runLive) {
-				// Same for a streaming thinking message following completed work.
-				flushRun();
+			const treatment = thoughtTreatment();
+			if (treatment === "run") {
+				if ((current as { isStreaming?: unknown }).isStreaming === true && runMembers.length > 0 && !runLive) {
+					// Same for a streaming thinking message following completed work.
+					flushRun();
+				}
+				flushAux();
+				runMembers.push({ kind: "label", child: current });
+				if (runIsLive(runMembers)) runLive = true;
+				index++;
+				continue;
 			}
-			runMembers.push({ kind: "label", child: current });
-			if (runIsLive(runMembers)) runLive = true;
+			if (treatment === "group-same" && !runLive && (current as { isStreaming?: unknown }).isStreaming !== true) {
+				// Thought lines stay separate from run lines.
+				flushRun();
+				if (!toolRun.isEmpty()) toolRun.flush();
+				labelRun.push(current);
+				index++;
+				continue;
+			}
+			// "single": per-message labels are visible boundaries.
+			flushRun();
+			flushAux();
+			walk.renderChild(current);
 			index++;
 			continue;
 		}
-		if (kind === "text" && runMembers.length > 0 && !runLive && (current as { __openTuiHasThinking?: boolean }).__openTuiHasThinking === true) {
+		if (
+			kind === "text" && runMembers.length > 0 && !runLive &&
+			(current as { __openTuiHasThinking?: boolean }).__openTuiHasThinking === true &&
+			thoughtTreatment() === "run"
+		) {
 			// Text message with a leading thinking label: the label joins the
 			// open run (duration included) and the run CLOSES here — the text
 			// is a visible boundary; later tools start a fresh run.
@@ -849,10 +855,12 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 		}
 		// Visible content (text, errors) ends the run.
 		flushRun();
+		flushAux();
 		walk.renderChild(current);
 		index++;
 	}
 	flushRun();
+	flushAux();
 }
 
 // A line is blank when it is empty or consists solely of zero-width control
@@ -1123,19 +1131,21 @@ export function uninstallTurnCollapse(): void {
 	detachFromContainer();
 }
 
-/** Keeps arrivals in sync with the thought preference; see setThoughtHiddenPreference. */
+/** Keeps arrivals in sync with the thought preference; see setThoughtPreference. */
 function syncThoughtPreference(child: AssistantLike): void {
-	if (thoughtHiddenPref === undefined) return;
+	if (thoughtPref === undefined) return;
 	// An arriving message's initial hideThinkingBlock IS pi's in-memory global
 	// flag. When it flips underneath us (ctrl+t / pi's settings UI), the flip
-	// wins and becomes the new preference; otherwise our panel choice wins.
+	// wins and becomes an explicit preference state; otherwise our choice wins.
 	const arriving = child.hideThinkingBlock === true;
 	if (lastObservedPiFlag !== undefined && arriving !== lastObservedPiFlag) {
-		thoughtHiddenPref = arriving;
+		thoughtPref = arriving ? "single" : "expand";
+		collapse = { ...collapse, thought: thoughtPref };
 	}
 	lastObservedPiFlag = arriving;
-	if (arriving !== thoughtHiddenPref) {
-		child.setHideThinkingBlock(thoughtHiddenPref);
+	const hidden = thoughtTreatment() !== "expand";
+	if (arriving !== hidden) {
+		child.setHideThinkingBlock(hidden);
 	}
 }
 

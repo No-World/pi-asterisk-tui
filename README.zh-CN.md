@@ -30,8 +30,13 @@ pi install git:github.com/No-World/pi-asterisk-tui
   files`、`read 5 files`、`listed 2 directories`、`searched for 9 patterns`、`called
   playwright ×2`（前面没有思考时首字母大写）。思考时长来自实时遥测；历史轮次显示为
   `✻ Thought, ran 1 shell command`。
-- **每工具覆盖**：每个工具可独立设为 default（跟随模式）/ single（单行）/ expand（原生
-  盒子），与模式无关；`*` 通配未点名的工具。
+- **每工具覆盖**：每个工具可独立设为 default（跟随模式）/ single（单行）/ group-same（
+  同类归纳行，不并入 ✻ 行）/ expand（原生盒子），`*` 通配未点名的工具。逐项状态是**绝对的**
+  ——不随模式退化，group-same 在原生模式下照样归纳。
+- **思考块**与工具共用同一套四态（`turnCollapse.thought`）：default（跟随模式）/ single（
+  每条一行 ✻ 标签）/ group-same（归纳 Thought 行，不与工具合并）/ expand（内联展开，
+  pi 原生）。整段并入 ✻ 行只有「模式 group-all + default」一条路径；pi 原生的
+  hideThinkingBlock 仅作镜像，ctrl+t 翻转会被采纳为显式状态。
 - **压缩行间隔**：compact（紧凑）或 classic（经典，压缩行前后各空一行，相邻压缩行之间
   只留一行）。
 - **一次点击展开/收回**：点击压缩行，完整思维链与所有工具的输出盒同时展开——包括
@@ -100,7 +105,8 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `turnCollapse.mode` | `"group-all"` | 压缩模式：`native` / `single` / `group-same` / `group-all` |
 | `turnCollapse.style` | `"compact"` | 压缩行间隔：`compact` / `classic` |
 | `turnCollapse.retryErrors` | `true` | 运行期间扣留重试错误 |
-| `turnCollapse.tools` | `{}` | 每工具 `default` / `single` / `expand`；`*` 通配 |
+| `turnCollapse.thought` | `"default"` | 思考块：`default` / `single` / `group-same` / `expand` |
+| `turnCollapse.tools` | `{}` | 每工具 `default` / `single` / `group-same` / `expand`；`*` 通配 |
 | `icons.mode` | `"auto"` | nerd / ascii / auto 图标集 |
 | `cursorStyle` | `"block"` | 编辑器光标样式 |
 | `telemetry.*` | 开 | Working 指示器与轮末遥测字段 |

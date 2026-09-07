@@ -31,8 +31,16 @@ compresses is the **compression mode** (`/open-tui` → Collapse):
   `edited 2 files`, `read 5 files`, `listed 2 directories`, `searched for 9 patterns`,
   `called playwright ×2` (leading verb capitalized when no thinking precedes). Thinking
   durations come from live telemetry; history turns read `✻ Thought, ran 1 shell command`.
-- **Per-tool overrides**: every tool can be set to `default` (follow the mode), `single`
-  (one line) or `expand` (native box) regardless of the mode; `*` matches unnamed tools.
+- **Per-tool overrides**: every tool can be set to `default` (follow the mode),
+  `single` (one line), `group-same` (same-type group line, never absorbed into
+  run lines) or `expand` (native box); `*` matches unnamed tools. Per-item
+  states are absolute — group-same groups even in native mode.
+- **Thinking blocks** share the same lattice (`turnCollapse.thought`):
+  `default` (follow the mode) / `single` (one ✻ label per message) /
+  `group-same` (grouped Thought line, never merged with tools) / `expand`
+  (inline, pi native). Whole-run absorption exists only via group-all mode +
+  default. pi's native `hideThinkingBlock` is kept as a mirror (ctrl+t flips
+  are adopted as explicit states).
 - **Line spacing**: `compact` (flush) or `classic` (blank line around compressed lines,
   adjacent compressed lines separated by a single blank).
 - **One-click expand/collapse**: click a compressed line to open the full reasoning and
@@ -109,7 +117,8 @@ Run `/open-tui`, or edit `~/.pi/agent/open-tui.json`. Notable keys:
 | `turnCollapse.mode` | `"group-all"` | `native` / `single` / `group-same` / `group-all` compression |
 | `turnCollapse.style` | `"compact"` | `compact` / `classic` spacing around compressed lines |
 | `turnCollapse.retryErrors` | `true` | hold retry errors during a run |
-| `turnCollapse.tools` | `{}` | per-tool `default` / `single` / `expand`; `*` wildcard |
+| `turnCollapse.thought` | `"default"` | thinking: `default` / `single` / `group-same` / `expand` |
+| `turnCollapse.tools` | `{}` | per-tool `default` / `single` / `group-same` / `expand`; `*` wildcard |
 | `icons.mode` | `"auto"` | nerd / ascii / auto icon set |
 | `cursorStyle` | `"block"` | editor cursor style |
 | `telemetry.*` | on | working-indicator and post-turn telemetry fields |

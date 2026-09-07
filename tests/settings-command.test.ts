@@ -23,7 +23,6 @@ const theme = {
 async function openSettings(
 	initialConfig = structuredClone(DEFAULT_CONFIG),
 	onChange?: (config: OpenTuiConfig) => void,
-	thought?: { getHidden(): boolean; setHidden(hidden: boolean): void },
 ): Promise<{
 	component: SettingsComponent;
 	getConfig: () => OpenTuiConfig;
@@ -52,8 +51,6 @@ async function openSettings(
 		onOverlayClosed: () => {
 			overlayClosed = true;
 		},
-		getThoughtHidden: () => thought?.getHidden() ?? true,
-		onThoughtHiddenChange: (hidden) => thought?.setHidden(hidden),
 	});
 
 	const tui = { requestRender() {} } as TUI;
@@ -371,15 +368,7 @@ test("falls back to English for an invalid settings language", () => {
 });
 
 test("configures transcript compression from its own tab", async () => {
-	let thoughtHidden = true;
-	const thoughtChanges: boolean[] = [];
-	const settings = await openSettings(undefined, undefined, {
-		getHidden: () => thoughtHidden,
-		setHidden: (hidden) => {
-			thoughtHidden = hidden;
-			thoughtChanges.push(hidden);
-		},
-	});
+	const settings = await openSettings();
 
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
@@ -393,15 +382,16 @@ test("configures transcript compression from its own tab", async () => {
 	settings.component.handleInput("\x1b[B"); // Fold retry errors
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().turnCollapse.retryErrors, false);
-	settings.component.handleInput("\x1b[B"); // Hide thinking (pi setting)
+	settings.component.handleInput("\x1b[B"); // Thinking blocks
 	settings.component.handleInput("\r");
-	assert.deepEqual(thoughtChanges, [false]);
-	assert.equal(thoughtHidden, false);
-	assert.equal(settings.getConfig().turnCollapse.mode, "native"); // untouched by the thought toggle
+	assert.equal(settings.getConfig().turnCollapse.thought, "single");
+	assert.equal(settings.getConfig().turnCollapse.mode, "native"); // untouched by the thought cycle
 
 	settings.component.handleInput("\x1b[B"); // Tool · bash
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().turnCollapse.tools.bash, "single");
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().turnCollapse.tools.bash, "group-same");
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().turnCollapse.tools.bash, "expand");
 	settings.component.handleInput("\r");

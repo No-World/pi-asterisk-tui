@@ -19,12 +19,12 @@ export type StylePreset = "hud" | "classic" | "custom";
 export type CollapseMode = "native" | "single" | "group-same" | "group-all";
 /** Spacing around compressed lines: compact (flush) or classic (blank-padded). */
 export type CollapseStyle = "compact" | "classic";
-/** Per-tool compression override. "default" follows the mode. */
-export type ToolOverride = "default" | "single" | "expand";
+/** Per-item compression override (tools and thinking alike). "default" follows the mode. */
+export type ToolOverride = "default" | "single" | "group-same" | "expand";
 
 export const COLLAPSE_MODES: readonly CollapseMode[] = ["native", "single", "group-same", "group-all"];
 export const COLLAPSE_STYLES: readonly CollapseStyle[] = ["compact", "classic"];
-export const TOOL_OVERRIDES: readonly ToolOverride[] = ["default", "single", "expand"];
+export const TOOL_OVERRIDES: readonly ToolOverride[] = ["default", "single", "group-same", "expand"];
 /** pi builtin tools — anything else counts as an extension/MCP tool for the panel. */
 export const BUILTIN_TOOLS: readonly string[] = ["bash", "read", "edit", "write", "grep", "glob", "ls"];
 
@@ -35,6 +35,8 @@ export interface TurnCollapseConfig {
 	style: CollapseStyle;
 	/** Hold retry errors during a run (noise reduction, applies in every mode). */
 	retryErrors: boolean;
+	/** Thinking-block override — same state lattice as per-tool overrides. */
+	thought: ToolOverride;
 	/** Per-tool overrides keyed by tool name; "*" matches tools without an entry. */
 	tools: Record<string, ToolOverride>;
 	/** Non-builtin tool names observed at runtime (auto-maintained, feeds the panel). */
@@ -45,9 +47,40 @@ export const DEFAULT_TURN_COLLAPSE: TurnCollapseConfig = {
 	mode: "group-all",
 	style: "compact",
 	retryErrors: true,
+	thought: "default",
 	tools: {},
 	seenTools: [],
 };
+
+/** Effective thinking treatment: override resolved against the mode. */
+export type ThoughtTreatment = "expand" | "single" | "group-same" | "run";
+
+/**
+ * Resolves the thinking override against the compression mode. Per-item
+ * states are ABSOLUTE — group-same merges consecutive thinking even in
+ * native mode; only `default` is relative. `run` (absorb into whole-run ✻
+ * lines) is only reachable via mode group-all + default.
+ */
+export function effectiveThoughtTreatment(mode: CollapseMode, thought: ToolOverride): ThoughtTreatment {
+	if (thought === "default") {
+		switch (mode) {
+			case "native":
+				return "expand";
+			case "single":
+				return "single";
+			case "group-same":
+				return "group-same";
+			default:
+				return "run";
+		}
+	}
+	return thought as ThoughtTreatment;
+}
+
+/** Thinking renders inline (pi native) — what pi's hideThinkingBlock should mirror. */
+export function thoughtExpanded(mode: CollapseMode, thought: ToolOverride): boolean {
+	return effectiveThoughtTreatment(mode, thought) === "expand";
+}
 
 /** Migrates/normalizes any stored shape (including the legacy boolean) into a full config. */
 export function normalizeTurnCollapse(value: unknown): TurnCollapseConfig {
@@ -68,6 +101,7 @@ export function normalizeTurnCollapse(value: unknown): TurnCollapseConfig {
 		mode: COLLAPSE_MODES.includes(raw.mode as CollapseMode) ? (raw.mode as CollapseMode) : DEFAULT_TURN_COLLAPSE.mode,
 		style: COLLAPSE_STYLES.includes(raw.style as CollapseStyle) ? (raw.style as CollapseStyle) : DEFAULT_TURN_COLLAPSE.style,
 		retryErrors: raw.retryErrors !== false,
+		thought: TOOL_OVERRIDES.includes(raw.thought as ToolOverride) ? (raw.thought as ToolOverride) : "default",
 		tools,
 		seenTools: [...new Set(seenTools)].sort(),
 	};

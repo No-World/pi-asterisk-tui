@@ -1,12 +1,12 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type OpenTuiConfig, BUILTIN_TOOLS, DEFAULT_CONFIG, ensureConfigExists, loadConfig, normalizeTurnCollapse, saveConfig } from "./config.ts";
+import { type OpenTuiConfig, type CollapseMode, BUILTIN_TOOLS, DEFAULT_CONFIG, ensureConfigExists, loadConfig, normalizeTurnCollapse, saveConfig, thoughtExpanded, type ToolOverride } from "./config.ts";
 import { ensureHideThinkingDefault, readHideThinkingBlock, writeHideThinkingBlock } from "./pi-settings.ts";
 import {
 	installTurnCollapse,
 	setAgentActive,
 	setCollapseOptions,
 	setThinkingDurations,
-	setThoughtHiddenPreference,
+	setThoughtPreference,
 	setTurnCollapseTheme,
 	uninstallTurnCollapse,
 } from "./turn-collapse.ts";
@@ -208,15 +208,29 @@ export default function (pi: ExtensionAPI) {
 		lastCtx?.ui?.setWorkingMessage?.(); // restore default "Working..."
 	};
 
-	// Compress-anything feed: config → render walk. Thought visibility mirrors
-	// pi's native hideThinkingBlock (the panel writes it there too).
-	const applyTurnCollapseConfig = (current: OpenTuiConfig) => {
+	// Compress-anything feed: config → render walk. Thought visibility is
+	// owned by turnCollapse.thought (open-tui.json); pi's hideThinkingBlock is
+	// only a mirror so pi-native rendering matches when the extension is off.
+	const applyTurnCollapseConfig = (current: OpenTuiConfig, thought?: ToolOverride) => {
 		setCollapseOptions({
 			mode: current.turnCollapse.mode,
 			style: current.turnCollapse.style,
 			tools: current.turnCollapse.tools,
+			thought: thought ?? current.turnCollapse.thought,
 			retryErrors: current.turnCollapse.retryErrors,
 		});
+	};
+
+	/** A previously ctrl+t-expanded pi flag upgrades an undecided (default) thought. */
+	const resolveSessionThought = (current: OpenTuiConfig): ToolOverride => {
+		if (readHideThinkingBlock() === false && current.turnCollapse.thought === "default") return "expand";
+		return current.turnCollapse.thought;
+	};
+
+	/** Keeps pi's native flag mirroring the effective fold state (single write on change). */
+	const syncThoughtMirror = (mode: CollapseMode, thought: ToolOverride): void => {
+		const hidden = !thoughtExpanded(mode, thought);
+		if (readHideThinkingBlock() !== hidden) writeHideThinkingBlock(hidden);
 	};
 
 	// Non-builtin (extension/MCP) tool names observed this session — persisted
@@ -254,8 +268,10 @@ export default function (pi: ExtensionAPI) {
 			// mode switches and sessions that start in regular mode.
 			cleanupThinkingClick?.();
 			cleanupThinkingClick = installThinkingClickExpand();
-			applyTurnCollapseConfig(config);
-			setThoughtHiddenPreference(readHideThinkingBlock() ?? true);
+			const sessionThought = resolveSessionThought(config);
+			applyTurnCollapseConfig(config, sessionThought);
+			setThoughtPreference(sessionThought);
+			syncThoughtMirror(config.turnCollapse.mode, sessionThought);
 			setTurnCollapseTheme(ctx.ui.theme);
 			setThinkingDurations(undefined); // per-session; fed at agent_settled
 			cleanupTurnCollapse?.();
@@ -380,13 +396,6 @@ export default function (pi: ExtensionAPI) {
 
 	registerSettingsCommand(pi, {
 		getConfig: () => config,
-		// Thought visibility lives in pi's native settings.json (ctrl+t's file);
-		// the panel reads/writes it there and syncs the live session.
-		getThoughtHidden: () => readHideThinkingBlock() ?? true,
-		onThoughtHiddenChange: (hidden) => {
-			writeHideThinkingBlock(hidden);
-			setThoughtHiddenPreference(hidden);
-		},
 		onConfigChanged: (newConfig) => {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
 			const wheelScrollLinesChanged = config.fullscreen.wheelScrollLines !== newConfig.fullscreen.wheelScrollLines;
@@ -396,6 +405,8 @@ export default function (pi: ExtensionAPI) {
 			config = newConfig;
 			if (turnCollapseChanged) {
 				applyTurnCollapseConfig(newConfig);
+				setThoughtPreference(newConfig.turnCollapse.thought);
+				syncThoughtMirror(newConfig.turnCollapse.mode, newConfig.turnCollapse.thought);
 			}
 			if (cursorStyleChanged && active && editor) {
 				editor.setCursorStyle(newConfig.cursorStyle);

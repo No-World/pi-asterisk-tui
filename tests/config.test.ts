@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { DEFAULT_TURN_COLLAPSE, loadConfig, normalizeTurnCollapse } from "../extensions/open-tui/config.ts";
+import { DEFAULT_TURN_COLLAPSE, effectiveThoughtTreatment, loadConfig, normalizeTurnCollapse } from "../extensions/open-tui/config.ts";
 
 test("legacy boolean turnCollapse migrates to the mode contract", () => {
 	assert.deepEqual(normalizeTurnCollapse(true), { ...DEFAULT_TURN_COLLAPSE, mode: "group-all" });
@@ -22,9 +22,21 @@ test("normalizeTurnCollapse fills defaults and drops invalid values", () => {
 		mode: "group-all",
 		style: "classic",
 		retryErrors: false,
+		thought: "default",
 		tools: { bash: "single", "*": "expand" },
 		seenTools: ["mcp_search"],
 	});
+});
+
+test("effectiveThoughtTreatment resolves default per mode and keeps overrides absolute", () => {
+	assert.equal(effectiveThoughtTreatment("native", "default"), "expand");
+	assert.equal(effectiveThoughtTreatment("single", "default"), "single");
+	assert.equal(effectiveThoughtTreatment("group-same", "default"), "group-same");
+	assert.equal(effectiveThoughtTreatment("group-all", "default"), "run");
+	// Overrides are absolute: no native-mode degradation.
+	assert.equal(effectiveThoughtTreatment("native", "group-same"), "group-same");
+	assert.equal(effectiveThoughtTreatment("group-all", "group-same"), "group-same");
+	assert.equal(effectiveThoughtTreatment("native", "expand"), "expand");
 });
 
 test("loadConfig migrates a stored legacy boolean via deepMerge", () => {

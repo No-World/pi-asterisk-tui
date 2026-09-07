@@ -11,7 +11,7 @@ import {
 	uninstallTurnCollapse,
 	renderCollapsedForTest,
 	setThinkingDurations,
-	setThoughtHiddenPreference,
+	setThoughtPreference,
 	setTurnCollapseEnabled,
 } from "../extensions/open-tui/turn-collapse.ts";
 
@@ -534,7 +534,7 @@ test("uninstall restores the pristine container and stops error holding", () => 
 });
 
 const resetCollapse = (overrides: Partial<Parameters<typeof setCollapseOptions>[0]> = {}): void => {
-	setCollapseOptions({ mode: "group-all", style: "compact", tools: {}, retryErrors: true, ...overrides });
+	setCollapseOptions({ mode: "group-all", style: "compact", thought: "default", tools: {}, retryErrors: true, ...overrides });
 };
 
 test("single mode renders one line per tool without merging", () => {
@@ -645,9 +645,9 @@ test("native mode keeps pi rendering except single-override tools", () => {
 	resetCollapse();
 });
 
-test("thought preference visible keeps thinking messages out of runs", () => {
+test("thought preference expand keeps thinking messages out of runs", () => {
 	resetCollapse();
-	setThoughtHiddenPreference(false);
+	setThoughtPreference("expand");
 	setThinkingDurations([7_000]);
 	const container = makeContainer([
 		makeUserMessage("go"),
@@ -659,7 +659,94 @@ test("thought preference visible keeps thinking messages out of runs", () => {
 	assert.ok(!out.includes("Thought for 7s"), `labels not absorbed\n${out}`);
 	assert.ok(out.includes("Ran 1 shell command"), `tools still group\n${out}`);
 	setThinkingDurations(undefined);
-	setThoughtHiddenPreference(true);
+	setThoughtPreference("default");
+});
+
+test("thought single renders per-message labels beside run lines", () => {
+	resetCollapse();
+	setThoughtPreference("single");
+	setThinkingDurations([7_000]);
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("✻ Thought…"), `per-message label stays\n${out}`);
+	assert.ok(!out.includes("Thought for 7s"), `label not merged\n${out}`);
+	assert.ok(out.includes("Ran 1 shell command"), `tools still group\n${out}`);
+	setThinkingDurations(undefined);
+	setThoughtPreference("default");
+});
+
+test("thought group-same keeps Thought lines separate from run lines", () => {
+	resetCollapse();
+	setThoughtPreference("group-same");
+	setThinkingDurations([7_000]);
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const lines = container.render(60);
+	const out = lines.join("\n");
+	const thoughtLine = lines.find((l) => l.includes("Thought for 7s"));
+	const runLine = lines.find((l) => l.includes("Ran 1 shell command"));
+	assert.ok(thoughtLine && runLine && thoughtLine !== runLine, `separate lines\n${out}`);
+	setThinkingDurations(undefined);
+	setThoughtPreference("default");
+});
+
+test("thought group-same merges Thought lines in single mode", () => {
+	resetCollapse({ mode: "single" });
+	setThoughtPreference("group-same");
+	setThinkingDurations([6_000]);
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const lines = container.render(60);
+	const out = lines.join("\n");
+	assert.ok(out.includes("Thought for 6s"), `merged Thought line\n${out}`);
+	assert.ok(out.includes("▸ bash · $ echo hi"), `tool still single line\n${out}`);
+	setThinkingDurations(undefined);
+	setThoughtPreference("default");
+});
+
+test("tool group-same override groups by type even in group-all mode", () => {
+	resetCollapse({ tools: { grep: "group-same" } });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeTool("grep"),
+		makeTool("grep"),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const lines = container.render(60);
+	const out = lines.join("\n");
+	const groupLine = lines.find((l) => l.includes("searched for 2 patterns"));
+	const runLine = lines.find((l) => l.includes("Ran 1 shell command"));
+	assert.ok(groupLine && runLine && groupLine !== runLine, `type group separate from run line\n${out}`);
+	resetCollapse();
+});
+
+test("tool group-same override works in native mode without degrading", () => {
+	resetCollapse({ mode: "native", tools: { grep: "group-same" } });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeTool("grep"),
+		makeTool("grep"),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("searched for 2 patterns"), `type group line in native mode\n${out}`);
+	assert.ok(!out.includes("│ grep"), `grep boxes not rendered\n${out}`);
+	resetCollapse();
 });
 
 test("retry error holding can be disabled independently of the mode", () => {
