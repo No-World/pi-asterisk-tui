@@ -82,6 +82,10 @@ _Avoid_: pi 的 `/settings`（那是宿主的设置；本扩展的配置都在�
 **图标模式**：
 `icons.mode` = nerd / ascii / auto。
 
+**Token 显示模式**：
+HUD Token 统计的呈现方式（`hud.tokens`）= verbose（本地化完整标签）/ compact（语言无关缩写 `↑ 77M (U 855k + R 77M) │ ↓ 266k │ C 98.9%`）/ off。
+_Avoid_: Token 开关（已是三态，不是布尔）
+
 **全屏滚动**：
 fullscreen TUI 模式下的滚轮滚动（`fullscreen.wheelScrollLines`）。
 

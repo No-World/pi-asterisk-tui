@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, TOOL_OVERRIDES } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -99,6 +99,7 @@ const COPY = {
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
 			footerStyles: { hud: "HUD", classic: "Classic" },
 			stylePresets: { hud: "HUD", classic: "Classic", custom: "Custom" },
+			tokenModes: { off: "Off", verbose: "Full (↑in 77M ·cache 77M …)", compact: "Compact (↑ 77M (U 855k + R 77M) …)" },
 			collapseModes: { native: "Native", single: "One per tool", "group-same": "Group same type", "group-all": "Group all" },
 			collapseStyles: { compact: "Compact", classic: "Classic" },
 			toolOverrides: { default: "Default", single: "One line", "group-same": "Group same type", expand: "Native box" },
@@ -181,6 +182,7 @@ const COPY = {
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
 			footerStyles: { hud: "HUD 风格", classic: "经典风格" },
 			stylePresets: { hud: "HUD 风格", classic: "经典风格", custom: "自定义" },
+			tokenModes: { off: "关闭", verbose: "完整（↑输入 77M ·缓存 77M …）", compact: "紧凑（↑ 77M (U 855k + R 77M) …）" },
 			collapseModes: { native: "原生", single: "每工具单行", "group-same": "同类归纳", "group-all": "整段归纳" },
 			collapseStyles: { compact: "紧凑", classic: "经典" },
 			toolOverrides: { default: "默认", single: "单行", "group-same": "同类归纳", expand: "原生" },
@@ -224,6 +226,13 @@ function cycleFooterStyle(config: OpenTuiConfig): OpenTuiConfig {
 	const currentIdx = order.indexOf(config.footerStyle);
 	const next = order[(currentIdx + 1) % order.length]!;
 	return { ...config, footerStyle: next };
+}
+
+/** Cycles the HUD token-stats presentation: off → verbose → compact → off. */
+function cycleTokenMode(config: OpenTuiConfig): OpenTuiConfig {
+	const idx = TOKEN_DISPLAY_MODES.indexOf(config.hud.tokens);
+	const next = TOKEN_DISPLAY_MODES[(idx + 1) % TOKEN_DISPLAY_MODES.length]!;
+	return { ...config, hud: { ...config.hud, tokens: next } };
 }
 
 function cycleIconMode(config: OpenTuiConfig): OpenTuiConfig {
@@ -352,7 +361,7 @@ const HUD_TOGGLE_ITEMS: Array<{ id: string; key: keyof HudConfig; label: string 
 	{ id: "contextPercent", key: "contextPercent", label: "hudContextPercent" },
 	{ id: "contextTokens", key: "contextTokens", label: "hudContextTokens" },
 
-	{ id: "tokens", key: "tokens", label: "hudTokens" },
+	// tokens is a tri-state (off/verbose/compact), handled separately
 	{ id: "tokenBreakdown", key: "tokenBreakdown", label: "hudTokenBreakdown" },
 	{ id: "cacheHit", key: "cacheHit", label: "hudCacheHit" },
 	{ id: "tools", key: "tools", label: "hudTools" },
@@ -396,13 +405,21 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 	}
 	const hud = config.hud;
 	const labels = copy.labels as Record<string, string>;
+	const toggleItems: SettingItem[] = HUD_TOGGLE_ITEMS.map(({ id, key, label }) => ({
+		id,
+		label: labels[label],
+		currentValue: flag(hud[key] as boolean),
+	}));
+	// token-stats presentation sits where it always did: right before the breakdown toggle
+	const breakdownIdx = toggleItems.findIndex((item) => item.id === "tokenBreakdown");
+	toggleItems.splice(breakdownIdx, 0, {
+		id: "tokens",
+		label: labels.hudTokens,
+		currentValue: copy.values.tokenModes[hud.tokens],
+	});
 	return [
 		styleItem,
-		...HUD_TOGGLE_ITEMS.map(({ id, key, label }) => ({
-			id,
-			label: labels[label],
-			currentValue: flag(hud[key] as boolean),
-		})),
+		...toggleItems,
 		{ id: "toolsMax", label: labels.hudToolsMax, currentValue: copy.values.count(hud.toolsMax) },
 		{ id: "filesMax", label: labels.hudFilesMax, currentValue: copy.values.count(hud.filesMax) },
 	];
@@ -487,6 +504,8 @@ function handleSettingChange(
 		let next: OpenTuiConfig;
 		if (itemId === "footerStyle") {
 			next = cycleFooterStyle(config);
+		} else if (config.footerStyle === "hud" && itemId === "tokens") {
+			next = cycleTokenMode(config); // tri-state, not a boolean toggle
 		} else if (config.footerStyle === "hud" && itemId in config.hud) {
 			next = toggleHud(config, itemId as keyof HudConfig);
 		} else {
