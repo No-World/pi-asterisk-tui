@@ -1,6 +1,6 @@
 {
 	"name": "pi-asterisk-tui",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"description": "Polished Pi coding agent TUI: transcript collapse modes (native / per-tool / grouped / run lines), claude-hud style dashboard, telemetry, and bilingual settings.",
 	"type": "module",
 	"repository": {
