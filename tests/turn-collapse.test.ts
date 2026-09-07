@@ -4,12 +4,14 @@ import {
 	findThinkingHostViaSegments,
 	makeInterceptedContainer,
 	setAgentActive,
+	setCollapseOptions,
 	summarizeErrorLines,
 	handleToolLineClick,
 	attachForTest,
 	uninstallTurnCollapse,
 	renderCollapsedForTest,
 	setThinkingDurations,
+	setThoughtHiddenPreference,
 	setTurnCollapseEnabled,
 } from "../extensions/open-tui/turn-collapse.ts";
 
@@ -529,4 +531,144 @@ test("uninstall restores the pristine container and stops error holding", () => 
 	assert.notEqual(container.render, pristineRender);
 	uninstallTurnCollapse();
 	setAgentActive(false);
+});
+
+const resetCollapse = (overrides: Partial<Parameters<typeof setCollapseOptions>[0]> = {}): void => {
+	setCollapseOptions({ mode: "group-all", style: "compact", tools: {}, retryErrors: true, ...overrides });
+};
+
+test("single mode renders one line per tool without merging", () => {
+	resetCollapse({ mode: "single" });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeTool("grep"),
+		makeBash("echo hi"),
+		makeTool("grep"),
+		makeTextMessage("done"),
+	]);
+	const lines = container.render(60);
+	const toolLines = lines.filter((l) => l.includes("▸"));
+	assert.equal(toolLines.length, 3, `three single lines\n${lines.join("\n")}`);
+	assert.ok(toolLines.some((l) => l.includes("$ echo hi")), `bash hint\n${lines.join("\n")}`);
+	assert.ok(!lines.join("\n").includes("searched for"), `no grouping\n${lines.join("\n")}`);
+	resetCollapse();
+});
+
+test("group-same mode merges only consecutive same-type tools", () => {
+	resetCollapse({ mode: "group-same" });
+	setThinkingDurations([5_000]);
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeTool("grep"),
+		makeTool("grep"),
+		makeBash("echo hi"),
+		makeTool("grep"),
+		makeTextMessage("done"),
+	]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("Thought for 5s"), `label group line\n${out}`);
+	assert.ok(out.includes("searched for 2 patterns"), `same-type merge\n${out}`);
+	assert.ok(out.includes("ran 1 shell command"), `bash own line\n${out}`);
+	assert.ok(out.includes("searched for 1 pattern"), `fresh group after type change\n${out}`);
+	setThinkingDurations(undefined);
+	resetCollapse();
+});
+
+test("group-same keeps thought lines separate from tool lines", () => {
+	resetCollapse({ mode: "group-same" });
+	setThinkingDurations([5_000]);
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const out = container.render(60).join("\n");
+	const thoughtLine = out.split("\n").find((l) => l.includes("Thought for 5s"));
+	const bashLine = out.split("\n").find((l) => l.includes("ran 1 shell command"));
+	assert.ok(thoughtLine && bashLine && thoughtLine !== bashLine, `separate lines\n${out}`);
+	setThinkingDurations(undefined);
+	resetCollapse();
+});
+
+test("classic style pads compressed lines with single blank lines", () => {
+	resetCollapse({ mode: "single", style: "classic" });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeTool("grep"),
+		makeTool("ls"),
+		makeTextMessage("done"),
+	]);
+	const lines = container.render(60);
+	const firstIdx = lines.findIndex((l) => l.includes("▸"));
+	assert.ok(firstIdx > 0 && lines[firstIdx - 1]!.trim() === "", `blank before\n${lines.join("\n")}`);
+	const secondIdx = lines.findIndex((l, i) => i > firstIdx && l.includes("▸"));
+	const between = lines.slice(firstIdx + 1, secondIdx);
+	assert.equal(between.length, 1, `single blank between\n${lines.join("\n")}`);
+	assert.equal(between[0]!.trim(), "", `blank between content\n${lines.join("\n")}`);
+	const after = lines.slice(secondIdx + 1);
+	assert.ok(after.length > 0 && after[0]!.trim() === "", `blank after\n${lines.join("\n")}`);
+	resetCollapse();
+});
+
+test("per-tool overrides break runs in group-all mode", () => {
+	resetCollapse({ tools: { grep: "expand", ls: "single" } });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeTool("grep"),
+		makeTool("read"),
+		makeTool("ls"),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("│ grep"), `grep native box\n${out}`);
+	assert.ok(out.includes("▸ ls"), `ls single line\n${out}`);
+	assert.ok(out.includes("Read 1 file"), `read run\n${out}`);
+	assert.ok(out.includes("Ran 1 shell command"), `bash run\n${out}`);
+	resetCollapse();
+});
+
+test("native mode keeps pi rendering except single-override tools", () => {
+	resetCollapse({ mode: "native", tools: { bash: "single" } });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeTool("grep"),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("│ grep"), `native box\n${out}`);
+	assert.ok(out.includes("▸ bash · $ echo hi"), `override single line\n${out}`);
+	resetCollapse();
+});
+
+test("thought preference visible keeps thinking messages out of runs", () => {
+	resetCollapse();
+	setThoughtHiddenPreference(false);
+	setThinkingDurations([7_000]);
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeBash("echo hi"),
+		makeTextMessage("done"),
+	]);
+	const out = container.render(60).join("\n");
+	assert.ok(!out.includes("Thought for 7s"), `labels not absorbed\n${out}`);
+	assert.ok(out.includes("Ran 1 shell command"), `tools still group\n${out}`);
+	setThinkingDurations(undefined);
+	setThoughtHiddenPreference(true);
+});
+
+test("retry error holding can be disabled independently of the mode", () => {
+	resetCollapse({ retryErrors: false });
+	const container = makeInterceptedContainer();
+	setAgentActive(true);
+	container.addChild({ render: () => ["Error: 429 boom"] });
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("Error: 429 boom"), `passes through immediately\n${out}`);
+	setAgentActive(false);
+	resetCollapse();
 });

@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, deriveStylePreset } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, TOOL_OVERRIDES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -22,14 +22,14 @@ interface SettingItem {
 	currentValue: string;
 }
 
-type Tab = "features" | "icons" | "segments" | "telemetry";
+type Tab = "features" | "icons" | "collapse" | "segments" | "telemetry";
 
-const TABS: Tab[] = ["features", "icons", "segments", "telemetry"];
+const TABS: Tab[] = ["features", "icons", "collapse", "segments", "telemetry"];
 
 const COPY = {
 	en: {
 		title: "Open TUI Settings",
-		tabs: { features: "General", icons: "Appearance", segments: "Footer", telemetry: "Telemetry" },
+		tabs: { features: "General", icons: "Appearance", collapse: "Collapse", segments: "Footer", telemetry: "Telemetry" },
 		hint: "Tab/Shift+Tab/←/→: tabs · ↑/↓: move · Enter/Space: change · Enter on wheel speed: type 1-10 · Esc/q: close",
 		labels: {
 			enabled: "Enabled",
@@ -47,6 +47,11 @@ const COPY = {
 			tokens: "Tokens",
 			cost: "Cost",
 			extensionStatuses: "Extension status line",
+			collapseMode: "Transcript compression",
+			collapseStyle: "Compressed line spacing",
+			retryErrors: "Fold retry errors",
+			thoughtHidden: "Hide thinking (✻, pi setting)",
+			otherTools: "Other tools",
 			footerStyle: "Footer style",
 			stylePreset: "Style preset",
 			hudModel: "Model",
@@ -92,6 +97,10 @@ const COPY = {
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
 			footerStyles: { hud: "HUD", classic: "Classic" },
 			stylePresets: { hud: "HUD", classic: "Classic", custom: "Custom" },
+			collapseModes: { native: "Native", single: "One per tool", "group-same": "Group same type", "group-all": "Group all" },
+			collapseStyles: { compact: "Compact", classic: "Classic" },
+			toolOverrides: { default: "Default", single: "One line", expand: "Native box" },
+			toolLabel: (name: string) => `Tool · ${name}`,
 			count: (n: number) => `${n}`,
 			countPrompt: (label: string, current: number) => `${label}, 1-10 (current: ${current}). Enter: apply · Esc: cancel`,
 			icons: { auto: "Auto", nerd: "Nerd", ascii: "ASCII" },
@@ -99,7 +108,7 @@ const COPY = {
 	},
 	zh: {
 		title: "Open TUI 设置",
-		tabs: { features: "常规", icons: "外观", segments: "Footer", telemetry: "遥测" },
+		tabs: { features: "常规", icons: "外观", collapse: "压缩", segments: "Footer", telemetry: "遥测" },
 		hint: "Tab/Shift+Tab/←/→：切页 · ↑/↓：移动 · Enter/Space：更改 · 滚轮速度项 Enter 输入 1-10 · Esc/q：关闭",
 		labels: {
 			enabled: "启用",
@@ -117,6 +126,11 @@ const COPY = {
 			tokens: "Token",
 			cost: "费用",
 			extensionStatuses: "扩展状态行",
+			collapseMode: "转录压缩",
+			collapseStyle: "压缩行间隔",
+			retryErrors: "折叠重试错误",
+			thoughtHidden: "思考块折叠（✻，pi 设置）",
+			otherTools: "其他工具",
 			footerStyle: "Footer 样式",
 			stylePreset: "风格预设",
 			hudModel: "模型",
@@ -162,6 +176,10 @@ const COPY = {
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
 			footerStyles: { hud: "HUD 风格", classic: "经典风格" },
 			stylePresets: { hud: "HUD 风格", classic: "经典风格", custom: "自定义" },
+			collapseModes: { native: "原生", single: "每工具单行", "group-same": "同类归纳", "group-all": "整段归纳" },
+			collapseStyles: { compact: "紧凑", classic: "经典" },
+			toolOverrides: { default: "默认", single: "单行", expand: "原生" },
+			toolLabel: (name: string) => `工具 · ${name}`,
 			count: (n: number) => `${n}`,
 			countPrompt: (label: string, current: number) => `${label}（当前 ${current}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
 			icons: { auto: "自动", nerd: "Nerd", ascii: "ASCII" },
@@ -242,6 +260,33 @@ function toggleTelemetry(config: OpenTuiConfig, key: keyof OpenTuiConfig["teleme
 		...config,
 		telemetry: { ...config.telemetry, [key]: !config.telemetry[key] },
 	};
+}
+
+function cycleCollapseMode(config: OpenTuiConfig): OpenTuiConfig {
+	const idx = COLLAPSE_MODES.indexOf(config.turnCollapse.mode);
+	const next = COLLAPSE_MODES[(idx + 1) % COLLAPSE_MODES.length]!;
+	return { ...config, turnCollapse: { ...config.turnCollapse, mode: next } };
+}
+
+function cycleCollapseStyle(config: OpenTuiConfig): OpenTuiConfig {
+	const idx = COLLAPSE_STYLES.indexOf(config.turnCollapse.style);
+	const next = COLLAPSE_STYLES[(idx + 1) % COLLAPSE_STYLES.length]!;
+	return { ...config, turnCollapse: { ...config.turnCollapse, style: next } };
+}
+
+function toggleRetryErrors(config: OpenTuiConfig): OpenTuiConfig {
+	return { ...config, turnCollapse: { ...config.turnCollapse, retryErrors: !config.turnCollapse.retryErrors } };
+}
+
+/** Cycles a per-tool override; "default" is stored by omitting the key. */
+function cycleToolOverride(config: OpenTuiConfig, tool: string): OpenTuiConfig {
+	const current = config.turnCollapse.tools[tool] ?? "default";
+	const idx = TOOL_OVERRIDES.indexOf(current);
+	const next = TOOL_OVERRIDES[(idx + 1) % TOOL_OVERRIDES.length]!;
+	const tools = { ...config.turnCollapse.tools };
+	if (next === "default") delete tools[tool];
+	else tools[tool] = next;
+	return { ...config, turnCollapse: { ...config.turnCollapse, tools } };
 }
 
 function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingItem[] {
@@ -360,6 +405,31 @@ function buildTelemetryItems(config: OpenTuiConfig, copy: SettingsCopy): Setting
 	];
 }
 
+function buildCollapseItems(config: OpenTuiConfig, copy: SettingsCopy, thoughtHidden: boolean): SettingItem[] {
+	const flag = (value: boolean) => value ? copy.values.on : copy.values.off;
+	const collapse = config.turnCollapse;
+	const toolItem = (name: string, label: string): SettingItem => ({
+		id: `tool:${name}`,
+		label,
+		currentValue: copy.values.toolOverrides[collapse.tools[name] ?? "default"],
+	});
+	const items: SettingItem[] = [
+		{ id: "mode", label: copy.labels.collapseMode, currentValue: copy.values.collapseModes[collapse.mode] },
+		{ id: "style", label: copy.labels.collapseStyle, currentValue: copy.values.collapseStyles[collapse.style] },
+		{ id: "retryErrors", label: copy.labels.retryErrors, currentValue: flag(collapse.retryErrors) },
+		{ id: "thought", label: copy.labels.thoughtHidden, currentValue: flag(thoughtHidden) },
+	];
+	for (const name of BUILTIN_TOOLS) {
+		items.push(toolItem(name, copy.values.toolLabel(name)));
+	}
+	items.push(toolItem("*", copy.labels.otherTools));
+	// Extension/MCP tools appear here only after they have been seen once.
+	for (const name of collapse.seenTools) {
+		items.push(toolItem(name, copy.values.toolLabel(name)));
+	}
+	return items;
+}
+
 function cycleStylePreset(config: OpenTuiConfig): OpenTuiConfig {
 	// Custom is a derived state, not a cycle target — otherwise a classic
 	// preset could never cycle back to HUD (custom apply is a no-op).
@@ -368,11 +438,12 @@ function cycleStylePreset(config: OpenTuiConfig): OpenTuiConfig {
 	return applyStylePreset(config, current === "hud" ? "classic" : "hud");
 }
 
-function buildItems(tab: Tab, config: OpenTuiConfig): SettingItem[] {
+function buildItems(tab: Tab, config: OpenTuiConfig, thoughtHidden: boolean): SettingItem[] {
 	const copy = COPY[config.settingsLanguage];
 	switch (tab) {
 		case "features": return buildFeaturesItems(config, copy);
 		case "icons": return buildIconsItems(config, copy);
+		case "collapse": return buildCollapseItems(config, copy, thoughtHidden);
 		case "segments": return buildSegmentsItems(config, copy);
 		case "telemetry": return buildTelemetryItems(config, copy);
 	}
@@ -405,6 +476,13 @@ function handleSettingChange(
 		// preset label always reflects the actual config
 		return { ...next, stylePreset: deriveStylePreset(next) };
 	}
+	if (tab === "collapse") {
+		if (itemId === "mode") return cycleCollapseMode(config);
+		if (itemId === "style") return cycleCollapseStyle(config);
+		if (itemId === "retryErrors") return toggleRetryErrors(config);
+		if (itemId.startsWith("tool:")) return cycleToolOverride(config, itemId.slice("tool:".length));
+		return config; // "thought" is pi's native setting — handled via hooks
+	}
 	if (tab === "telemetry") {
 		return toggleTelemetry(config, itemId as keyof OpenTuiConfig["telemetry"]);
 	}
@@ -426,6 +504,8 @@ class SettingsUi implements SettingsUiHandle {
 	private readonly theme: Theme;
 	private readonly onChange: (config: OpenTuiConfig) => void;
 	private readonly onClose: () => void;
+	/** Thought visibility lives in pi's native settings — read/written via hooks. */
+	private readonly thought: { getHidden(): boolean; setHidden(hidden: boolean): void };
 	private cachedWidth: number | undefined;
 	private cachedLines: string[] | undefined;
 	private compact = false;
@@ -436,11 +516,13 @@ class SettingsUi implements SettingsUiHandle {
 		config: OpenTuiConfig,
 		onChange: (config: OpenTuiConfig) => void,
 		onClose: () => void,
+		thought: { getHidden(): boolean; setHidden(hidden: boolean): void },
 	) {
 		this.theme = theme;
 		this.config = config;
 		this.onChange = onChange;
 		this.onClose = onClose;
+		this.thought = thought;
 		this.container = new Box(1, 1, (s: string) => theme.bg("customMessageBg", s));
 		this.selectList = new SelectList([], 12, {
 			selectedPrefix: (t) => theme.fg("accent", t),
@@ -454,6 +536,11 @@ class SettingsUi implements SettingsUiHandle {
 
 	private applySetting(itemId: string): void {
 		this.selectedItemByTab[this.tab] = itemId;
+		if (this.tab === "collapse" && itemId === "thought") {
+			this.thought.setHidden(!this.thought.getHidden());
+			this.rebuild(itemId);
+			return;
+		}
 		const numericItem =
 			(this.tab === "features" && itemId === "wheelScrollLines") ||
 			(this.tab === "segments" && (itemId === "toolsMax" || itemId === "filesMax"));
@@ -514,7 +601,7 @@ class SettingsUi implements SettingsUiHandle {
 		this.container.addChild(new Text(this.theme.fg("dim", copy.hint), 1, 0));
 
 		const editingId = this.numberInput?.itemId;
-		const items = buildItems(this.tab, this.config).map((item) => {
+		const items = buildItems(this.tab, this.config, this.thought.getHidden()).map((item) => {
 			const editing = item.id === editingId;
 			return {
 				value: item.id,
@@ -624,6 +711,9 @@ export function registerSettingsCommand(
 		getConfig: () => OpenTuiConfig;
 		onConfigChanged: (config: OpenTuiConfig) => void;
 		onOverlayClosed?: () => void;
+		/** Thought visibility (pi's native hideThinkingBlock) — optional for tests. */
+		getThoughtHidden?: () => boolean;
+		onThoughtHiddenChange?: (hidden: boolean) => void;
 	},
 ): void {
 	pi.registerCommand("open-tui", {
@@ -636,6 +726,10 @@ export function registerSettingsCommand(
 				hooks.getConfig(),
 				(config) => hooks.onConfigChanged(config),
 				() => done(undefined),
+				{
+					getHidden: () => hooks.getThoughtHidden?.() ?? true,
+					setHidden: (hidden) => hooks.onThoughtHiddenChange?.(hidden),
+				},
 			);
 			return {
 				render: (w: number) => ui.render(w),

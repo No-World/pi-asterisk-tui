@@ -1,11 +1,12 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, saveConfig } from "./config.ts";
-import { ensureHideThinkingDefault } from "./pi-settings.ts";
+import { type OpenTuiConfig, BUILTIN_TOOLS, DEFAULT_CONFIG, ensureConfigExists, loadConfig, normalizeTurnCollapse, saveConfig } from "./config.ts";
+import { ensureHideThinkingDefault, readHideThinkingBlock, writeHideThinkingBlock } from "./pi-settings.ts";
 import {
 	installTurnCollapse,
 	setAgentActive,
+	setCollapseOptions,
 	setThinkingDurations,
-	setTurnCollapseEnabled,
+	setThoughtHiddenPreference,
 	setTurnCollapseTheme,
 	uninstallTurnCollapse,
 } from "./turn-collapse.ts";
@@ -207,9 +208,29 @@ export default function (pi: ExtensionAPI) {
 		lastCtx?.ui?.setWorkingMessage?.(); // restore default "Working..."
 	};
 
-	// Claude-style transcript labels for hidden thinking blocks (ctrl+t toggles
-	// pi's hideThinkingBlock; the label is global, so it stays duration-less —
-	// accurate per-turn numbers live in the footer summary instead).
+	// Compress-anything feed: config → render walk. Thought visibility mirrors
+	// pi's native hideThinkingBlock (the panel writes it there too).
+	const applyTurnCollapseConfig = (current: OpenTuiConfig) => {
+		setCollapseOptions({
+			mode: current.turnCollapse.mode,
+			style: current.turnCollapse.style,
+			tools: current.turnCollapse.tools,
+			retryErrors: current.turnCollapse.retryErrors,
+		});
+	};
+
+	// Non-builtin (extension/MCP) tool names observed this session — persisted
+	// so the settings panel lists them only once such tools actually exist.
+	const observeToolName = (name: string) => {
+		if (BUILTIN_TOOLS.includes(name)) return;
+		if (config.turnCollapse.seenTools.includes(name)) return;
+		config.turnCollapse = normalizeTurnCollapse({
+			...config.turnCollapse,
+			seenTools: [...config.turnCollapse.seenTools, name],
+		});
+		saveConfig(config);
+	};
+
 	const setThinkingLabel = (ctx: ExtensionContext | undefined, label: string) => {
 		if (!ctx || !isTuiContext(ctx)) return;
 		ctx.ui?.setHiddenThinkingLabel?.(label);
@@ -233,7 +254,8 @@ export default function (pi: ExtensionAPI) {
 			// mode switches and sessions that start in regular mode.
 			cleanupThinkingClick?.();
 			cleanupThinkingClick = installThinkingClickExpand();
-			setTurnCollapseEnabled(config.turnCollapse);
+			applyTurnCollapseConfig(config);
+			setThoughtHiddenPreference(readHideThinkingBlock() ?? true);
 			setTurnCollapseTheme(ctx.ui.theme);
 			setThinkingDurations(undefined); // per-session; fed at agent_settled
 			cleanupTurnCollapse?.();
@@ -305,6 +327,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("tool_execution_start", (event) => {
 		turnTelemetry.handle(event);
+		if (typeof event.toolName === "string") observeToolName(event.toolName);
 	});
 
 	pi.on("turn_end", (event) => {
@@ -357,12 +380,23 @@ export default function (pi: ExtensionAPI) {
 
 	registerSettingsCommand(pi, {
 		getConfig: () => config,
+		// Thought visibility lives in pi's native settings.json (ctrl+t's file);
+		// the panel reads/writes it there and syncs the live session.
+		getThoughtHidden: () => readHideThinkingBlock() ?? true,
+		onThoughtHiddenChange: (hidden) => {
+			writeHideThinkingBlock(hidden);
+			setThoughtHiddenPreference(hidden);
+		},
 		onConfigChanged: (newConfig) => {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
 			const wheelScrollLinesChanged = config.fullscreen.wheelScrollLines !== newConfig.fullscreen.wheelScrollLines;
 			const footerStyleChanged = config.footerStyle !== newConfig.footerStyle;
+			const turnCollapseChanged = config.turnCollapse !== newConfig.turnCollapse;
 			saveConfig(newConfig);
 			config = newConfig;
+			if (turnCollapseChanged) {
+				applyTurnCollapseConfig(newConfig);
+			}
 			if (cursorStyleChanged && active && editor) {
 				editor.setCursorStyle(newConfig.cursorStyle);
 			}

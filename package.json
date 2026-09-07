@@ -25,7 +25,7 @@
 		"LICENSE"
 	],
 		"scripts": {
-		"test": "node --test tests/settings-command.test.ts tests/fullscreen-scroll.test.ts tests/footer.test.ts tests/editor.test.ts tests/telemetry.test.ts tests/thinking-click.test.ts tests/pi-settings.test.ts tests/turn-collapse.test.ts && node scripts/check-docs.mjs",
+		"test": "node --test tests/config.test.ts tests/settings-command.test.ts tests/fullscreen-scroll.test.ts tests/footer.test.ts tests/editor.test.ts tests/telemetry.test.ts tests/thinking-click.test.ts tests/pi-settings.test.ts tests/turn-collapse.test.ts && node scripts/check-docs.mjs",
 		"typecheck": "tsc --noEmit",
 		"check:docs": "node scripts/check-docs.mjs"
 	},

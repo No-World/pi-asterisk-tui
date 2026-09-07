@@ -15,6 +15,64 @@ export type { IconMode } from "./icons.ts";
 export type FooterStyle = "hud" | "classic";
 export type StylePreset = "hud" | "classic" | "custom";
 
+/** Transcript compression mode: how finished non-body activity renders. */
+export type CollapseMode = "native" | "single" | "group-same" | "group-all";
+/** Spacing around compressed lines: compact (flush) or classic (blank-padded). */
+export type CollapseStyle = "compact" | "classic";
+/** Per-tool compression override. "default" follows the mode. */
+export type ToolOverride = "default" | "single" | "expand";
+
+export const COLLAPSE_MODES: readonly CollapseMode[] = ["native", "single", "group-same", "group-all"];
+export const COLLAPSE_STYLES: readonly CollapseStyle[] = ["compact", "classic"];
+export const TOOL_OVERRIDES: readonly ToolOverride[] = ["default", "single", "expand"];
+/** pi builtin tools — anything else counts as an extension/MCP tool for the panel. */
+export const BUILTIN_TOOLS: readonly string[] = ["bash", "read", "edit", "write", "grep", "glob", "ls"];
+
+export interface TurnCollapseConfig {
+	/** Compression mode (was a plain boolean before: true → group-all, false → native). */
+	mode: CollapseMode;
+	/** Blank-line style around compressed lines. */
+	style: CollapseStyle;
+	/** Hold retry errors during a run (noise reduction, applies in every mode). */
+	retryErrors: boolean;
+	/** Per-tool overrides keyed by tool name; "*" matches tools without an entry. */
+	tools: Record<string, ToolOverride>;
+	/** Non-builtin tool names observed at runtime (auto-maintained, feeds the panel). */
+	seenTools: string[];
+}
+
+export const DEFAULT_TURN_COLLAPSE: TurnCollapseConfig = {
+	mode: "group-all",
+	style: "compact",
+	retryErrors: true,
+	tools: {},
+	seenTools: [],
+};
+
+/** Migrates/normalizes any stored shape (including the legacy boolean) into a full config. */
+export function normalizeTurnCollapse(value: unknown): TurnCollapseConfig {
+	if (typeof value === "boolean") {
+		return { ...DEFAULT_TURN_COLLAPSE, mode: value ? "group-all" : "native" };
+	}
+	const raw = (typeof value === "object" && value !== null ? value : {}) as Partial<TurnCollapseConfig>;
+	const tools: Record<string, ToolOverride> = {};
+	if (typeof raw.tools === "object" && raw.tools !== null) {
+		for (const [name, override] of Object.entries(raw.tools)) {
+			if (TOOL_OVERRIDES.includes(override)) tools[name] = override;
+		}
+	}
+	const seenTools = Array.isArray(raw.seenTools)
+		? raw.seenTools.filter((name): name is string => typeof name === "string")
+		: [];
+	return {
+		mode: COLLAPSE_MODES.includes(raw.mode as CollapseMode) ? (raw.mode as CollapseMode) : DEFAULT_TURN_COLLAPSE.mode,
+		style: COLLAPSE_STYLES.includes(raw.style as CollapseStyle) ? (raw.style as CollapseStyle) : DEFAULT_TURN_COLLAPSE.style,
+		retryErrors: raw.retryErrors !== false,
+		tools,
+		seenTools: [...new Set(seenTools)].sort(),
+	};
+}
+
 /** Fine-grained HUD-style footer options (one per visible detail). */
 export interface HudConfig {
 	model: boolean;
@@ -120,8 +178,11 @@ export interface OpenTuiConfig {
 	enabled: boolean;
 	settingsLanguage: SettingsLanguage;
 	cursorStyle: CursorStyle;
-	/** Collapse finished turns into a single clickable summary line (fullscreen TUI). */
-	turnCollapse: boolean;
+	/**
+	 * Fine-grained transcript compression (fullscreen TUI). Thought visibility
+	 * itself is pi's native hideThinkingBlock setting; see pi-settings.ts.
+	 */
+	turnCollapse: TurnCollapseConfig;
 	fullscreen: FullscreenConfig;
 	icons: {
 		mode: IconMode;
@@ -138,7 +199,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	enabled: true,
 	settingsLanguage: "en",
 	cursorStyle: "block",
-	turnCollapse: true,
+	turnCollapse: structuredClone(DEFAULT_TURN_COLLAPSE),
 	fullscreen: {
 		wheelScrollLines: DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	},
@@ -278,7 +339,7 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		if (config.footerStyle !== "hud" && config.footerStyle !== "classic") {
 			config.footerStyle = DEFAULT_CONFIG.footerStyle;
 		}
-		config.turnCollapse = config.turnCollapse !== false;
+		config.turnCollapse = normalizeTurnCollapse(config.turnCollapse);
 		if (!["hud", "classic", "custom"].includes(config.stylePreset)) {
 			config.stylePreset = "custom";
 		}
