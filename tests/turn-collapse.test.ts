@@ -836,3 +836,31 @@ test("realistic spacing: spacers and message blanks collapse around compressed l
 	}
 	resetCollapse();
 });
+
+test("classic style pads text-bearing label lines like every compressed line", () => {
+	resetCollapse({ mode: "single", style: "classic" });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeAssistant([" ✻ Thought…", "答案正文"], true),
+		makeTextMessage("done"),
+	]);
+	const lines = container.render(60).map((l) => l.trim());
+	const labelIdx = lines.findIndex((l) => l.includes("✻ Thought"));
+	assert.ok(labelIdx > 0, `label rendered\n${lines.join("\n")}`);
+	assert.equal(lines[labelIdx - 1], "", `blank before label\n${lines.join("\n")}`);
+	assert.equal(lines[labelIdx + 1], "", `blank between label and its text\n${lines.join("\n")}`);
+	assert.ok(lines[labelIdx + 2]!.length > 0, `text follows\n${lines.join("\n")}`);
+	resetCollapse();
+});
+
+test("compact style keeps text-bearing labels flush with their text", () => {
+	resetCollapse({ mode: "single", style: "compact" });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeAssistant([" ✻ Thought…", "答案正文"], true),
+	]);
+	const lines = container.render(60).map((l) => l.trim());
+	const labelIdx = lines.findIndex((l) => l.includes("✻ Thought"));
+	assert.ok(labelIdx > 0 && lines[labelIdx + 1] === "答案正文", `flush\n${lines.join("\n")}`);
+	resetCollapse();
+});

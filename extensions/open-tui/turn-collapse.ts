@@ -954,19 +954,31 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 
 		let lines = safeRender(child as Child, width);
 		if (isAssistantMessage(child) && startsWithLabel(lines)) {
-			// Compact transcript: pi renders a leading Spacer inside the
-			// message and another after the thinking label; drop both so the
-			// ✻ line sits flush and connects straight to the following text.
+			// pi renders a leading Spacer inside the message; drop it so the
+			// ✻ line starts the message.
 			while (lines.length > 0 && isBlankLine(lines[0]!)) lines = lines.slice(1);
 			let labelEnd = 0;
 			while (labelEnd < lines.length && !isBlankLine(lines[labelEnd]!) && lines[labelEnd]!.includes("✻")) {
 				labelEnd++;
-		}
+			}
+			if (collapse.style === "classic") {
+				// Classic: EVERY ✻ label line is a compressed line — padded
+				// before, and one blank keeps it apart from the text tail (if any).
+				const tail = lines.slice(labelEnd);
+				let cut = 0;
+				while (cut < tail.length && isBlankLine(tail[cut]!)) cut++;
+				const rest = tail.slice(cut);
+				pushCompressed(child, lines.slice(0, labelEnd));
+				if (rest.length > 0) pushChild(child, ["", ...rest]);
+				return;
+			}
+			// Compact: drop the blanks after the label so the ✻ line sits flush
+			// and connects straight to the following text.
 			while (labelEnd < lines.length && isBlankLine(lines[labelEnd]!)) {
 				lines = [...lines.slice(0, labelEnd), ...lines.slice(labelEnd + 1)];
 			}
 			// A folded label-only message renders as a standalone ✻ line —
-			// treat it as a compressed line so classic/compact spacing applies.
+			// treat it as a compressed line so spacing applies in compact too.
 			const visible = lines.filter((line) => !isBlankLine(line));
 			if (child.hideThinkingBlock === true && visible.length > 0 && visible.every((line) => line.includes("✻"))) {
 				pushCompressed(child, lines);
