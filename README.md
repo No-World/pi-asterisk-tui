@@ -78,8 +78,9 @@ compresses is the **compression mode** (`/open-tui` → Collapse):
 
 ## Telemetry
 
-- **Working indicator**: `Working… (34s · ↓ 1.2k tokens · 3 tools)` — elapsed, live output
-  tokens estimated from the stream (exact on message completion), tool count as they start.
+- **Working indicator**: `Working… (34s · ↓ 1.2k tokens · 3 tools)` — elapsed, run-cumulative
+  output tokens (stream-estimated while streaming, exact on message completion, kept across
+  tool calls), tool count as they start.
 - **Turn telemetry** after each run: TPS, TTFT, duration, stall count/time, input/output
   token breakdown with cache-read and cache-write, cache hit rate, and list-price $/M rate.
 - **Classic footer summary**: `✓ done 12s · ✻ 8s · 2 shell commands` after each run.
