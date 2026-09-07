@@ -7,7 +7,10 @@
  *   ▸ ✻ Thought for 11s · called playwright ×3 · ran 1 shell command
  *
  * Assistant answer text stays visible. While the agent is working the turn
- * streams normally. Clicking the line expands the whole turn (thinking stays
+ * streams normally — thinking content streams inline (liveThinking, folds
+ * back the moment the thinking phase ends) and running tools show a spinner
+ * one-liner plus their live output box (liveTools). Clicking the line expands
+ * the whole turn (thinking stays
  * behind per-message ✻ labels, individually clickable); clicking again
  * re-collapses it.
  *
@@ -73,6 +76,12 @@ function debug(message: string): void {
 
 /** Runs the user expanded to their full content. Keyed by the run's head child. */
 const expandedRuns = new WeakSet<object>();
+/**
+ * Messages live-expanded by the liveThinking preference (streaming thinking
+ * phase). Tracked so the fold-back only touches what we expanded — user
+ * expansion (expandedRuns) is never disturbed.
+ */
+const liveExpanded = new WeakSet<object>();
 /** Heads of runs rendered as collapsed lines this frame. */
 let collapsedRunHeads = new Set<object>();
 /** member child -> run head (expanded runs collapse via any member line). */
@@ -260,9 +269,21 @@ export interface CollapseOptions {
 	thought: ToolOverride;
 	/** Hold retry errors during a run (independent of the compression mode). */
 	retryErrors: boolean;
+	/** Stream thinking content inline while it arrives; fold back after. */
+	liveThinking: boolean;
+	/** Render running tool output boxes below the spinner one-liner. */
+	liveTools: boolean;
 }
 
-let collapse: CollapseOptions = { mode: "group-all", style: "compact", tools: {}, thought: "default", retryErrors: true };
+let collapse: CollapseOptions = {
+	mode: "group-all",
+	style: "compact",
+	tools: {},
+	thought: "default",
+	retryErrors: true,
+	liveThinking: true,
+	liveTools: true,
+};
 
 export function setCollapseOptions(options: CollapseOptions): void {
 	collapse = options;
@@ -273,6 +294,17 @@ export function setCollapseOptions(options: CollapseOptions): void {
 /** Compat/test helper: boolean collapse switch (true = group-all, false = native). */
 export function setTurnCollapseEnabled(value: boolean): void {
 	collapse = { ...collapse, mode: value ? "group-all" : "native" };
+	bustRenderCache();
+	applyThinkingVisibilityToContainer();
+}
+
+/** Compat/test helper: merge partial live-view preferences. */
+export function setLiveViewOptions(options: { liveThinking?: boolean; liveTools?: boolean }): void {
+	collapse = {
+		...collapse,
+		...(options.liveThinking === undefined ? {} : { liveThinking: options.liveThinking }),
+		...(options.liveTools === undefined ? {} : { liveTools: options.liveTools }),
+	};
 	bustRenderCache();
 	applyThinkingVisibilityToContainer();
 }
@@ -431,6 +463,24 @@ type RunMember =
 	| { kind: "text-tail"; child: unknown };
 
 /**
+ * Live-thinking sync: expand streaming thinking-phase messages, fold back
+ * once the phase ends (text starts or streaming stops, or the preference
+ * turned off). Runs inside classification so every walk maintains it.
+ */
+function syncLiveThinking(child: AssistantLike & { isStreaming?: unknown }, hasText: boolean, hasThinking: boolean): void {
+	const streaming = child.isStreaming === true;
+	const inThinkingPhase = collapse.liveThinking && streaming && hasThinking && !hasText;
+	if (inThinkingPhase) {
+		liveExpanded.add(child);
+		if (child.hideThinkingBlock !== false) child.setHideThinkingBlock(false);
+	} else if (liveExpanded.has(child)) {
+		liveExpanded.delete(child);
+		const hidden = thoughtTreatment() !== "expand";
+		if (child.hideThinkingBlock !== hidden) child.setHideThinkingBlock(hidden);
+	}
+}
+
+/**
  * Classify assistant messages by CONTENT, not by what they currently render:
  * expanding a run flips hideThinkingBlock, which would otherwise re-classify
  * label members as text on the next frame, rebuild the runs, and self-destruct
@@ -452,6 +502,7 @@ function classifyAssistant(child: unknown): "label" | "transparent" | "text" | "
 		(block) => block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim().length > 0,
 	);
 	(child as { __openTuiHasThinking?: boolean }).__openTuiHasThinking = hasThinking;
+	syncLiveThinking(child, hasText, hasThinking);
 	if (hasText) return "text";
 	if (hasThinking) return thoughtTreatment() === "expand" ? "other" : "label";
 	return "transparent";
@@ -611,6 +662,10 @@ function renderItemTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numb
 				live = true;
 				if (treatment !== "expand") {
 					walk.pushChild(current, [renderToolLine(current, fg("accent", spinnerFrame()))]);
+					if (!collapse.liveTools) {
+						index++;
+						continue; // spinner one-liner only
+					}
 				}
 				walk.renderChild(current);
 				index++;
@@ -776,6 +831,7 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 					// (native-override tools render the box alone).
 					if (isToolRunning(member.child) && toolTreatment(member.child) !== "expand") {
 						walk.pushChild(member.child, [renderToolLine(member.child, fg("accent", spinnerFrame()))]);
+						if (!collapse.liveTools) continue; // spinner one-liner only
 					}
 					walk.renderChild(member.child);
 					continue;
@@ -835,10 +891,10 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 			if (treatment === "single" || treatment === "group-same") {
 				flushRun();
 				flushAux();
-				// Running override tool: spinner one-liner + live box; it
-				// collapses to its own line (or type group) once finished.
+				// Running override tool: spinner one-liner (+ live box when enabled);
+				// it collapses to its own line (or type group) once finished.
 				walk.pushChild(current, [renderToolLine(current, fg("accent", spinnerFrame()))]);
-				walk.renderChild(current);
+				if (collapse.liveTools) walk.renderChild(current);
 				index++;
 				continue;
 			}
@@ -1267,7 +1323,10 @@ function syncThoughtPreference(child: AssistantLike): void {
 		collapse = { ...collapse, thought: thoughtPref };
 	}
 	lastObservedPiFlag = arriving;
-	const hidden = thoughtTreatment() !== "expand";
+	// During an active run with live thinking, arriving messages start
+	// unhidden so the first thinking frame streams inline instead of flashing
+	// a ✻ label; classification maintains the state from there.
+	const hidden = thoughtTreatment() !== "expand" && !(collapse.liveThinking && agentActive);
 	if (arriving !== hidden) {
 		child.setHideThinkingBlock(hidden);
 	}

@@ -218,6 +218,8 @@ export default function (pi: ExtensionAPI) {
 			tools: current.turnCollapse.tools,
 			thought: thought ?? current.turnCollapse.thought,
 			retryErrors: current.turnCollapse.retryErrors,
+			liveThinking: current.turnCollapse.liveThinking,
+			liveTools: current.turnCollapse.liveTools,
 		});
 	};
 

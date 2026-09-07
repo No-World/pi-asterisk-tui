@@ -58,6 +58,12 @@ compresses is the **compression mode** (`/open-tui` → Collapse):
   run lines (same accent ✻, same muted upright text).
 - **Running tools** render as an animated one-liner (`⠋ bash · $ npm test`) with live
   output streaming beneath — and never drag completed neighbors out of their folded lines
+  (`turnCollapse.liveTools: false` drops the streaming box, spinner line only; native-
+  override tools always keep their box)
+- **Live thinking** (`turnCollapse.liveThinking`, default on): while a message streams
+  thinking-only content it renders inline in real time; once text starts (or the message
+  stops streaming) it folds back to the ✻ label / run line immediately — no need to wait
+  for the run to settle
   (native mode keeps pure pi boxes).
 - **Retry UX**: the countdown carries the failure reason
   (`Retrying (2/10) in 5s… · 429 rate_limit_error`); intermediate errors are held back,
@@ -125,6 +131,8 @@ Run `/open-tui`, or edit `~/.pi/agent/open-tui.json`. Notable keys:
 | `turnCollapse.style` | `"compact"` | `compact` / `classic` spacing around compressed lines |
 | `turnCollapse.retryErrors` | `true` | hold retry errors during a run |
 | `turnCollapse.thought` | `"default"` | thinking: `default` / `single` / `group-same` / `expand` |
+| `turnCollapse.liveThinking` | `true` | stream thinking inline while it arrives; fold back after |
+| `turnCollapse.liveTools` | `true` | render running tool output boxes below the spinner line |
 | `turnCollapse.tools` | `{}` | per-tool `default` / `single` / `group-same` / `expand`; `*` wildcard |
 | `icons.mode` | `"auto"` | nerd / ascii / auto icon set |
 | `cursorStyle` | `"block"` | editor cursor style |

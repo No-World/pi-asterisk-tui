@@ -399,6 +399,128 @@ test("a streaming thinking message does not expand the completed run before it",
 	assert.ok(out.includes("✻ Thinking…"), `streaming label visible\n${out}`);
 });
 
+test("live thinking: streaming thinking-phase messages expand inline", () => {
+	resetCollapse();
+	setAgentActive(true);
+	const streaming = makeAssistant(["正在想"], true, true);
+	streaming.lastMessage.content = [{ type: "thinking", thinking: "正在想" }];
+	const container = makeContainer([makeUserMessage("go"), streaming]);
+
+	container.render(60);
+	assert.equal(streaming.hideThinkingBlock, false, "thinking-phase streams unhidden");
+
+	// Text starts in the same message (thinking phase over): fold back at once.
+	streaming.lastMessage.content = [
+		{ type: "thinking", thinking: "想完了" },
+		{ type: "text", text: "答案" },
+	];
+	container.render(60);
+	assert.equal(streaming.hideThinkingBlock, true, "text arrival folds the thinking back");
+	setAgentActive(false);
+	resetCollapse();
+});
+
+test("live thinking: thinking-only message folds back when streaming ends", () => {
+	resetCollapse();
+	setAgentActive(true);
+	const msg = makeAssistant(["正在想"], true, true);
+	msg.lastMessage.content = [{ type: "thinking", thinking: "正在想" }];
+	const running = makeBash("npm test");
+	(running as { status?: string }).status = "running";
+	const container = makeContainer([makeUserMessage("go"), msg, running]);
+
+	container.render(60);
+	assert.equal(msg.hideThinkingBlock, false, "streams unhidden while thinking");
+
+	msg.isStreaming = false; // message done, tool took over
+	const lines = container.render(60);
+	assert.equal(msg.hideThinkingBlock, true, "folds back once streaming ends");
+	assert.ok(lines.join("\n").includes("✻ Thought"), `completed thinking folds into the run line\n${lines.join("\n")}`);
+	setAgentActive(false);
+	resetCollapse();
+});
+
+test("live thinking off: streaming thinking stays behind the label", () => {
+	resetCollapse({ liveThinking: false });
+	setAgentActive(true);
+	const streaming = makeAssistant([" ✻ Thinking…"], true, true);
+	streaming.lastMessage.content = [{ type: "thinking", thinking: "正在想" }];
+	const container = makeContainer([makeUserMessage("go"), streaming]);
+	container.render(60);
+	assert.equal(streaming.hideThinkingBlock, true, "label stays folded while streaming");
+	setAgentActive(false);
+	resetCollapse();
+});
+
+test("live thinking fold-back leaves later user expansion intact", () => {
+	resetCollapse();
+	setAgentActive(true);
+	const msg = makeAssistant([" ✻ Thought…"], true, true);
+	msg.lastMessage.content = [{ type: "thinking", thinking: "想了很多" }];
+	const done = makeBash("echo hi");
+	const container = makeContainer([makeUserMessage("go"), msg, done]);
+
+	container.render(60);
+	assert.equal(msg.hideThinkingBlock, false, "live while streaming");
+
+	msg.isStreaming = false;
+	setAgentActive(false); // run settles
+	setThinkingDurations([6_000]);
+	const lines = container.render(60);
+	assert.equal(msg.hideThinkingBlock, true, "folded after streaming ends");
+
+	// User expands the settled run: expansion must stick across frames.
+	const runIndex = lines.findIndex((l) => l.includes("Thought for 6s"));
+	assert.ok(runIndex >= 0, `run line exists\n${lines.join("\n")}`);
+	handleToolLineClick(runIndex, lines[runIndex]!);
+	for (let frame = 0; frame < 3; frame++) {
+		const out = container.render(60).join("\n");
+		assert.equal(msg.hideThinkingBlock, false, `frame ${frame}: user expansion sticks`);
+		assert.ok(out.includes("$ echo hi"), `frame ${frame}: run stays expanded`);
+	}
+	resetCollapse();
+});
+
+test("live tools on: spinner line plus the streaming box", () => {
+	resetCollapse();
+	const live = makeBash("npm test");
+	(live as { status?: string }).status = "running";
+	const container = makeContainer([makeUserMessage("go"), makeLabelMessage(), live]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("bash · $ npm test"), `spinner line\n${out}`);
+	assert.ok(out.includes("output"), `live box streams\n${out}`);
+});
+
+test("live tools off: spinner one-liner only", () => {
+	resetCollapse({ liveTools: false });
+	const live = makeBash("npm test");
+	(live as { status?: string }).status = "running";
+	const container = makeContainer([makeUserMessage("go"), makeLabelMessage(), live]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("bash · $ npm test"), `spinner line stays\n${out}`);
+	assert.ok(!out.includes("output"), `no live box output\n${out}`);
+});
+
+test("live tools off keeps native-expand running tools visible", () => {
+	resetCollapse({ liveTools: false, tools: { bash: "expand" } });
+	const live = makeBash("npm test");
+	(live as { status?: string }).status = "running";
+	const container = makeContainer([makeUserMessage("go"), live]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("$ npm test"), `expand tool renders its box\n${out}`);
+	assert.ok(!out.includes("bash · $"), `no spinner line for expand tools\n${out}`);
+});
+
+test("live tools off: single-override running tool shows spinner only", () => {
+	resetCollapse({ liveTools: false, tools: { bash: "single" } });
+	const live = makeBash("npm test");
+	(live as { status?: string }).status = "running";
+	const container = makeContainer([makeUserMessage("go"), live]);
+	const out = container.render(60).join("\n");
+	assert.ok(out.includes("bash · $ npm test"), `spinner line\n${out}`);
+	assert.ok(!out.includes("output"), `no live box output\n${out}`);
+});
+
 test("retry errors are held back; only the last one renders at settle", () => {
 	setTurnCollapseEnabled(true);
 	const errorA = { render: () => ["Error: 429 first"] };
@@ -534,7 +656,16 @@ test("uninstall restores the pristine container and stops error holding", () => 
 });
 
 const resetCollapse = (overrides: Partial<Parameters<typeof setCollapseOptions>[0]> = {}): void => {
-	setCollapseOptions({ mode: "group-all", style: "compact", thought: "default", tools: {}, retryErrors: true, ...overrides });
+	setCollapseOptions({
+		mode: "group-all",
+		style: "compact",
+		thought: "default",
+		tools: {},
+		retryErrors: true,
+		liveThinking: true,
+		liveTools: true,
+		...overrides,
+	});
 };
 
 test("single mode renders one line per tool without merging", () => {
