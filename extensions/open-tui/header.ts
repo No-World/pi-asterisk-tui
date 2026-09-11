@@ -14,11 +14,13 @@ import {
 } from "./utils.ts";
 
 const LOGO_CELL = "███";
+const LOGO_STAR_CELLS = "3,7 3,9 4,8 5,7 5,9";
+const LOGO_STAR_MIN_WIDTH = 24;
 
 type LogoColor = "panel" | "cyan" | "red" | "green" | "orange" | "white" | "flash" | "brand";
 type LogoFrame = { phase: number; active: "left" | "top" | "right" | "none"; ax: number; ay: number; flash: boolean; white: boolean };
 
-const LOGO_FRAMES: LogoFrame[] = [
+export const LOGO_FRAMES: LogoFrame[] = [
 	...Array.from({ length: 4 }, (_, ay) => ({ phase: 0, active: "left" as const, ax: 2, ay, flash: false, white: false })),
 	...Array.from({ length: 3 }, (_, ay) => ({ phase: 1, active: "top" as const, ax: 2, ay, flash: false, white: false })),
 	...Array.from({ length: 5 }, (_, ay) => ({ phase: 2, active: "right" as const, ax: 5, ay, flash: false, white: false })),
@@ -45,9 +47,9 @@ function hasPiece(y: number, x: number, py: number, px: number, cells: string): 
 	});
 }
 
-function logoCellColor(frame: LogoFrame, y: number, x: number): LogoColor {
+function logoCellColor(frame: LogoFrame, y: number, x: number, star: boolean): LogoColor {
 	if (frame.white) {
-		return hasCell(y, x, "3,2 3,3 3,4 4,2 4,4 5,2 5,3 5,5 6,2 6,5") ? "white" : "panel";
+		return hasCell(y, x, "3,2 3,3 3,4 4,2 4,4 5,2 5,3 5,5 6,2 6,5") || (star && hasCell(y, x, LOGO_STAR_CELLS)) ? "white" : "panel";
 	}
 	if (frame.flash && y === 6 && x >= 1 && x <= 6) return "flash";
 
@@ -64,7 +66,9 @@ function logoCellColor(frame: LogoFrame, y: number, x: number): LogoColor {
 	}
 
 	if (frame.phase === 6) {
-		return hasCell(y, x, "3,2 3,3 3,4 4,4 4,2 5,2 5,3 5,5 6,2 6,5") ? "brand" : "panel";
+		return hasCell(y, x, "3,2 3,3 3,4 4,4 4,2 5,2 5,3 5,5 6,2 6,5") || (star && hasCell(y, x, LOGO_STAR_CELLS))
+			? "brand"
+			: "panel";
 	}
 	if (frame.phase === 4) {
 		if (hasCell(y, x, "2,2 2,3 2,4 3,4")) return "cyan";
@@ -98,12 +102,12 @@ function colorCell(color: LogoColor, paintBrand: (text: string) => string): stri
 	}
 }
 
-function renderLogo(frameIndex: number, paintBrand: (text: string) => string): string[] {
+export function renderLogo(frameIndex: number, paintBrand: (text: string) => string, star = true): string[] {
 	const frame = LOGO_FRAMES[frameIndex % LOGO_FRAMES.length]!;
 	const grid: LogoColor[][] = [];
 	for (let y = 1; y <= 7; y++) {
 		const row: LogoColor[] = [];
-		for (let x = 1; x <= 8; x++) row.push(logoCellColor(frame, y, x));
+		for (let x = 1; x <= 9; x++) row.push(logoCellColor(frame, y, x, star));
 		grid.push(row);
 	}
 
@@ -192,7 +196,7 @@ export class OpenTuiHeader implements Component {
 		const cwd = formatCwd(this.ctx.cwd);
 
 		const leftLines = [
-			...renderLogo(this.frame, paint).map((line) => center(line, leftWidth)),
+			...renderLogo(this.frame, paint, leftWidth >= LOGO_STAR_MIN_WIDTH).map((line) => center(line, leftWidth)),
 			center(bold("Let's build something great"), leftWidth),
 			center(muted(`${model} · ${effort}`), leftWidth),
 			center(dim(cwd), leftWidth),
