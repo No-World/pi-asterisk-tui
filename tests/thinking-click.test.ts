@@ -4,6 +4,7 @@ import {
 	findThinkingHostAtLine,
 	hitTestLeaf,
 	labelSpan,
+	parseSgrMouseEvent,
 	parseSgrPrimaryPress,
 	wrapViewportPrototype,
 } from "../extensions/open-tui/thinking-click.ts";
@@ -41,6 +42,15 @@ test("parseSgrPrimaryPress only matches unmodified primary presses", () => {
 	assert.equal(parseSgrPrimaryPress("\x1b[<0;11;6m"), undefined);
 	assert.equal(parseSgrPrimaryPress("\x1b[<5;11;6M"), undefined);
 	assert.equal(parseSgrPrimaryPress("j"), undefined);
+});
+
+test("parseSgrMouseEvent parses presses, drags, hovers, releases, and wheel", () => {
+	assert.deepEqual(parseSgrMouseEvent("\x1b[<0;11;6M"), { button: 0, x: 10, y: 5, release: false });
+	assert.deepEqual(parseSgrMouseEvent("\x1b[<32;12;7M"), { button: 32, x: 11, y: 6, release: false });
+	assert.deepEqual(parseSgrMouseEvent("\x1b[<35;11;6M"), { button: 35, x: 10, y: 5, release: false });
+	assert.deepEqual(parseSgrMouseEvent("\x1b[<0;11;6m"), { button: 0, x: 10, y: 5, release: true });
+	assert.deepEqual(parseSgrMouseEvent("\x1b[<64;11;6M"), { button: 64, x: 10, y: 5, release: false });
+	assert.equal(parseSgrMouseEvent("j"), undefined);
 });
 
 test("labelSpan finds the ✻ label columns", () => {
@@ -153,6 +163,26 @@ function makeChatLeaf(chat: { children: unknown[] }, lines: string[], y = 2): La
 	};
 }
 
+/** SGR mouse event senders: button/x/y are 0-based cells. */
+const mouse = {
+	tap(tui: FakeViewport, x: number, y: number, button = 0, motion = "M"): void {
+		tui.handleViewportInput(`\x1b[<${button};${x + 1};${y + 1}${motion}`);
+	},
+	press(tui: FakeViewport, x: number, y: number): void {
+		mouse.tap(tui, x, y, 0, "M");
+	},
+	release(tui: FakeViewport, x: number, y: number): void {
+		mouse.tap(tui, x, y, 0, "m");
+	},
+	motion(tui: FakeViewport, x: number, y: number, button = 32): void {
+		mouse.tap(tui, x, y, button, "M");
+	},
+	click(tui: FakeViewport, x: number, y: number): void {
+		mouse.press(tui, x, y);
+		mouse.release(tui, x, y);
+	},
+};
+
 test("clicking the label expands, clicking the message collapses", () => {
 	const message = makeMessage([" ✻ Thought…", "  inner reasoning", "answer"], true);
 	const chat = { children: [makeSpacer(), message] };
@@ -166,24 +196,120 @@ test("clicking the label expands, clicking the message collapses", () => {
 	const cleanup = wrapViewportPrototype(FakeViewport.prototype);
 	const tui = new FakeViewport(root);
 
-	// Click the label (row y=3 → lineIndex 1) → expand.
-	assert.deepEqual(tui.handleViewportInput("\x1b[<0;5;4M"), { consume: true });
+	// Click the label (row y=3 → lineIndex 1) → expand. A click is an
+	// unmodified press plus a same-cell release.
+	mouse.click(tui, 4, 3);
 	assert.equal(message.hideThinkingBlock, false);
 	assert.ok(tui.renders > 0);
-	assert.equal(tui.calls.length, 0, "click should not reach selection handling");
+	// Both events pass through to pi-tui's selection handling untouched.
+	assert.equal(tui.calls.length, 2);
 
 	// Click the expanded thinking (y=4 → lineIndex 2) → collapse.
-	tui.handleViewportInput("\x1b[<0;5;5M");
+	mouse.click(tui, 4, 4);
 	assert.equal(message.hideThinkingBlock, true);
 
 	// Clicking the label again re-expands.
-	tui.handleViewportInput("\x1b[<0;5;4M");
+	mouse.click(tui, 4, 3);
 	assert.equal(message.hideThinkingBlock, false);
 
 	// A fresh instance (e.g. after a TUI mode switch) inherits the wrap.
 	const next = new FakeViewport(root);
-	next.handleViewportInput("\x1b[<0;5;5M");
+	mouse.click(next, 4, 4);
 	assert.equal(message.hideThinkingBlock, true, "second instance should collapse via shared prototype");
+
+	cleanup();
+});
+
+test("a press alone never toggles; a foreign-cell release does not complete the click", () => {
+	const message = makeMessage([" ✻ Thought…", "answer"], true);
+	const chat = { children: [makeSpacer(), message] };
+	const lines = ["", ...message.render(80)];
+	const root: LayoutBox = {
+		component: { root: true },
+		rect: { x: 0, y: 0, width: 80, height: 0 },
+		children: [makeChatLeaf(chat, lines)],
+	};
+
+	const cleanup = wrapViewportPrototype(FakeViewport.prototype);
+	const tui = new FakeViewport(root);
+
+	mouse.press(tui, 4, 3);
+	assert.equal(message.hideThinkingBlock, true, "press alone does nothing");
+	assert.equal(tui.calls.length, 1, "press reaches selection handling");
+
+	// Releasing over a different cell is not a click.
+	mouse.release(tui, 4, 4);
+	assert.equal(message.hideThinkingBlock, true);
+	assert.equal(tui.calls.length, 2);
+
+	cleanup();
+});
+
+test("dragging across a label never toggles it", () => {
+	const message = makeMessage([" ✻ Thought…", "answer"], true);
+	const chat = { children: [makeSpacer(), message] };
+	const lines = ["", ...message.render(80)];
+	const root: LayoutBox = {
+		component: { root: true },
+		rect: { x: 0, y: 0, width: 80, height: 0 },
+		children: [makeChatLeaf(chat, lines)],
+	};
+
+	const cleanup = wrapViewportPrototype(FakeViewport.prototype);
+	const tui = new FakeViewport(root);
+
+	// Drag-select starting exactly on the label.
+	mouse.press(tui, 4, 3);
+	mouse.motion(tui, 10, 3);
+	mouse.release(tui, 10, 3);
+	assert.equal(message.hideThinkingBlock, true, "drag never toggles");
+	assert.equal(tui.calls.length, 3, "selection stream untouched");
+
+	// A drag that returns to the press cell still cancelled the click intent.
+	mouse.press(tui, 4, 3);
+	mouse.motion(tui, 10, 5);
+	mouse.release(tui, 4, 3);
+	assert.equal(message.hideThinkingBlock, true, "motion cancelled the click intent");
+
+	// Hover motion (no button held) is not a drag.
+	mouse.press(tui, 4, 3);
+	mouse.motion(tui, 10, 3, 35);
+	mouse.release(tui, 4, 3);
+	assert.equal(message.hideThinkingBlock, false, "hover does not cancel the click");
+
+	cleanup();
+});
+
+test("wheel, other buttons, and key input reset the pending click", () => {
+	const message = makeMessage([" ✻ Thought…", "answer"], true);
+	const chat = { children: [makeSpacer(), message] };
+	const lines = ["", ...message.render(80)];
+	const root: LayoutBox = {
+		component: { root: true },
+		rect: { x: 0, y: 0, width: 80, height: 0 },
+		children: [makeChatLeaf(chat, lines)],
+	};
+
+	const cleanup = wrapViewportPrototype(FakeViewport.prototype);
+	const tui = new FakeViewport(root);
+
+	mouse.press(tui, 4, 3);
+	tui.handleViewportInput("\x1b[<64;5;4M"); // wheel between press and release
+	mouse.release(tui, 4, 3);
+	assert.equal(message.hideThinkingBlock, true, "wheel kills the pending click");
+
+	// A stray second press (previous release swallowed) restarts the pairing.
+	mouse.press(tui, 4, 3);
+	mouse.press(tui, 4, 3);
+	mouse.release(tui, 4, 3);
+	assert.equal(message.hideThinkingBlock, false, "re-pressed click still completes");
+
+	// Key input between press and release aborts the click.
+	mouse.press(tui, 4, 3);
+	message.setHideThinkingBlock(true);
+	tui.handleViewportInput("j");
+	mouse.release(tui, 4, 3);
+	assert.equal(message.hideThinkingBlock, true, "key input kills the pending click");
 
 	cleanup();
 });
@@ -202,13 +328,13 @@ test("non-label clicks fall through untouched", () => {
 	const tui = new FakeViewport(root);
 
 	// Click the label's columns but on the answer row (y=3 → lineIndex 1) → not a label.
-	assert.deepEqual(tui.handleViewportInput("\x1b[<0;5;4M"), { consume: true });
-	assert.equal(tui.calls.length, 1, "falls through to the original handler");
+	mouse.click(tui, 4, 3);
+	assert.equal(tui.calls.length, 2, "both events fall through to the original handler");
 	assert.equal(message.hideThinkingBlock, true);
 
 	// Non-mouse input passes through.
 	tui.handleViewportInput("j");
-	assert.equal(tui.calls.length, 2);
+	assert.equal(tui.calls.length, 3);
 
 	cleanup();
 });
