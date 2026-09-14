@@ -9,10 +9,10 @@
  * Assistant answer text stays visible. While the agent is working the turn
  * streams normally — thinking content streams inline (liveThinking, folds
  * back the moment the thinking phase ends) and running tools show a spinner
- * one-liner plus their live output box (liveTools). Clicking the line expands
- * the whole turn (thinking stays
- * behind per-message ✻ labels, individually clickable); clicking again
- * re-collapses it. In the regular TUI (no mouse capture) every compressed
+ * one-liner plus their live output box (liveTools). Clicking the summary
+ * line expands the whole turn; clicking any expanded member — thinking
+ * content or tool box — re-collapses it (standalone per-message ✻ labels
+ * outside runs stay individually clickable). In the regular TUI (no mouse capture) every compressed
  * line carries a trailing hint with the expand-all shortcut (registerShortcut
  * via index.ts; toggleExpandAll here).
  *
@@ -88,7 +88,12 @@ const expandedRuns = new WeakSet<object>();
 const liveExpanded = new WeakSet<object>();
 /** Heads of runs rendered as collapsed lines this frame. */
 let collapsedRunHeads = new Set<object>();
-/** member child -> run head (expanded runs collapse via any member line). */
+/**
+ * member child -> run head. Rebuilt every walk: only children rendered as
+ * part of an expanded run (or single-tool / type-group members) carry a
+ * membership in the current frame. Expanded runs collapse via any member
+ * line — tool boxes and thinking content alike.
+ */
 const runMembership = new Map<object, object>();
 /**
  * Idle render cache: while no agent run is active and nothing changed, the
@@ -174,8 +179,12 @@ export function handleToolLineClick(lineIndex: number, line: string): boolean {
 			} else if (isToolBox(child)) {
 				if (isToolRunning(child)) return false; // live boxes are not clickable
 				head = runMembership.get(child); // a member of an expanded run
+			} else if (isAssistantMessage(child)) {
+				// Thinking/label content of an expanded run member: toggling the
+			// run re-collapses it, same as a tool box click.
+				head = runMembership.get(child);
 			}
-			if (head === undefined) continue; // label lines fall through to the thinking flow
+			if (head === undefined) continue; // non-run label lines fall through to the thinking flow
 			if (expandedRuns.has(head)) {
 				expandedRuns.delete(head);
 			} else {
@@ -1041,6 +1050,10 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 	}
 	const out: string[] = [];
 	childSegments = [];
+	// Memberships are per-frame: text-tail members render even while their run
+	// is collapsed, so a stale entry from an earlier expanded frame must not
+	// turn their always-visible text into a run toggle.
+	runMembership.clear();
 	collapsedRunHeads = new Set();
 	resetAssistantOrdinal();
 	let cursor = 0;

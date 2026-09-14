@@ -351,6 +351,50 @@ test("expanded runs stay expanded across re-renders", () => {
 	setThinkingDurations(undefined);
 });
 
+test("clicking expanded thinking content re-collapses the run", () => {
+	setTurnCollapseEnabled(true);
+	setThinkingDurations([4_000]);
+	const labelMsg = makeLabelMessage();
+	const container = makeContainer([makeUserMessage("go"), labelMsg, makeBash("echo hi")]);
+	const lines = container.render(60);
+	const runIndex = lines.findIndex((l) => l.includes("Thought for 4s"));
+	assert.ok(runIndex >= 0, "run line exists");
+	assert.equal(handleToolLineClick(runIndex, lines[runIndex]!), true); // expand
+
+	const expanded = container.render(60);
+	const labelIdx = expanded.findIndex((l) => l.includes("✻ Thought…"));
+	assert.ok(labelIdx >= 0, `thinking content rendered\n${expanded.join("\n")}`);
+	// Clicking the member's thinking (not a tool box) must fold the run back.
+	assert.equal(handleToolLineClick(labelIdx, expanded[labelIdx]!), true);
+	container.render(60);
+	assert.equal(labelMsg.hideThinkingBlock, true, "thinking re-hidden");
+	assert.ok(container.render(60).join("\n").includes("Thought for 4s"), "run line back");
+	setThinkingDurations(undefined);
+});
+
+test("clicking the always-visible text of a collapsed run does not expand it", () => {
+	// Regression: text-tail members render while collapsed, so a run-membership
+	// left over from an earlier expanded frame made their text clickable.
+	setTurnCollapseEnabled(true);
+	setThinkingDurations([2_500]);
+	const tail = makeAssistant([" ✻ Thought…", "验证最终状态："], true);
+	const container = makeContainer([makeUserMessage("go"), makeBash("echo hi"), tail]);
+	const lines = container.render(60);
+	const runIndex = lines.findIndex((l) => l.includes("Thought for 2s"));
+	assert.ok(runIndex >= 0, "run line exists");
+	handleToolLineClick(runIndex, lines[runIndex]!); // expand (sets tail membership)
+	const expanded = container.render(60);
+	const boxIdx = expanded.findIndex((l) => l.includes("$ echo hi"));
+	handleToolLineClick(boxIdx, expanded[boxIdx]!); // collapse via the tool box
+
+	const collapsedLines = container.render(60);
+	const textIdx = collapsedLines.findIndex((l) => l.includes("验证最终状态："));
+	assert.ok(textIdx >= 0, "text tail visible while collapsed");
+	assert.equal(handleToolLineClick(textIdx, collapsedLines[textIdx]!), false, "text click is not a run toggle");
+	assert.ok(container.render(60).join("\n").includes("Thought for 2s"), "run stays collapsed");
+	setThinkingDurations(undefined);
+});
+
 test("expanding a run also opens text-tail thinking in one click", () => {
 	setTurnCollapseEnabled(true);
 	setThinkingDurations([2_500]);
