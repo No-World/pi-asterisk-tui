@@ -27,15 +27,39 @@ import {
  * to find the owning AssistantMessageComponent and flip its
  * setHideThinkingBlock — per message, not pi's global ctrl+t.
  *
- * Interaction: click the "✻ Thought…"/"✻ Thinking…" label to expand that
- * message's thinking inline; click anywhere in the expanded message to
- * collapse it back to the label.
+ * Interaction: a click is an unmodified primary press that releases on the
+ * same cell — drags (pi's fullscreen text selection) never trigger it. Click
+ * the "✻ Thought…"/"✻ Thinking…" label to expand that message's thinking
+ * inline; click anywhere in the expanded message to collapse it back to the
+ * label. Mouse events are never consumed: pi-tui's own selection state
+ * machine sees every press/motion/release, and a completed click is a
+ * same-cell release, which no-ops on its side.
  */
 
 const LABEL_MARKERS = ["✻ Thinking", "✻ Thought"] as const;
 
-/** Matches SGR mouse press with no modifiers, primary button: `\x1b[<0;x;yM`. */
-const SGR_PRESS = /^\x1b\[<0;(\d+);(\d+)M$/;
+/** Matches any SGR mouse sequence: `\x1b[<button;x;yM|m` (press/motion/release). */
+const SGR_MOUSE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
+
+/** A parsed SGR mouse event (button incl. modifier/motion bits, 0-based cell). */
+export interface SgrMouseEvent {
+	button: number;
+	x: number;
+	y: number;
+	release: boolean;
+}
+
+/** Parses any SGR mouse sequence: presses, motion, and releases, any button. */
+export function parseSgrMouseEvent(data: string): SgrMouseEvent | undefined {
+	const match = SGR_MOUSE.exec(data);
+	if (!match) return undefined;
+	return {
+		button: Number.parseInt(match[1]!, 10),
+		x: Number.parseInt(match[2]!, 10) - 1,
+		y: Number.parseInt(match[3]!, 10) - 1,
+		release: match[4] === "m",
+	};
+}
 
 const ANSI_CODE = /\x1b\[[0-9;?]*[A-Za-z]/g;
 
@@ -86,9 +110,9 @@ function isThinkingHost(component: unknown): component is ThinkingHost {
 }
 
 export function parseSgrPrimaryPress(data: string): { x: number; y: number } | undefined {
-	const match = SGR_PRESS.exec(data);
-	if (!match) return undefined;
-	return { x: Number.parseInt(match[1]!, 10) - 1, y: Number.parseInt(match[2]!, 10) - 1 };
+	const match = SGR_MOUSE.exec(data);
+	if (!match || match[4] !== "M" || Number.parseInt(match[1]!, 10) !== 0) return undefined;
+	return { x: Number.parseInt(match[2]!, 10) - 1, y: Number.parseInt(match[3]!, 10) - 1 };
 }
 
 /** Deepest leaf box whose (clipped) rect contains the point, plus the line under it. */
@@ -167,22 +191,67 @@ export function labelSpan(line: string): { start: number; end: number } | undefi
 const INSTALLED = Symbol.for("open-tui.thinkingClickExpand");
 const expanded = new WeakSet<object>();
 
+/**
+ * Pending primary press: `{x,y}` while held, `"dragged"` once a button-motion
+ * arrived. A click is a press that releases on the same cell without any
+ * drag in between — identical to how pi-tui gates its own click affordances
+ * (OSC 8 links) against text selection. Everything else (wheel, other
+ * buttons, any non-mouse input) clears the pending state.
+ */
+let pendingClick: { x: number; y: number } | "dragged" | undefined;
+
+/** Feeds one input event; true when the event completed a click that toggled something. */
 const handleClickOn = (instance: ViewportInstance, data: string): boolean => {
-	const press = parseSgrPrimaryPress(data);
-	if (!press) return false;
-	const root = instance.currentLayout?.root;
-	if (!root) {
-		debug(`click(${press.x},${press.y}): no layout`);
+	const event = parseSgrMouseEvent(data);
+	if (!event) {
+		pendingClick = undefined; // any non-mouse input aborts a pending click
 		return false;
 	}
-	const hit = hitTestLeaf(root, press.x, press.y);
+	// Wheel and extended buttons carry no click intent.
+	if ((event.button & 64) !== 0 || (event.button & 128) !== 0) {
+		pendingClick = undefined;
+		return false;
+	}
+	const button = event.button & 3;
+	const motion = (event.button & 32) !== 0;
+	if (event.release) {
+		const pending = pendingClick;
+		pendingClick = undefined;
+		// Unmodified primary release on the press cell completes a click.
+		if (
+			typeof pending !== "object" || event.button !== 0 ||
+			pending.x !== event.x || pending.y !== event.y
+		) {
+			return false;
+		}
+		return runClickPipeline(instance, event.x, event.y);
+	}
+	if (motion) {
+		// Button-motion (button bit set, not the 32+3 button-less hover form)
+		// is a drag: it cancels the click intent, selection keeps working.
+		if (pendingClick !== undefined && button !== 3) pendingClick = "dragged";
+		return false;
+	}
+	// Track only unmodified primary presses; anything else resets.
+	pendingClick = event.button === 0 ? { x: event.x, y: event.y } : undefined;
+	return false;
+};
+
+/** Runs the click pipeline at a screen cell: run-line toggles + label flow. */
+const runClickPipeline = (instance: ViewportInstance, x: number, y: number): boolean => {
+	const root = instance.currentLayout?.root;
+	if (!root) {
+		debug(`click(${x},${y}): no layout`);
+		return false;
+	}
+	const hit = hitTestLeaf(root, x, y);
 	if (!hit) {
-		debug(`click(${press.x},${press.y}): no leaf hit`);
+		debug(`click(${x},${y}): no leaf hit`);
 		return false;
 	}
 	const chat = hit.box.component as { children?: unknown[] } | null;
 	if (typeof chat !== "object" || chat === null || !Array.isArray(chat.children)) {
-		debug(`click(${press.x},${press.y}): leaf is not a container`);
+		debug(`click(${x},${y}): leaf is not a container`);
 		return false;
 	}
 	// Segment lookups are in the attached container's coordinates — translate
@@ -190,7 +259,7 @@ const handleClickOn = (instance: ViewportInstance, data: string): boolean => {
 	const localIndex = lineIndexInAttachedContainer(chat, hit.lineIndex, hit.box.rect.width);
 	// Tool group lines first: they sit above the thinking-label flow.
 	if (localIndex !== undefined && handleToolLineClick(localIndex, hit.line)) {
-		debug(`click(${press.x},${press.y}): toggled tool group`);
+		debug(`click(${x},${y}): toggled tool group`);
 		return true;
 	}
 	// Segment lookup first: the recorded per-child ranges match what is on
@@ -199,15 +268,15 @@ const handleClickOn = (instance: ViewportInstance, data: string): boolean => {
 		findThinkingHostAtLine(chat, hit.lineIndex, hit.box.rect.width)) as ThinkingHost | undefined;
 	if (!host) {
 		debug(
-			`click(${press.x},${press.y}): no host, line=${JSON.stringify(hit.line.slice(0, 60))} ` +
+			`click(${x},${y}): no host, line=${JSON.stringify(hit.line.slice(0, 60))} ` +
 				`lineIndex=${hit.lineIndex}`,
 		);
 		return false;
 	}
 
 	const span = labelSpan(hit.line);
-	const onLabel = span !== undefined && press.x >= span.start && press.x < span.end;
-	debug(`click(${press.x},${press.y}): host=true onLabel=${onLabel} line=${JSON.stringify(hit.line.slice(0, 60))}`);
+	const onLabel = span !== undefined && x >= span.start && x < span.end;
+	debug(`click(${x},${y}): host=true onLabel=${onLabel} line=${JSON.stringify(hit.line.slice(0, 60))}`);
 	if (onLabel && host.hideThinkingBlock !== false) {
 		host.setHideThinkingBlock(false);
 		expanded.add(host);
@@ -241,7 +310,10 @@ export function wrapViewportPrototype(proto: object | null | undefined): () => v
 	}
 	const original = target.handleViewportInput;
 	target.handleViewportInput = function (data) {
-		if (handleClickOn(this as ViewportInstance, data)) return { consume: true };
+		// Side-effect only. The click fires at release time and is never
+		// consumed: pi-tui's selection state machine must see every mouse
+		// event, and a same-cell release is already a no-op on its side.
+		handleClickOn(this as ViewportInstance, data);
 		return original.call(this, data);
 	};
 	target[INSTALLED] = true;
