@@ -5,7 +5,7 @@ import type {
 	ReadonlyFooterDataProvider,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import { visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/open-tui/config.ts";
 import { installClassicFooter as installFooter } from "../extensions/open-tui/footer-classic.ts";
 import { installHudFooter } from "../extensions/open-tui/footer-hud.ts";
@@ -631,6 +631,129 @@ test("hud labels follow the settings language", () => {
 		const zh = component.render(120).join("\n");
 		assert.ok(zh.includes("上下文"), `chinese context label missing\n${zh}`);
 		assert.ok(!zh.includes("ctx "), `english label leaked in chinese mode\n${zh}`);
+	} finally {
+		cleanup();
+		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
+	}
+});
+
+test("hud budgets the branch to the space line 1 actually has", () => {
+	const branch = "fix/ops/offline-delivery-webhook"; // 32 chars, over the old fixed caps
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/projects/AgentCloudCity",
+			getEntries: () => [],
+			getBranch: () => [],
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250, contextWindow: 1_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	const cleanup = installHudFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	const hudTheme = { ...theme, underline: (text: string) => text } as Theme;
+	let component: Component | undefined;
+	try {
+		assert.ok(footerFactory);
+		const footerData = {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		} as unknown as ReadonlyFooterDataProvider;
+		component = footerFactory(
+			{ requestRender() {} } as TUI,
+			hudTheme,
+			footerData,
+		) as Component;
+
+		const wide = component.render(200).join("\n").split("\n")[0]!;
+		assert.ok(wide.includes(branch), `full branch missing when it fits\n${wide}`);
+
+		const narrow = component.render(80).join("\n").split("\n")[0]!;
+		assert.ok(!narrow.includes(branch), `branch should shrink to fit\n${narrow}`);
+		assert.ok(narrow.includes("git:("), `git segment missing\n${narrow}`);
+		assert.ok(visibleWidth(narrow) <= 80, `line 1 overflows the viewport\n${narrow}`);
+	} finally {
+		cleanup();
+		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
+	}
+});
+
+test("classic shows the full branch until the packer runs out of room", () => {
+	const branch = "fix/ops/offline-delivery-webhook";
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/projects/AgentCloudCity",
+			getEntries: () => [],
+			getBranch: () => [],
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250, contextWindow: 1_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	const cleanup = installFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	let component: Component | undefined;
+	try {
+		assert.ok(footerFactory);
+		const footerData = {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		} as unknown as ReadonlyFooterDataProvider;
+		component = footerFactory(
+			{ requestRender() {} } as TUI,
+			theme,
+			footerData,
+		) as Component;
+
+		const wide = component.render(120).join("\n").split("\n")[0]!;
+		assert.ok(wide.includes(branch), `full branch missing when it fits\n${wide}`);
+
+		const narrow = component.render(30).join("\n").split("\n")[0]!;
+		assert.ok(!narrow.includes(branch), `branch should shrink to fit\n${narrow}`);
+		assert.ok(narrow.includes("fix/ops/"), `branch prefix missing\n${narrow}`);
+		assert.ok(visibleWidth(narrow) <= 30, `line 1 overflows the viewport\n${narrow}`);
 	} finally {
 		cleanup();
 		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();

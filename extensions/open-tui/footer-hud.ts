@@ -9,7 +9,7 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -534,13 +534,14 @@ export function installHudFooter(
 					modelBlock += theme.fg("dim", "]");
 				}
 
-				const left1: string[] = [];
-				if (modelBlock) left1.push(modelBlock);
-
 				const git: GitStatus = state.git;
 				const cwd = formatCwd(ctx.sessionManager.getCwd());
 				const dir = basenamePath(cwd) || cwd;
-				if (hud.git) {
+				// The branch shares line 1 with the model block and session name on the
+				// left and time/cost on the right. Budget its max length to the space
+				// that actually fits instead of a fixed cap.
+				const buildGitStr = (branchMax: number): string => {
+					if (!hud.git) return "";
 					let gitStr = hud.gitDir
 						? link(
 							pathToFileURL(ctx.sessionManager.getCwd()).href,
@@ -560,18 +561,19 @@ export function installHudFooter(
 						gitStr +=
 							(gitStr ? " " : "") +
 							theme.fg("customMessageLabel", "git:(") +
-							theme.fg("borderAccent", truncateBranch(git.branch, 24)) +
+							theme.fg("borderAccent", truncateBranch(git.branch, branchMax)) +
 							(dirty ? theme.fg("borderAccent", "*") : "") +
 							theme.fg("muted", ab + bb) +
 							dd +
 							theme.fg("customMessageLabel", ")");
 					}
-					if (gitStr) left1.push(gitStr);
-				}
+					return gitStr;
+				};
 
+				let nameStr = "";
 				if (hud.sessionName) {
 					const name = ctx.sessionManager.getSessionName();
-					if (name) left1.push(theme.fg("success", truncateToWidth(name, 24, "…")));
+					if (name) nameStr = theme.fg("success", truncateToWidth(name, 24, "…"));
 				}
 
 				const right1: string[] = [];
@@ -583,7 +585,26 @@ export function installHudFooter(
 				if (hud.outputSpeed && state.outputTps !== null && state.outputTps > 0) {
 					right1.push(theme.fg("accent", `${strings.speedLabel}${state.outputTps.toFixed(1)} tok/s`));
 				}
-				const line1 = alignRight(left1.join(sep), right1.join(sep), width, theme);
+				// First try the full branch name, then shrink it by exactly the amount
+				// line 1 is over budget; alignRight's tail truncation stays as the last
+				// resort for degenerate widths.
+				const rightStr = right1.join(sep);
+				const buildLeft = (branchMax: number): string => {
+					const parts: string[] = [];
+					if (modelBlock) parts.push(modelBlock);
+					const gitStr = buildGitStr(branchMax);
+					if (gitStr) parts.push(gitStr);
+					if (nameStr) parts.push(nameStr);
+					return parts.join(sep);
+				};
+				const fullBranchLen = git.branch ? git.branch.length : 0;
+				let leftStr = buildLeft(fullBranchLen);
+				const overflow = visibleWidth(leftStr) + 1 + visibleWidth(rightStr) - width;
+				if (overflow > 0 && fullBranchLen > 0) {
+					const branchMax = Math.max(4, fullBranchLen - overflow);
+					if (branchMax < fullBranchLen) leftStr = buildLeft(branchMax);
+				}
+				const line1 = alignRight(leftStr, rightStr, width, theme);
 
 				// ---- line 2: context bar … cache-hit │ tokens ----
 				let line2 = "";
