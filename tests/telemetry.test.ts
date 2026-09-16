@@ -409,6 +409,58 @@ test("aggregates all output and generation time across an agent run", () => {
 	assert.equal(telemetry.rateUsdPerMTokens, 4);
 });
 
+test("per-message output speed requires a credible streaming window", () => {
+	// Credible message: 40 tokens over 2s → 20 tok/s.
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	const credible = makeMessage(40, 50);
+	startTurn(tracker, credible);
+	now = 1_000;
+	tracker.handle(update(credible));
+	now = 3_000;
+	tracker.handle({ type: "message_end", message: credible });
+	assert.equal(tracker.getOutputTps(), 20);
+
+	// Buffered proxy flushes a 2725-token message in a 520ms local burst:
+	// wall clock says nothing about generation time — keep the last credible
+	// speed instead of publishing ~5200 tok/s.
+	const burst = makeMessage(2_725, 50);
+	startTurn(tracker, burst, 1);
+	now = 90_000;
+	tracker.handle(update(burst));
+	now = 90_500;
+	tracker.handle(update(burst));
+	now = 90_520;
+	tracker.handle({ type: "message_end", message: burst });
+	assert.equal(tracker.getOutputTps(), 20);
+});
+
+test("output speed stays hidden when every window is a burst", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	const burst = makeMessage(3_000, 50);
+	startTurn(tracker, burst);
+	now = 1_000;
+	tracker.handle(update(burst));
+	now = 1_500;
+	tracker.handle(update(burst));
+	now = 1_520;
+	tracker.handle({ type: "message_end", message: burst });
+	assert.equal(tracker.getOutputTps(), null);
+});
+
+test("per-message output speed accepts a window at the threshold", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	const message = makeMessage(10, 50);
+	startTurn(tracker, message);
+	now = 1_000;
+	tracker.handle(update(message));
+	now = 2_000;
+	tracker.handle({ type: "message_end", message: message });
+	assert.equal(tracker.getOutputTps(), 10);
+});
+
 test("estimateStreamedTokens weights CJK and ASCII differently", () => {
 	assert.equal(estimateStreamedTokens(""), 0);
 	assert.equal(estimateStreamedTokens("你好世界"), 4);

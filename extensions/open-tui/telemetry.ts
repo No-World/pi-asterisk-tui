@@ -15,6 +15,15 @@ import { cacheHitColor, estimateStreamedTokens, finiteOrZero, fmtTokens, formatD
 
 const STALL_THRESHOLD_MS = 1000;
 
+/**
+ * Minimum wall-clock streaming window for a credible per-message speed. A
+ * buffered proxy (or a one-shot tool-call block) can flush thousands of
+ * tokens in a local burst, leaving a window of milliseconds — too short to
+ * measure anything, and it used to inflate the HUD speed to absurd values
+ * (e.g. 5449.8 tok/s).
+ */
+const MIN_MESSAGE_TPS_WINDOW_MS = 1000;
+
 type TelemetryEvent =
 	| AgentStartEvent
 	| AgentSettledEvent
@@ -277,11 +286,13 @@ export class TurnTelemetryTracker {
 			if (current.firstOutputMs === null && finiteOrZero(message.usage?.output) > 0) {
 				turn.firstTokenMs ??= endMs;
 			}
-			// per-message output speed: tokens / streaming duration
+			// per-message output speed: tokens / streaming duration. Windows below
+			// MIN_MESSAGE_TPS_WINDOW_MS are burst artifacts, not generation time;
+			// keep the last credible speed instead of publishing garbage.
 			const out = finiteOrZero(message.usage?.output);
 			const firstOutput = current.firstOutputMs;
 			const genMs = firstOutput !== null ? endMs - firstOutput : 0;
-			if (out > 0 && firstOutput !== null && genMs > 0) {
+			if (out > 0 && firstOutput !== null && genMs >= MIN_MESSAGE_TPS_WINDOW_MS) {
 				this.lastMessageTps = round(out / (genMs / 1000), 1);
 			}
 			if (current.sawThinking) {
