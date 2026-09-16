@@ -52,7 +52,7 @@ function renderGitSegment(
 	git: GitStatus,
 	glyphs: IconGlyphs,
 	segments: OpenTuiConfig["footerSegments"],
-	maxBranchLen = 20,
+	maxBranchLen: number,
 ): string {
 	const parts: string[] = [];
 	if (segments.gitBranch) {
@@ -256,8 +256,28 @@ export function installClassicFooter(
 						});
 					}
 				}
-				const gitSeg = renderGitSegment(theme, state.git, glyphs, segments);
-				if (gitSeg) leftParts.push({ text: gitSeg, priority: 3 });
+				// Budget the branch length via the packer: render the full name first,
+				// then re-render with a smaller cap when the segment must shrink.
+				const renderGit = (branchMax: number) =>
+					renderGitSegment(theme, state.git, glyphs, segments, branchMax);
+				const gitSeg = renderGit(Number.POSITIVE_INFINITY);
+				if (gitSeg) {
+					const branch = state.git.branch ?? "";
+					// Everything in the segment except the branch text itself.
+					const decoW = branch ? Math.max(0, visibleWidth(gitSeg) - branch.length) : 0;
+				leftParts.push({
+					text: gitSeg,
+					priority: 3,
+					truncate: branch
+						? (_text, maxWidth): string => {
+							const budget = maxWidth - decoW;
+							// Below the ellipsis threshold, drop the segment so the packer
+							// makes progress instead of spinning on a floor.
+							return budget > 3 ? renderGit(budget) : "";
+						}
+						: undefined,
+				});
+				}
 				const timerSeg = renderTimerSegment(theme, state, glyphs);
 				if (timerSeg) leftParts.push({ text: timerSeg, priority: 1 });
 
