@@ -93,7 +93,9 @@ A claude-hud style four-line dashboard (a starship-style classic preset is also 
 
 1. **Status line** — model with context window, thinking level (moon-phase icons), git
    branch with dirty marker, ahead/behind, per-file diff totals `[+71 -5]`, session name,
-   cumulative working time, cost, today's cost, live output speed (tok/s).
+   cumulative working time, cost, today's cost, live output speed (tok/s; only
+   updated when the message streamed for at least 1s — burst-flushed responses
+   are not measurable and keep the last credible speed).
 2. **Context line** — usage bar with percent and token counts, cache hit rate.
    Token stats have three presentations (`hud.tokens`): localized `verbose`
    labels (`↑in 77M ·cache 77M`), language-independent `compact` shorthand

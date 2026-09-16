@@ -409,6 +409,90 @@ test("aggregates all output and generation time across an agent run", () => {
 	assert.equal(telemetry.rateUsdPerMTokens, 4);
 });
 
+test("per-message output speed requires a credible streaming window", () => {
+	// Credible message: 40 tokens over 2s → 20 tok/s.
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	const credible = makeMessage(40, 50);
+	startTurn(tracker, credible);
+	now = 1_000;
+	tracker.handle(update(credible));
+	now = 3_000;
+	tracker.handle({ type: "message_end", message: credible });
+	assert.equal(tracker.getOutputTps(), 20);
+
+	// Buffered proxy flushes a 2725-token message in a 520ms local burst:
+	// wall clock says nothing about generation time — keep the last credible
+	// speed instead of publishing ~5200 tok/s.
+	const burst = makeMessage(2_725, 50);
+	startTurn(tracker, burst, 1);
+	now = 90_000;
+	tracker.handle(update(burst));
+	now = 90_500;
+	tracker.handle(update(burst));
+	now = 90_520;
+	tracker.handle({ type: "message_end", message: burst });
+	assert.equal(tracker.getOutputTps(), 20);
+});
+
+test("output speed stays hidden when every window is a burst", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	const burst = makeMessage(3_000, 50);
+	startTurn(tracker, burst);
+	now = 1_000;
+	tracker.handle(update(burst));
+	now = 1_500;
+	tracker.handle(update(burst));
+	now = 1_520;
+	tracker.handle({ type: "message_end", message: burst });
+	assert.equal(tracker.getOutputTps(), null);
+});
+
+test("per-message output speed accepts a window at the threshold", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	const message = makeMessage(10, 50);
+	startTurn(tracker, message);
+	now = 1_000;
+	tracker.handle(update(message));
+	now = 2_000;
+	tracker.handle({ type: "message_end", message: message });
+	assert.equal(tracker.getOutputTps(), 10);
+});
+
+test("tool results never feed the output counters", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" });
+
+	// Completed assistant message: 40 tokens over 2s → 20 tok/s.
+	const message = makeMessage(40, 50);
+	startTurn(tracker, message);
+	now = 1_000;
+	tracker.handle(update(message));
+	now = 3_000;
+	tracker.handle({ type: "message_end", message });
+	assert.equal(tracker.getRunOutputTokens(), 40);
+	assert.equal(tracker.getOutputTps(), 20);
+
+	// Shell tool returns 30k chars; subagent-style tools even attach their own
+	// usage to the toolResult message — none of that is main-context output.
+	const toolResult = {
+		role: "toolResult",
+		toolCallId: "t1",
+		toolName: "bash",
+		content: [{ type: "text", text: "x".repeat(30_000) }],
+		usage: { input: 5_000, output: 9_999, cacheRead: 0, cacheWrite: 0, totalTokens: 14_999, cost: { total: 1 } },
+	} as unknown as AssistantMessage;
+	tracker.handle({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: {} });
+	tracker.handle({ type: "message_start", message: toolResult });
+	tracker.handle({ type: "message_end", message: toolResult });
+
+	assert.equal(tracker.getRunOutputTokens(), 40);
+	assert.equal(tracker.getOutputTps(), 20);
+});
+
 test("estimateStreamedTokens weights CJK and ASCII differently", () => {
 	assert.equal(estimateStreamedTokens(""), 0);
 	assert.equal(estimateStreamedTokens("你好世界"), 4);
