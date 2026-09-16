@@ -224,6 +224,27 @@ test("usage totals count cache-write tokens as input, matching /session's uncach
 	invalidateUsageCache();
 });
 
+test("usage totals skip tool-result usage (not main-context accounting)", () => {
+	// ToolResultMessage.usage is usage from the tool execution itself (e.g. a
+	// subagent's own LLM call); shell output similarly re-enters the context as
+	// the next request's input, never as assistant output.
+	const ctx = {
+		sessionManager: {
+			getEntries: () => [
+				{ id: "a1", timestamp: 1, type: "message", message: { role: "assistant", usage: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, cost: { total: 0.001 } } } },
+			{ id: "t1", timestamp: 2, type: "message", message: { role: "toolResult", toolCallId: "t1", toolName: "subagent", content: [], usage: { input: 5_000, output: 9_999, cacheRead: 0, cacheWrite: 0, totalTokens: 14_999, cost: { total: 9 } } } },
+			],
+		},
+	} as unknown as ExtensionContext;
+
+	invalidateUsageCache();
+	const totals = getUsageTotals(ctx);
+	assert.equal(totals.output, 20);
+	assert.equal(totals.input, 10);
+	assert.equal(totals.cost, 0.001);
+	invalidateUsageCache();
+});
+
 test("ASCII footer renders icons as semantic labels", () => {
 	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
 	const entries = [{

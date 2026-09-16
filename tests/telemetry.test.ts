@@ -461,6 +461,38 @@ test("per-message output speed accepts a window at the threshold", () => {
 	assert.equal(tracker.getOutputTps(), 10);
 });
 
+test("tool results never feed the output counters", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" });
+
+	// Completed assistant message: 40 tokens over 2s → 20 tok/s.
+	const message = makeMessage(40, 50);
+	startTurn(tracker, message);
+	now = 1_000;
+	tracker.handle(update(message));
+	now = 3_000;
+	tracker.handle({ type: "message_end", message });
+	assert.equal(tracker.getRunOutputTokens(), 40);
+	assert.equal(tracker.getOutputTps(), 20);
+
+	// Shell tool returns 30k chars; subagent-style tools even attach their own
+	// usage to the toolResult message — none of that is main-context output.
+	const toolResult = {
+		role: "toolResult",
+		toolCallId: "t1",
+		toolName: "bash",
+		content: [{ type: "text", text: "x".repeat(30_000) }],
+		usage: { input: 5_000, output: 9_999, cacheRead: 0, cacheWrite: 0, totalTokens: 14_999, cost: { total: 1 } },
+	} as unknown as AssistantMessage;
+	tracker.handle({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: {} });
+	tracker.handle({ type: "message_start", message: toolResult });
+	tracker.handle({ type: "message_end", message: toolResult });
+
+	assert.equal(tracker.getRunOutputTokens(), 40);
+	assert.equal(tracker.getOutputTps(), 20);
+});
+
 test("estimateStreamedTokens weights CJK and ASCII differently", () => {
 	assert.equal(estimateStreamedTokens(""), 0);
 	assert.equal(estimateStreamedTokens("你好世界"), 4);
