@@ -145,7 +145,7 @@ Notable keys:
 | `footerStyle` | `"hud"` | `hud` / `classic` footer presets |
 | `turnCollapse.mode` | `"group-all"` | `native` / `single` / `group-same` / `group-all` compression |
 | `turnCollapse.style` | `"compact"` | `compact` / `classic` spacing around compressed lines |
-| `turnCollapse.retryErrors` | `true` | hold retry errors during a run |
+| `turnCollapse.retryErrors` | `true` | hold retry errors during a run; collapse repeated request errors into one `⚠ … ×N` line (click to expand) |
 | `turnCollapse.thought` | `"default"` | thinking: `default` / `single` / `group-same` / `expand` |
 | `turnCollapse.liveThinking` | `true` | stream thinking inline while it arrives; fold back after |
 | `turnCollapse.liveTools` | `true` | render running tool output boxes below the spinner line |

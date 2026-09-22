@@ -123,7 +123,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `footerStyle` | `"hud"` | `hud` / `classic` 底栏预设 |
 | `turnCollapse.mode` | `"group-all"` | 压缩模式：`native` / `single` / `group-same` / `group-all` |
 | `turnCollapse.style` | `"compact"` | 压缩行间隔：`compact` / `classic` |
-| `turnCollapse.retryErrors` | `true` | 运行期间扣留重试错误 |
+| `turnCollapse.retryErrors` | `true` | 运行期间扣留重试错误；连续请求错误折叠为一行 `⚠ … ×N`（可点击展开） |
 | `turnCollapse.thought` | `"default"` | 思考块：`default` / `single` / `group-same` / `expand` |
 | `turnCollapse.liveThinking` | `true` | 流式期间内联显示思考内容，结束后折回 |
 | `turnCollapse.liveTools` | `true` | 运行中在 spinner 行下方渲染实时输出盒 |

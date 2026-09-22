@@ -6,7 +6,10 @@
  *
  *   ▸ ✻ Thought for 11s · called playwright ×3 · ran 1 shell command
  *
- * Assistant answer text stays visible. While the agent is working the turn
+ * Assistant answer text stays visible, and consecutive failed-request
+ * messages (stopReason "error" — e.g. one per auto-retry attempt) collapse
+ * into a single clickable ⚠ line with an attempt count. While the agent is
+ * working the turn
  * streams normally — thinking content streams inline (liveThinking, folds
  * back the moment the thinking phase ends) and running tools show a spinner
  * one-liner plus their live output box (liveTools). Clicking the summary
@@ -645,6 +648,62 @@ function makeToolTypeRun(walk: ExpandedWalk, expanded: () => boolean) {
 	};
 }
 
+/** An assistant message that died with stopReason "error" (a failed request
+ *  attempt). Returns its error text, or undefined for anything else. These
+ *  never reach the model context (pi filters them at request build time) —
+ *  they are display-only, so collapsing them is purely a rendering concern. */
+function errorMessageOf(child: unknown): string | undefined {
+	if (!isAssistantMessage(child)) return undefined;
+	const last = (child as { lastMessage?: { stopReason?: unknown; errorMessage?: unknown } }).lastMessage;
+	if (!last || last.stopReason !== "error") return undefined;
+	return typeof last.errorMessage === "string" && last.errorMessage.length > 0 ? last.errorMessage : "error";
+}
+
+/** Compressed line for consecutive request errors: `⚠ Request timed out. ×3`. */
+function renderErrorGroupLine(members: unknown[]): string {
+	const messages = members.map((member) => errorMessageOf(member) ?? "error");
+	const last = messages[messages.length - 1]!;
+	const identical = messages.every((message) => message === last);
+	const text = identical
+		? `${last} ×${messages.length}`
+		: `${messages.length} errors · ${truncate(last, 48)}`;
+	return ` ${fg("error", `⚠ ${truncate(text, 64)}`)}`;
+}
+
+/** Shared emitter for consecutive request-error messages (per-attempt
+ *  failures). Independent of the compression mode, gated by retryErrors:
+ *  two or more collapse into one ⚠ line (click expands); a lone error
+ *  renders natively. */
+function makeErrorRun(walk: ExpandedWalk) {
+	let members: unknown[] = [];
+	return {
+		isEmpty: (): boolean => members.length === 0,
+		push(child: unknown): void {
+			members.push(child);
+		},
+		flush(): void {
+			if (members.length === 0) return;
+			if (members.length === 1 || !collapse.retryErrors) {
+				for (const member of members) walk.renderChild(member);
+				members = [];
+				return;
+			}
+			const head = members[0] as object;
+			if (runExpanded(head)) {
+				for (const member of members) {
+					runMembership.set(member as object, head);
+					walk.renderChild(member);
+				}
+			} else {
+				collapsedRunHeads.add(head);
+				for (const member of members) runMembership.set(member as object, head);
+				walk.pushCompressed(head, [renderErrorGroupLine(members)]);
+			}
+			members = [];
+		},
+	};
+}
+
 /** Render a finished turn according to the compression mode. */
 function renderExpandedTurn(turnChildren: unknown[], walk: ExpandedWalk, width: number): void {
 	if (collapse.mode === "group-all") {
@@ -664,11 +723,13 @@ function renderItemTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numb
 	let live = false;
 	const labelRun = makeLabelRun(walk);
 	const toolRun = makeToolTypeRun(walk, () => live);
+	const errorRun = makeErrorRun(walk);
 
-	const runsOpen = (): boolean => !labelRun.isEmpty() || !toolRun.isEmpty();
+	const runsOpen = (): boolean => !labelRun.isEmpty() || !toolRun.isEmpty() || !errorRun.isEmpty();
 	const flushAll = (): void => {
 		labelRun.flush();
 		toolRun.flush();
+		errorRun.flush();
 	};
 	/** A folded thinking-only message renders as a standalone ✻ line. */
 	const labelCompressible = (child: unknown): boolean => {
@@ -732,12 +793,22 @@ function renderItemTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numb
 				continue;
 			}
 			// group-same: a type change closes the open tool group.
+			if (!errorRun.isEmpty()) errorRun.flush();
 			if (!toolRun.accepts(current)) toolRun.flush();
 			toolRun.push(current);
 			index++;
 			continue;
 		}
 		const kind = classifyAssistant(current);
+		if (errorMessageOf(current) !== undefined) {
+			// Per-attempt request failure: joins the consecutive-error group
+			// instead of rendering one line per attempt.
+			labelRun.flush();
+			toolRun.flush();
+			errorRun.push(current);
+			index++;
+			continue;
+		}
 		if (
 			kind === "label" &&
 			thoughtTreatment() === "group-same" &&
@@ -745,6 +816,7 @@ function renderItemTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numb
 			(current as { isStreaming?: unknown }).isStreaming !== true
 		) {
 			if (!toolRun.isEmpty()) toolRun.flush(); // kinds never merge
+			if (!errorRun.isEmpty()) errorRun.flush();
 			labelRun.push(current);
 			index++;
 			continue;
@@ -821,9 +893,11 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 	let runLive = false;
 	const labelRun = makeLabelRun(walk);
 	const toolRun = makeToolTypeRun(walk, () => runLive);
+	const errorRun = makeErrorRun(walk);
 	const flushAux = (): void => {
 		labelRun.flush();
 		toolRun.flush();
+		errorRun.flush();
 	};
 
 	const flushRun = (): void => {
@@ -896,7 +970,7 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 		if (isTransparentChild(current, width)) {
 			// Absorbed while a run or aux group is open, after a compressed
 			// line, or right before compressed output; otherwise padding.
-			if (runMembers.length > 0 || !labelRun.isEmpty() || !toolRun.isEmpty() || walk.lastCompressed()) {
+			if (runMembers.length > 0 || !labelRun.isEmpty() || !toolRun.isEmpty() || !errorRun.isEmpty() || walk.lastCompressed()) {
 				index++;
 				continue;
 			}
@@ -918,6 +992,7 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 			} else if (treatment === "group-same") {
 				// Same-type group line, never absorbed into run lines.
 				flushRun();
+				if (!errorRun.isEmpty()) errorRun.flush();
 				if (!toolRun.accepts(current)) toolRun.flush();
 				toolRun.push(current);
 			} else {
@@ -956,6 +1031,16 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 			continue;
 		}
 		const kind = classifyAssistant(current);
+		if (errorMessageOf(current) !== undefined) {
+			// Per-attempt request failure: a visible boundary for runs that
+			// joins the consecutive-error group instead of rendering per attempt.
+			flushRun();
+			labelRun.flush();
+			toolRun.flush();
+			errorRun.push(current);
+			index++;
+			continue;
+		}
 		if (kind === "label") {
 			const treatment = thoughtTreatment();
 			if (treatment === "run") {
@@ -973,6 +1058,7 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 				// Thought lines stay separate from run lines.
 				flushRun();
 				if (!toolRun.isEmpty()) toolRun.flush();
+				if (!errorRun.isEmpty()) errorRun.flush();
 				labelRun.push(current);
 				index++;
 				continue;
@@ -1436,9 +1522,19 @@ function attachToContainer(container: unknown): void {
 				return;
 			}
 			if (isAssistantMessage(child)) {
-				syncThoughtPreference(child);
-				heldErrorGroup = [];
-				heldErrorSummary = undefined;
+				const requestError = errorMessageOf(child);
+				if (requestError !== undefined) {
+					// A failed attempt is not a success: keep any held bare-Text
+					// errors, and feed the retry indicator its summary. The message
+					// itself renders through the walk's error group.
+					if (agentActive && collapse.retryErrors) {
+						heldErrorSummary = summarizeErrorLines([`Error: ${requestError}`]);
+					}
+				} else {
+					syncThoughtPreference(child);
+					heldErrorGroup = [];
+					heldErrorSummary = undefined;
+				}
 			}
 			bustRenderCache();
 			addChild(child);
@@ -1691,9 +1787,16 @@ export function makeInterceptedContainer(): {
 				return;
 			}
 			if (isAssistantMessage(child)) {
-				syncThoughtPreference(child);
-				heldErrorGroup = [];
-				heldErrorSummary = undefined;
+				const requestError = errorMessageOf(child);
+				if (requestError !== undefined) {
+					if (agentActive && collapse.retryErrors) {
+						heldErrorSummary = summarizeErrorLines([`Error: ${requestError}`]);
+					}
+				} else {
+					syncThoughtPreference(child);
+					heldErrorGroup = [];
+					heldErrorSummary = undefined;
+				}
 			}
 			bustRenderCache();
 			state.children.push(child);
