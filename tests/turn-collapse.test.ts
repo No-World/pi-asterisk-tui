@@ -43,7 +43,7 @@ interface AssistantChild extends Child {
 	isStreaming?: boolean;
 	hiddenThinkingLabel?: string;
 	setHiddenThinkingLabel?(label: string): void;
-	lastMessage: { content: ContentBlock[] };
+	lastMessage: { content: ContentBlock[]; stopReason?: string; errorMessage?: string };
 }
 
 function makeAssistant(lines: string[], hideThinking: boolean, streaming = false): AssistantChild {
@@ -74,6 +74,14 @@ const makeLabelMessage = (): AssistantChild => makeAssistant([" ✻ Thought…"]
 
 /** Text-bearing assistant message (ends a run). */
 const makeTextMessage = (text: string): AssistantChild => makeAssistant([text], false);
+
+/** A failed-request assistant message (stopReason "error", empty content). */
+function makeErrorMessage(errorMessage: string): AssistantChild {
+	const base = makeAssistant([], false);
+	base.lastMessage = { content: [], stopReason: "error", errorMessage };
+	base.render = () => [`Error: ${errorMessage}`];
+	return base;
+}
 
 function makeTool(toolName: string): Child & { toolName: string; toolCallId: string; result: object; isPartial: boolean } {
 	return {
@@ -605,6 +613,83 @@ test("a successful assistant message drops held errors entirely", () => {
 	const out = container.render(60).join("\n");
 	assert.ok(!out.includes("429"), `transient retry errors vanish on success\n${out}`);
 	assert.ok(out.includes("成功回复"), `assistant renders\n${out}`);
+});
+
+test("consecutive request-error messages collapse to one ⚠ count line", () => {
+	resetCollapse();
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeErrorMessage("Request timed out."),
+		makeErrorMessage("Request timed out."),
+		makeErrorMessage("Request timed out."),
+	]);
+	const out = container.render(80).join("\n");
+	assert.equal(out.match(/⚠ Request timed out\. ×3/g)?.length, 1, `one count line\n${out}`);
+	assert.ok(!out.includes("Error: Request timed out."), `no per-attempt lines\n${out}`);
+});
+
+test("distinct request errors collapse to a count plus the newest", () => {
+	resetCollapse();
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeErrorMessage("Request timed out."),
+		makeErrorMessage("429 rate_limit_error"),
+	]);
+	const out = container.render(80).join("\n");
+	assert.ok(out.includes("2 errors · 429 rate_limit_error"), `count + newest\n${out}`);
+});
+
+test("a single request error renders natively", () => {
+	resetCollapse();
+	const container = makeContainer([makeUserMessage("go"), makeErrorMessage("Request timed out.")]);
+	const out = container.render(80).join("\n");
+	assert.ok(out.includes("Error: Request timed out."), `native line\n${out}`);
+	assert.ok(!out.includes("⚠"), `no group marker\n${out}`);
+});
+
+test("retryErrors off keeps every request error visible", () => {
+	resetCollapse({ retryErrors: false });
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeErrorMessage("Request timed out."),
+		makeErrorMessage("Request timed out."),
+	]);
+	const out = container.render(80).join("\n");
+	assert.equal(out.match(/Error: Request timed out\./g)?.length, 2, `both attempts visible\n${out}`);
+});
+
+test("collapsed error group expands and re-collapses on click", () => {
+	resetCollapse();
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeErrorMessage("Request timed out."),
+		makeErrorMessage("Request timed out."),
+	]);
+	let lines = container.render(80);
+	const errorLineIndex = lines.findIndex((line) => line.includes("⚠"));
+	assert.ok(errorLineIndex >= 0, `group line found\n${lines.join("\n")}`);
+	assert.equal(handleToolLineClick(errorLineIndex, lines[errorLineIndex] ?? ""), true, "click consumed");
+	lines = container.render(80);
+	assert.equal(lines.filter((line) => line.includes("Error: Request timed out.")).length, 2, `expanded\n${lines.join("\n")}`);
+	const memberIndex = lines.findIndex((line) => line.includes("Error: Request timed out."));
+	assert.equal(handleToolLineClick(memberIndex, lines[memberIndex] ?? ""), true, "member click consumed");
+	lines = container.render(80);
+	assert.ok(lines.some((line) => line.includes("×2")), `re-collapsed\n${lines.join("\n")}`);
+});
+
+test("request errors end a run: surrounding tools stay separate", () => {
+	resetCollapse();
+	const container = makeContainer([
+		makeUserMessage("go"),
+		makeLabelMessage(),
+		makeBash("npm test"),
+		makeErrorMessage("Request timed out."),
+		makeErrorMessage("Request timed out."),
+		makeBash("npm run typecheck"),
+	]);
+	const out = container.render(80).join("\n");
+	assert.ok(out.includes("ran 1 shell command"), `first run line\n${out}`);
+	assert.ok(out.includes("⚠ Request timed out. ×2"), `error group between runs\n${out}`);
 });
 
 test("summarizeErrorLines extracts status code + error type", () => {
