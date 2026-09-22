@@ -22,8 +22,8 @@ test("static logo wordmark reads Pi with sparkle asterisk", () => {
 test("narrow columns drop the asterisk and keep the bare Pi glyph", () => {
 	const lines = renderLogo(lastFrame, identity, false);
 	assert.equal(lines.length, 7);
-	// bare glyph spans cells x2..x5 = 12 columns
-	assert.equal(lines[2], "█████████");
+	// bare glyph spans cells x2..x5 = 12 columns (uniform grid width)
+	assert.equal(lines[2], "█████████   ");
 	assert.equal(lines[3], "███   ███   ");
 	assert.equal(lines[4], "██████   ███");
 	assert.equal(lines[5], "███      ███");
