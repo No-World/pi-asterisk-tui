@@ -418,7 +418,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_execution_end", (_event, ctx) => {
-		refreshInteractiveState(ctx);
+		// Agent-side git/bash runs are exactly when repo state moves; refresh
+		// the footer's git segment instead of waiting for a branch-switch event.
+		refreshInteractiveState(ctx, true);
 	});
 
 	pi.on("session_compact", (_event, ctx) => {

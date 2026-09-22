@@ -53,18 +53,31 @@ async function gitExec(args: string[], cwd: string): Promise<string | null> {
 	}
 }
 
+/** Last-resort branch read for repos where `git status` is fatal (e.g. a
+ *  linked worktree with a broken submodule core.worktree): rev-parse never
+ *  walks submodules. Returns undefined when detached or unreadable. */
+export async function readBranchViaRevParse(cwd: string): Promise<string | undefined> {
+	const out = await gitExec(["rev-parse", "--abbrev-ref", "HEAD"], cwd);
+	if (out === null) return undefined;
+	const branch = out.trim();
+	return branch === "" || branch === "HEAD" ? undefined : branch;
+}
+
 export async function readGitStatus(
 	cwd: string,
 	options: { readCommit?: boolean; readTag?: boolean; readCounts?: boolean } = {},
 ): Promise<GitStatus> {
 	// No .git existence check: git resolves the enclosing repo from any
 	// subdirectory, and returns empty status when there is none.
-	const stdout = await gitExec(
-		["status", "--porcelain=v1", "--branch", "--show-stash"],
-		cwd,
-	);
+	// A fatal `git status` (broken submodule registration in a linked
+	// worktree) retries without submodule walking before giving up on counts.
+	const stdout =
+		(await gitExec(["status", "--porcelain=v1", "--branch", "--show-stash"], cwd)) ??
+		(await gitExec(["status", "--porcelain=v1", "--branch", "--show-stash", "--ignore-submodules=all"], cwd));
 	if (stdout === null) {
-		return emptyGitStatus();
+		const status = emptyGitStatus();
+		status.branch = await readBranchViaRevParse(cwd);
+		return status;
 	}
 
 	const status = emptyGitStatus();
