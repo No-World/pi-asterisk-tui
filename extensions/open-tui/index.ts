@@ -17,6 +17,7 @@ import { installHeader } from "./header.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
+import { installSelectionCopy, setSelectionCopyMode } from "./selection-copy.ts";
 import { installThinkingClickExpand } from "./thinking-click.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
 import {
@@ -73,6 +74,7 @@ export default function (pi: ExtensionAPI) {
 	let cleanupHeader: (() => void) | undefined;
 	let cleanupFooter: (() => void) | undefined;
 	let cleanupThinkingClick: (() => void) | undefined;
+	let cleanupSelectionCopy: (() => void) | undefined;
 	let cleanupTurnCollapse: (() => void) | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
@@ -135,6 +137,7 @@ export default function (pi: ExtensionAPI) {
 			// Re-enabled mid-session: the collapse/click patches install here too
 			// (session_start only covers fresh sessions).
 			if (!cleanupThinkingClick) cleanupThinkingClick = installThinkingClickExpand();
+			if (!cleanupSelectionCopy) cleanupSelectionCopy = installSelectionCopy();
 			if (!cleanupTurnCollapse) {
 				setTurnCollapseTheme(ctx.ui.theme);
 				cleanupTurnCollapse = installTurnCollapse();
@@ -153,11 +156,13 @@ export default function (pi: ExtensionAPI) {
 			cleanupHeader?.();
 			cleanupFooter?.();
 			cleanupThinkingClick?.();
+			cleanupSelectionCopy?.();
 			cleanupTurnCollapse?.();
 			editor?.cleanup();
 			cleanupHeader = undefined;
 			cleanupFooter = undefined;
 			cleanupThinkingClick = undefined;
+			cleanupSelectionCopy = undefined;
 			cleanupTurnCollapse = undefined;
 			editor = undefined;
 			requestFooterRender = undefined;
@@ -307,6 +312,9 @@ export default function (pi: ExtensionAPI) {
 			// mode switches and sessions that start in regular mode.
 			cleanupThinkingClick?.();
 			cleanupThinkingClick = installThinkingClickExpand();
+			cleanupSelectionCopy?.();
+			cleanupSelectionCopy = installSelectionCopy();
+			setSelectionCopyMode(config.selection.copy);
 			const sessionThought = resolveSessionThought(config);
 			applyTurnCollapseConfig(config, sessionThought);
 			setThoughtPreference(sessionThought);
@@ -448,6 +456,9 @@ export default function (pi: ExtensionAPI) {
 				applyTurnCollapseConfig(newConfig);
 				setThoughtPreference(newConfig.turnCollapse.thought);
 				syncThoughtMirror(newConfig.turnCollapse.mode, newConfig.turnCollapse.thought);
+			}
+			if (config.selection.copy !== newConfig.selection.copy) {
+				setSelectionCopyMode(newConfig.selection.copy);
 			}
 			if (cursorStyleChanged && active && editor) {
 				editor.setCursorStyle(newConfig.cursorStyle);

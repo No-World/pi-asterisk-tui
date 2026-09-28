@@ -111,6 +111,12 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
 ## Editor & settings
 
 - Framed editor with block / bar / underline cursor styles.
+- **Selection copy (fullscreen)** in three modes (`/*tui` panel or `selection.copy`,
+  default `unwrapped`): `plain` copies visual rows (pi stock); `unwrapped` joins
+  soft-wrapped rows back into their logical line (paragraphs, list items, quotes, table
+  rows with wrapped cells — what you see is what you copy); `raw` copies the pre-render
+  source (`**bold**`, `$x^2$`, table pipes; selecting a whole message yields its original
+  text; non-markdown rows degrade to unwrapped text for those rows only).
 - Bilingual `/*tui` settings panel (English / 简体中文) — the language choice also
   localizes HUD labels — covering footer segments, HUD toggles, telemetry fields, icon
   mode (nerd / ascii / auto), cursor style, fullscreen wheel-scroll speed, and a Collapse
@@ -157,6 +163,7 @@ Notable keys:
 | `footerSegments.*` | mixed | classic footer segment toggles |
 | `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
+| `selection.copy` | `"unwrapped"` | selection copy mode: `plain` (visual rows) / `unwrapped` (soft-wrapped lines joined, default) / `raw` (pre-render markdown/LaTeX source) |
 
 ## How it works
 

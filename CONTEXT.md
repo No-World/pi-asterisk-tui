@@ -93,6 +93,18 @@ _Avoid_: Token 开关（已是三态，不是布尔）
 **全屏滚动**：
 fullscreen TUI 模式下的滚轮滚动（`fullscreen.wheelScrollLines`）。
 
+**选区复制**：
+fullscreen TUI 鼠标选区复制到剪贴板的行为（`selection.copy`）三级：plain（按显示行逐行，pi 原生）/ unwrapped（软换行拼回逻辑行单行，WYSIWYG，默认）/ raw（markdown 覆盖段输出渲染前源文，非 markdown 行只对该部分退回 unwrapped）。
+_Avoid_: 复制修复（是行为契约的三档模式，不是单点 bugfix）、复制原文（「原文」只指 raw 档；unwrapped 复制的是显示内容）
+
+**逻辑行**：
+渲染折行前的原始行（markdown 词元的一次 renderToken 输出）；软换行把它折成多个显示行，选区复制把它拼回去。
+_Avoid_: 显示行/视觉行（那是终端上的一行，可能只是逻辑行的半截）
+
+**软换行**：
+渲染管线在列宽处对逻辑行的自动折行（`wrapTextWithAnsi`）；与源文里的硬换行不同，复制时应拼回单行。
+_Avoid_: 硬换行/换行符（源文真实存在的 `\n`，复制时保留）
+
 ## 架构
 
 **运行时补丁**：

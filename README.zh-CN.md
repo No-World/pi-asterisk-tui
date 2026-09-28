@@ -94,6 +94,11 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 ## 编辑器与设置
 
 - 带边框编辑器，块状 / 竖线 / 下划线三种光标样式。
+- **选区复制（全屏）三级模式**（`/*tui` 面板或 `selection.copy` 配置，默认
+  `unwrapped`）：`plain` 按显示行逐行（pi 原生）；`unwrapped` 把软换行拼回逻辑行
+  单行复制（段落、列表项、引用、表格换行单元格全部还原，所见即所复制）；
+  `raw` 复制渲染前源文（`**加粗**`、`$x^2$`、表格管道原样；整条消息选中直接取
+  原文；非 markdown 行只对该部分退回 unwrapped 文本）。
 - 双语 `/*tui` 设置面板（英文 / 简体中文，语言选择同时作用于 HUD 标签）：底栏
   段落、HUD 开关、遥测字段、图标模式（nerd / ascii / auto）、光标样式、全屏滚轮速度，
   以及「压缩」页（压缩模式、压缩行间隔、重试错误折叠、思考块开关、每工具覆盖——
@@ -135,6 +140,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `footerSegments.*` | 混合 | classic 底栏段落开关 |
 | `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`） |
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
+| `selection.copy` | `"unwrapped"` | 选区复制模式：`plain`（按显示行）/ `unwrapped`（软换行拼回单行，默认）/ `raw`（markdown/LaTeX 渲染前源文） |
 
 ## 实现方式
 
