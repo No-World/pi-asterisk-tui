@@ -1197,7 +1197,6 @@ function emitRowsPerRow(deps: SelectionDeps, resolution: ResolvedSelection, from
 	const lines = mapping.lines;
 	const parts: string[] = [];
 	for (let idx = from; idx < to; idx++) {
-		const entry = mapping.entries[idx];
 		parts.push(stockSlice(deps, lines[idx] ?? "", idx === 0 ? bounds.start.col : 0, rowEndCol(deps, bounds, idx, lines)));
 	}
 	const text = parts.join("\n");
