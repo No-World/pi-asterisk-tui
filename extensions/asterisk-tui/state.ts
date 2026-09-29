@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { GitStatus } from "./git.ts";
 import { emptyGitStatus } from "./git.ts";
 import type { TurnSummary } from "./telemetry.ts";
@@ -24,6 +24,18 @@ export interface UsageTotals {
 	cost: number;
 	/** Cumulative cache hit rate: cacheRead / (input + cacheWrite + cacheRead). */
 	cacheHitRate: number | undefined;
+	/** Side-spend, mirroring pi's own "Tools/summaries" bucket in
+	 * core/usage-totals.js: toolResult message usage (the tool's own LLM calls,
+	 * e.g. subagents) plus compaction/branch_summary summarization calls. Real
+	 * session cost, but not main-context accounting — never folded into the
+	 * counters above, which stay assistant-only. */
+	tools: SideSpendTotals;
+}
+
+export interface SideSpendTotals {
+	input: number;
+	output: number;
+	cost: number;
 }
 
 let usageCache: { key: string; totals: UsageTotals } | undefined;
@@ -41,6 +53,15 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 	const totals: UsageTotals = {
 		input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0,
 		cacheHitRate: undefined,
+		tools: { input: 0, output: 0, cost: 0 },
+	};
+	const addSideSpend = (u: ToolResultMessage["usage"]) => {
+		if (!u) return;
+		// Mirror the main counters' convention: cacheWrite bills near full
+		// price, so it counts toward the input-side figure.
+		totals.tools.input += finiteOrZero(u.input) + finiteOrZero(u.cacheWrite);
+		totals.tools.output += finiteOrZero(u.output);
+		totals.tools.cost += finiteOrZero(u.cost?.total);
 	};
 	for (const entry of ctx.sessionManager.getEntries()) {
 		if (entry.type === "message" && entry.message?.role === "assistant") {
@@ -57,6 +78,10 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 			totals.cacheRead += cacheRead;
 			totals.cacheWrite += cacheWrite;
 			totals.cost += finiteOrZero(u.cost?.total);
+		} else if (entry.type === "message" && entry.message?.role === "toolResult") {
+			addSideSpend((entry.message as ToolResultMessage).usage);
+		} else if (entry.type === "branch_summary" || entry.type === "compaction") {
+			addSideSpend(entry.usage);
 		}
 	}
 	const promptTotal = totals.input + totals.cacheRead;

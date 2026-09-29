@@ -169,7 +169,13 @@ function renderStatsBlock(
 		}
 	}
 	if (segments.cost) {
-		stats.push(theme.fg("warning", `${glyphs.cost} $${totals.cost.toFixed(3)}`));
+		let costText = `${glyphs.cost} $${totals.cost.toFixed(3)}`;
+		// Side-spend (tools/summaries) rides the same segment, dimmed: zero
+		// side-spend renders exactly as before.
+		if (totals.tools.cost > 0) {
+			costText += theme.fg("dim", `+$${totals.tools.cost.toFixed(3)} tools`);
+		}
+		stats.push(theme.fg("warning", costText));
 	}
 
 	return stats.join(` ${theme.fg("dim", "|")} `);
