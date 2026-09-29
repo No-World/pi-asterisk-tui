@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Box, Container, Markdown, sliceByColumn, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import * as piTui from "@earendil-works/pi-tui";
-import { alignChildRow as alignChildRowImpl, findLeafAtLine, resolveSelectionRows } from "../extensions/asterisk-tui/selection-copy.ts";
+import { alignChildRow as alignChildRowImpl, findLeafAtLine, resolveSelectionRows, setSelectionTabWidth } from "../extensions/asterisk-tui/selection-copy.ts";
 import { attachForTest, renderCollapsedForTest, setCollapseOptions, uninstallTurnCollapse } from "../extensions/asterisk-tui/turn-collapse.ts";
 const selectionCopyInternals = { alignChildRow: alignChildRowImpl, findLeafAtLine };
 import { DEFAULT_CONFIG, normalizeSelectionConfig, type OpenTuiConfig } from "../extensions/asterisk-tui/config.ts";
-import { cycleSelectionCopy, toggleSelectionTrimPadding } from "../extensions/asterisk-tui/settings-command.ts";
+import { cycleSelectionCopy, cycleSelectionTabWidth, toggleSelectionTrimPadding } from "../extensions/asterisk-tui/settings-command.ts";
 import {
 	buildMarkdownOrigins,
 	installSelectionCopy,
@@ -147,7 +147,8 @@ test("unwrapped emission: opaque rows fall back to stock slices", () => {
 	const result = emitUnwrapped(deps, resolution);
 	assert.ok(result !== undefined);
 	assert.ok(result.includes("\n"), "stock behavior keeps visual rows");
-	const expected = rows.map((row) => stripTerminalSequences(record.lines[row]!).trimEnd().replace(/^\s+/, "")).join("\n");
+	// col-0 slices drop exactly the one margin column; deeper indentation would stay
+	const expected = rows.map((row) => stripTerminalSequences(record.lines[row]!).trimEnd().replace(/^ /, "")).join("\n");
 	assert.equal(result, expected);
 });
 
@@ -329,7 +330,7 @@ test("raw emission: non-markdown runs degrade per-part to unwrapped text", () =>
 	assert.ok(result !== undefined);
 	const [first, second] = result!.split("\n");
 	assert.equal(first, text);
-	assert.equal(second, toolLine);
+	assert.equal(second, toolLine); // one margin column dropped
 });
 
 test("normalizeSelectionConfig: trimPadding defaults on, explicit off respected", () => {
@@ -694,4 +695,72 @@ test("e2e: raw copy keeps fenced code blocks verbatim (indentation, fences, inli
 	} finally {
 		cleanupInstall();
 	}
+});
+
+test("raw copy tab policy: keep tabs, expand to 4, whole-message path", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+		const source = ["前文：", "", "```ts", "\tconst a = {", "\t\tb: 1,", "\t};", "```"].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const width = 40;
+		const lines = md.render(width);
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "recorded");
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+		const codeCallIdx = mdRecord.topCalls.findIndex((c) => c.token.type === "code");
+		const codeCall = origins.callRows[codeCallIdx]!;
+		const rows: number[] = [];
+		for (let r = codeCall.start; r < codeCall.end; r++) rows.push(r);
+		const selectedLines = rows.map((r) => lines[r]!);
+		const resolution = {
+			bounds: {
+				start: { row: rows[0]!, col: 0 },
+				end: { row: rows[rows.length - 1]!, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+			},
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: rows.map((r) => {
+					const g = origins.origins[r]!;
+					return g >= 0 ? { record: mdRecord, group: g, text: origins.groups[g] ?? "" } : undefined;
+				}),
+				lines: selectedLines,
+				markdown: rows.map((r) => ({ record: mdRecord, localRow: r })),
+			},
+		} as unknown as ResolvedSelection;
+
+		// default (3): renderer-normalized three spaces
+		setSelectionTabWidth(3);
+		const asRendered = emitRaw(deps, resolution);
+		assert.ok(asRendered!.includes("   b: 1,"), "3-space form by default");
+
+		// keep literal tabs
+		setSelectionTabWidth("tab");
+		const withTabs = emitRaw(deps, resolution);
+		assert.ok(withTabs!.includes("\tb: 1,"), "literal tab preserved");
+		assert.ok(withTabs!.includes("```ts"), "fences intact");
+
+		// expand to 4
+		setSelectionTabWidth(4);
+		const with4 = emitRaw(deps, resolution);
+		assert.ok(with4!.includes("    b: 1,"), "4-space expansion");
+
+		setSelectionTabWidth(3); // restore global state
+	} finally {
+		cleanupInstall();
+	}
+});
+
+test("normalizeSelectionConfig: tabWidth validation and cycling", () => {
+	assert.equal(normalizeSelectionConfig({}).tabWidth, 3);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 4 }).tabWidth, 4);
+	assert.equal(normalizeSelectionConfig({ tabWidth: "tab" }).tabWidth, "tab");
+	assert.equal(normalizeSelectionConfig({ tabWidth: 5 }).tabWidth, 3);
+	let config = structuredClone(DEFAULT_CONFIG);
+	const order = [3, 2, 4, 8, "tab"] as const;
+	for (const expected of [2, 4, 8, "tab" as const, 3]) {
+		config = cycleSelectionTabWidth(config);
+		assert.equal(config.selection.tabWidth, expected);
+	}
+	void order;
 });

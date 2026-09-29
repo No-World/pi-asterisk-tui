@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SelectionCopyMode, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, SELECTION_COPY_MODES, SELECTION_TAB_WIDTHS, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -37,6 +37,7 @@ const COPY = {
 			wheelScrollLines: "Mouse wheel speed",
 			cursorStyle: "Cursor style",
 			selectionCopy: "Selection copy",
+			selectionTabWidth: "Tab width (raw copy)",
 			selectionTrimPadding: "Trim selection margins",
 			iconMode: "Icon mode",
 			cwd: "CWD",
@@ -100,6 +101,7 @@ const COPY = {
 			wheelPrompt: (count: number) => `Wheel scroll lines per notch, 1-10 (current: ${count}). Enter: apply · Esc: cancel`,
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
 			selectionCopyModes: { plain: "Visual content", unwrapped: "Logical content", raw: "Source content" },
+			tabWidths: { 3: "3 (as rendered)", 2: "2 spaces", 4: "4 spaces", 8: "8 spaces", tab: "Keep tabs" } as Record<string, string>,
 			trimPaddingHint: "Highlight and visual copy skip padded margins",
 			footerStyles: { hud: "HUD", classic: "Classic" },
 			stylePresets: { hud: "HUD", classic: "Classic", custom: "Custom" },
@@ -124,6 +126,7 @@ const COPY = {
 			wheelScrollLines: "鼠标滚轮速度",
 			cursorStyle: "光标样式",
 			selectionCopy: "选区复制",
+			selectionTabWidth: "Tab 宽度（原始内容）",
 			selectionTrimPadding: "选区边距裁剪",
 			iconMode: "图标模式",
 			cwd: "当前目录",
@@ -187,6 +190,7 @@ const COPY = {
 			wheelPrompt: (count: number) => `滚轮每格滚动行数（当前 ${count}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
 			selectionCopyModes: { plain: "按视觉内容复制", unwrapped: "按逻辑内容复制", raw: "按原始内容复制" },
+			tabWidths: { 3: "3（与渲染一致）", 2: "2 空格", 4: "4 空格", 8: "8 空格", tab: "保留制表符" } as Record<string, string>,
 			trimPaddingHint: "高亮与视觉内容复制不覆盖补齐空白（前后不多出空格）",
 			footerStyles: { hud: "HUD 风格", classic: "经典风格" },
 			stylePresets: { hud: "HUD 风格", classic: "经典风格", custom: "自定义" },
@@ -277,6 +281,14 @@ export function toggleSelectionTrimPadding(config: OpenTuiConfig): OpenTuiConfig
 	return { ...config, selection: { ...config.selection, trimPadding: !config.selection.trimPadding } };
 }
 
+/** Cycles the raw-copy tab width: 3 → 2 → 4 → 8 → tab → 3. */
+export function cycleSelectionTabWidth(config: OpenTuiConfig): OpenTuiConfig {
+	const order = SELECTION_TAB_WIDTHS;
+	const idx = order.indexOf(config.selection.tabWidth);
+	const next = order[(idx + 1) % order.length]!;
+	return { ...config, selection: { ...config.selection, tabWidth: next } };
+}
+
 function setWheelScrollLines(config: OpenTuiConfig, raw: string): OpenTuiConfig | undefined {
 	if (!/^\d+$/.test(raw)) return undefined;
 	const parsed = Number(raw);
@@ -345,6 +357,11 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			currentValue: copy.values.wheelLines(config.fullscreen.wheelScrollLines),
 		},
 		{ id: "selectionCopy", label: copy.labels.selectionCopy, currentValue: copy.values.selectionCopyModes[config.selection.copy] },
+		{
+			id: "selectionTabWidth",
+			label: copy.labels.selectionTabWidth,
+			currentValue: copy.values.tabWidths[String(config.selection.tabWidth)] ?? String(config.selection.tabWidth),
+		},
 		{
 			id: "selectionTrimPadding",
 			label: copy.labels.selectionTrimPadding,
@@ -516,6 +533,7 @@ function handleSettingChange(
 		if (itemId === "enabled") return toggleEnabled(config);
 		if (itemId === "settingsLanguage") return toggleLanguage(config);
 		if (itemId === "selectionCopy") return cycleSelectionCopy(config);
+		if (itemId === "selectionTabWidth") return cycleSelectionTabWidth(config);
 		if (itemId === "selectionTrimPadding") return toggleSelectionTrimPadding(config);
 	}
 	if (tab === "icons") {

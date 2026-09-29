@@ -21,11 +21,19 @@ export interface SelectionConfig {
 	/** Skip padded margins in selections: highlight clamps to content and
 	 * plain-mode copies drop leading/trailing margin spaces. */
 	trimPadding: boolean;
+	/** Tab width in raw copies (rendered tabs are 3 columns). */
+	tabWidth: SelectionTabWidth;
 }
+
+/** Tab presentation for raw copies: 3 (renderer default) / 2 / 4 / 8, or
+ * "tab" to keep literal tab characters. */
+export type SelectionTabWidth = 2 | 3 | 4 | 8 | "tab";
+export const SELECTION_TAB_WIDTHS: readonly SelectionTabWidth[] = [3, 2, 4, 8, "tab"];
 
 export const DEFAULT_SELECTION_CONFIG: SelectionConfig = {
 	copy: DEFAULT_SELECTION_COPY_MODE,
 	trimPadding: true,
+	tabWidth: 3,
 };
 
 /** Migrates/normalizes the selection block (missing → defaults). */
@@ -36,6 +44,9 @@ export function normalizeSelectionConfig(value: unknown): SelectionConfig {
 			? (raw.copy as SelectionCopyMode)
 			: DEFAULT_SELECTION_COPY_MODE,
 		trimPadding: raw.trimPadding !== false,
+		tabWidth: SELECTION_TAB_WIDTHS.includes(raw.tabWidth as SelectionTabWidth)
+			? (raw.tabWidth as SelectionTabWidth)
+			: DEFAULT_SELECTION_CONFIG.tabWidth,
 	};
 }
 

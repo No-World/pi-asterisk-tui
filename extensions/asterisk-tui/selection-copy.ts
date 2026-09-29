@@ -67,6 +67,9 @@ export interface SelectionDeps {
 
 let copyMode: SelectionCopyMode = "unwrapped";
 let trimPadding = true;
+/** Tab presentation for raw copies: 3 matches the renderer's normalization;
+ * 2/4/8 re-expand tabs to that width; "tab" keeps literal tab characters. */
+let tabWidth: number | "tab" = 3;
 
 /** Current copy mode (index.ts feeds this from asterisk-tui.json). */
 export function setSelectionCopyMode(mode: SelectionCopyMode): void {
@@ -78,6 +81,11 @@ export function setSelectionCopyMode(mode: SelectionCopyMode): void {
  * this from asterisk-tui.json). */
 export function setSelectionTrimPadding(enabled: boolean): void {
 	trimPadding = enabled;
+}
+
+/** Tab width policy for raw copies (index.ts feeds this from asterisk-tui.json). */
+export function setSelectionTabWidth(width: number | "tab"): void {
+	tabWidth = width;
 }
 
 // ---------------------------------------------------------------------------
@@ -1145,13 +1153,16 @@ function sliceInlineRaw(
 	return balanceRawSlice(raw.slice(rawStart, rawEnd));
 }
 
+/** The selection margin is one column on each side (trailing already falls
+ * to trimEnd). Cut at column 0 drops exactly this many leading columns —
+ * content indentation beyond it is preserved. */
+const SLICE_MARGIN_COLS = 1;
+
 function stockSlice(deps: SelectionDeps, line: string, startCol: number, endCol: number): string {
 	const width = deps.visibleWidth(line);
-	const start = Math.max(0, Math.min(startCol, width));
+	const start = startCol === 0 ? Math.max(0, Math.min(SLICE_MARGIN_COLS, width)) : Math.max(0, Math.min(startCol, width));
 	const end = Math.max(start, Math.min(endCol, width));
-	const stripped = deps.strip(deps.sliceByColumn(line, start, Math.max(0, end - start), true));
-	// Cuts at column 0 include the left margin — drop it (content only).
-	return (start === 0 ? stripped.replace(/^\s+/, "") : stripped).trimEnd();
+	return deps.strip(deps.sliceByColumn(line, start, Math.max(0, end - start), true)).trimEnd();
 }
 
 /** Exclusive end column of the selection on row `idx` (clamped to the row width). */
@@ -1177,6 +1188,20 @@ function rowFullyCovered(deps: SelectionDeps, bounds: { start: SelectionPoint; e
  */
 export function emitUnwrapped(deps: SelectionDeps, resolution: ResolvedSelection): string | undefined {
 	return emitRows(deps, resolution, 0, resolution.mapping.entries.length);
+}
+
+/** Row-by-row emission over mapping rows [from, to) — every row copies as
+ * displayed (margin-aware), no logical grouping. Used by plain+trimPadding. */
+function emitRowsPerRow(deps: SelectionDeps, resolution: ResolvedSelection, from: number, to: number): string | undefined {
+	const { bounds, mapping } = resolution;
+	const lines = mapping.lines;
+	const parts: string[] = [];
+	for (let idx = from; idx < to; idx++) {
+		const entry = mapping.entries[idx];
+		parts.push(stockSlice(deps, lines[idx] ?? "", idx === 0 ? bounds.start.col : 0, rowEndCol(deps, bounds, idx, lines)));
+	}
+	const text = parts.join("\n");
+	return text.length === 0 ? undefined : text;
 }
 
 /** Unwrapped emission over mapping rows [from, to). */
@@ -1212,6 +1237,44 @@ function emitRows(deps: SelectionDeps, resolution: ResolvedSelection, from: numb
 	}
 	const text = parts.join("\n");
 	return text.length === 0 ? undefined : text;
+}
+
+/**
+ * pi-tui normalizes tabs to three spaces BEFORE lexing, so per-call raws
+ * carry the normalized form. The component's original text is a
+ * deterministic expansion of that — this walks both in lockstep and slices
+ * the original span for a normalized substring (undefined when it does not
+ * appear verbatim).
+ */
+function unnormalizeRaw(original: string, raw: string): string | undefined {
+	const reconstruction = original.replace(/\t/g, "   ");
+	const at = reconstruction.indexOf(raw);
+	if (at < 0) return undefined;
+	// normalized index → original index (each tab expands to three columns)
+	let normalizedIndex = 0;
+	let originalIndex = 0;
+	while (normalizedIndex < at && originalIndex < original.length) {
+		normalizedIndex += original[originalIndex] === "\t" ? 3 : 1;
+		originalIndex += 1;
+	}
+	if (normalizedIndex < at) return undefined;
+	const startOrig = originalIndex;
+	while (normalizedIndex < at + raw.length && originalIndex < original.length) {
+		normalizedIndex += original[originalIndex] === "\t" ? 3 : 1;
+		originalIndex += 1;
+	}
+	return original.slice(startOrig, originalIndex);
+}
+
+/** Presents a raw slice per the tab policy: literal tabs kept, or re-expanded
+ * to the configured width (3 matches what the renderer shows). Falls back to
+ * the normalized slice when the original cannot be recovered. */
+function applyTabPolicy(record: MarkdownRecord, raw: string): string {
+	if (typeof record.text !== "string") return raw;
+	const original = unnormalizeRaw(record.text, raw);
+	if (original === undefined) return raw;
+	if (tabWidth === "tab") return original;
+	return original.replace(/\t/g, " ".repeat(tabWidth));
 }
 
 /**
@@ -1280,7 +1343,8 @@ function emitRawRun(
 		spanStart <= nonBlankRows[0]! &&
 		spanEnd >= nonBlankRows[nonBlankRows.length - 1]!;
 	if (coversWhole) {
-		return typeof record.text === "string" ? record.text : undefined;
+		if (typeof record.text !== "string") return undefined;
+		return tabWidth === "tab" || tabWidth === 3 ? record.text : record.text.replace(/\t/g, " ".repeat(tabWidth));
 	}
 	const raws: string[] = [];
 	// Blank-only calls (space tokens) between two emitted calls carry the
@@ -1315,7 +1379,7 @@ function emitRawRun(
 			if (typeof callRow.raw !== "string") return undefined;
 			flushSeparators();
 			emittedAny = true;
-			raws.push(callRow.raw);
+			raws.push(applyTabPolicy(record, callRow.raw));
 			continue;
 		}
 		const call = record.topCalls[callIndex];
@@ -1326,13 +1390,13 @@ function emitRawRun(
 		if (sliced !== undefined) {
 			flushSeparators();
 			emittedAny = true;
-			raws.push(sliced);
+			raws.push(applyTabPolicy(record, sliced));
 			continue;
 		}
 		if (typeof callRow.raw !== "string") return undefined;
 		flushSeparators();
 		emittedAny = true;
-		raws.push(callRow.raw);
+		raws.push(applyTabPolicy(record, callRow.raw));
 	}
 	if (!emittedAny) return undefined;
 	return raws.join("");
@@ -1887,9 +1951,10 @@ function wrapAltScreen(proto: object | null | undefined): () => void {
 				debug(`copy: raw fell back (rows=${resolution.mapping.entries.length}, unmapped=${unmapped})`);
 			}
 			if (copyMode === "plain") {
-				// Plain + trimPadding: stock visual-row copy minus the margin
-				// spaces — entries blanked so every row copies as displayed.
-				resolution.mapping.entries = resolution.mapping.entries.map(() => undefined);
+				// Plain + trimPadding: stock visual-row copy minus the structural
+				// margin (content indentation preserved).
+				const text = emitRowsPerRow(deps, resolution, 0, resolution.mapping.entries.length);
+				return text === undefined ? stock() : text;
 			}
 			const text = emitUnwrapped(deps, resolution);
 			return text === undefined ? stock() : text;
