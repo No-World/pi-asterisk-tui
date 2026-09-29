@@ -772,3 +772,40 @@ test("normalizeSelectionConfig + panel input: tabWidth accepts every integer 2-8
 	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), "9"), undefined);
 	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), "x"), undefined);
 });
+
+test("partial code selection disambiguates tab vs space lines with tabWidth set", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+		// two lines that RENDER identically (tab normalizes to 3 spaces)
+		const source = ["```txt", "\tKEY A", "   KEY A", "```"].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const width = 30;
+		const lines = md.render(width);
+		const mdRecord = __testing.markdownRecords.get(md as never)!;
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+		const codeCallIdx = mdRecord.topCalls.findIndex((c) => c.token.type === "code");
+		const codeCall = origins.callRows[codeCallIdx]!;
+		// rows: fence, KEY A, KEY A, fence — select ONLY the display row of the
+		// SECOND (space-indented) line
+		const spaceRow = codeCall.start + 2;
+		const selectedLines = [lines[spaceRow]!];
+		const resolution = {
+			bounds: { start: { row: spaceRow, col: 0 }, end: { row: spaceRow, col: visibleWidth(selectedLines[0]!), boundary: false } },
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: [{ record: mdRecord, group: origins.origins[spaceRow]!, text: "" }],
+				lines: selectedLines,
+				markdown: [{ record: mdRecord, localRow: spaceRow }],
+			},
+		} as unknown as ResolvedSelection;
+		setSelectionTabWidth(4);
+		const out = emitRaw(deps, resolution);
+		// the space-indented line must NOT inherit the tab line's original form
+		assert.ok(out!.includes("   KEY A"), `space line stays 3-space under tabWidth=4:\n${JSON.stringify(out)}`);
+		assert.ok(!out!.includes("    KEY A"), "must not expand to 4 (that would be the tab line's form)");
+		setSelectionTabWidth(3);
+	} finally {
+		cleanupInstall();
+	}
+});

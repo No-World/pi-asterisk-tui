@@ -1117,7 +1117,7 @@ function sliceInlineRaw(
 	contentWidth: number,
 	startCut: { fragmentIndex: number; col: number; contentColStart: number } | undefined,
 	endCut: { fragmentIndex: number; col: number; contentColStart: number } | undefined,
-): string | undefined {
+): { text: string; offsetInRaw: number } | undefined {
 	void contentWidth;
 	const segs = alignInline(deps, raw, rendered);
 	if (!segs) return undefined;
@@ -1150,7 +1150,7 @@ function sliceInlineRaw(
 		const markerText = raw.slice(markerAfter.rawStart, markerAfter.rawEnd);
 		if (raw.slice(rawStart, rawEnd).includes(markerText)) rawEnd = markerAfter.rawEnd;
 	}
-	return balanceRawSlice(raw.slice(rawStart, rawEnd));
+	return { text: balanceRawSlice(raw.slice(rawStart, rawEnd)), offsetInRaw: rawStart };
 }
 
 /** The selection margin is one column on each side (trailing already falls
@@ -1246,10 +1246,7 @@ function emitRows(deps: SelectionDeps, resolution: ResolvedSelection, from: numb
  * the original span for a normalized substring (undefined when it does not
  * appear verbatim).
  */
-function unnormalizeRaw(original: string, raw: string): string | undefined {
-	const reconstruction = original.replace(/\t/g, "   ");
-	const at = reconstruction.indexOf(raw);
-	if (at < 0) return undefined;
+function unnormalizeRaw(original: string, raw: string, at: number): string | undefined {
 	// normalized index → original index (each tab expands to three columns)
 	let normalizedIndex = 0;
 	let originalIndex = 0;
@@ -1269,12 +1266,53 @@ function unnormalizeRaw(original: string, raw: string): string | undefined {
 /** Presents a raw slice per the tab policy: literal tabs kept, or re-expanded
  * to the configured width (3 matches what the renderer shows). Falls back to
  * the normalized slice when the original cannot be recovered. */
-function applyTabPolicy(record: MarkdownRecord, raw: string): string {
+function applyTabPolicy(record: MarkdownRecord, raw: string, exactOffset?: number, span?: { start: number; end: number }): string {
 	if (typeof record.text !== "string") return raw;
-	const original = unnormalizeRaw(record.text, raw);
+	const reconstruction = record.text.replace(/\t/g, "   ");
+	let at: number | undefined;
+	if (exactOffset !== undefined && reconstruction.startsWith(raw, exactOffset)) {
+		at = exactOffset;
+	} else if (span) {
+		// bounded search inside the owning call's span — never a foreign hit
+		const found = reconstruction.indexOf(raw, span.start);
+		if (found >= 0 && found + raw.length <= span.end) at = found;
+	} else {
+		const found = reconstruction.indexOf(raw);
+		if (found >= 0) at = found;
+	}
+	if (at === undefined) return raw;
+	const original = unnormalizeRaw(record.text, raw, at);
 	if (original === undefined) return raw;
 	if (tabWidth === "tab") return original;
 	return original.replace(/\t/g, " ".repeat(tabWidth));
+}
+
+/**
+ * Cumulative normalized-text offsets of each top-level call's raw. The calls'
+ * raws concatenate to the normalized source (marked block tokens cover it);
+ * a mismatch anywhere marks the offsets untrustworthy (undefined entries).
+ */
+function callRawOffsets(record: MarkdownRecord, origins: MdOriginInfo): Array<number | undefined> {
+	const offsets: Array<number | undefined> = [];
+	if (typeof record.text !== "string") return origins.callRows.map(() => undefined);
+	const reconstruction = record.text.replace(/\t/g, "   ");
+	let cursor = 0;
+	let trusted = true;
+	for (const callRow of origins.callRows) {
+		const raw = callRow.raw;
+		if (!trusted || typeof raw !== "string") {
+			offsets.push(undefined);
+			continue;
+		}
+		if (!reconstruction.startsWith(raw, cursor)) {
+			trusted = false;
+			offsets.push(undefined);
+			continue;
+		}
+		offsets.push(cursor);
+		cursor += raw.length;
+	}
+	return offsets;
 }
 
 /**
@@ -1350,6 +1388,7 @@ function emitRawRun(
 	// Blank-only calls (space tokens) between two emitted calls carry the
 	// source's blank-line separation — without them adjacent blocks would
 	// concatenate with no blank line. Leading/trailing blanks stay dropped.
+	const offsets = callRawOffsets(record, origins);
 	let separators: string[] = [];
 	let emittedAny = false;
 	const flushSeparators = (): void => {
@@ -1368,7 +1407,7 @@ function emitRawRun(
 		}
 		if (!hasNonBlank) {
 			// pure spacing call — separator material only when interior
-			if (emittedAny && typeof callRow.raw === "string") separators.push(callRow.raw);
+			if (emittedAny && typeof callRow.raw === "string") separators.push(applyTabPolicy(record, callRow.raw, offsets[callIndex]));
 			continue;
 		}
 		const cutInCall =
@@ -1379,7 +1418,7 @@ function emitRawRun(
 			if (typeof callRow.raw !== "string") return undefined;
 			flushSeparators();
 			emittedAny = true;
-			raws.push(applyTabPolicy(record, callRow.raw));
+			raws.push(applyTabPolicy(record, callRow.raw, offsets[callIndex]));
 			continue;
 		}
 		const call = record.topCalls[callIndex];
@@ -1390,13 +1429,21 @@ function emitRawRun(
 		if (sliced !== undefined) {
 			flushSeparators();
 			emittedAny = true;
-			raws.push(applyTabPolicy(record, sliced));
+			const callOffset = offsets[callIndex];
+			raws.push(
+				applyTabPolicy(
+					record,
+					sliced.text,
+					callOffset !== undefined && sliced.offsetInRaw !== undefined ? callOffset + sliced.offsetInRaw : undefined,
+					callOffset !== undefined ? { start: callOffset, end: callOffset + callRow.raw!.length } : undefined,
+				),
+			);
 			continue;
 		}
 		if (typeof callRow.raw !== "string") return undefined;
 		flushSeparators();
 		emittedAny = true;
-		raws.push(applyTabPolicy(record, callRow.raw));
+		raws.push(applyTabPolicy(record, callRow.raw, offsets[callIndex]));
 	}
 	if (!emittedAny) return undefined;
 	return raws.join("");
@@ -1462,18 +1509,24 @@ function sliceCallRaw(
 	origins: MdOriginInfo,
 	startCut: SelectionCut | undefined,
 	endCut: SelectionCut | undefined,
-): string | undefined {
+): { text: string; offsetInRaw?: number } | undefined {
 	if (typeof callRow.raw !== "string") return undefined;
 	const tokenType = typeof call.token.type === "string" ? call.token.type : "";
 	switch (tokenType) {
 		case "code":
 			return sliceCodeRaw(call, callRow, selectedLocal, origins);
-		case "table":
-			return sliceTableRaw(deps, call, callRow, selectedLocal, origins);
-		case "list":
-			return sliceListRaw(call, callRow, selectedLocal, origins);
-		case "blockquote":
-			return sliceQuoteRaw(deps, record, call, callRow, selectedLocal, origins, startCut, endCut);
+		case "table": {
+			const sliced = sliceTableRaw(deps, call, callRow, selectedLocal, origins);
+			return sliced === undefined ? undefined : { text: sliced };
+		}
+		case "list": {
+			const sliced = sliceListRaw(call, callRow, selectedLocal, origins);
+			return sliced === undefined ? undefined : { text: sliced };
+		}
+		case "blockquote": {
+			const sliced = sliceQuoteRaw(deps, record, call, callRow, selectedLocal, origins, startCut, endCut);
+			return sliced === undefined ? undefined : { text: sliced };
+		}
 		case "latexBlock":
 		case "heading":
 			return undefined; // rendered ≠ raw lines / prefix handling → snap whole
@@ -1491,7 +1544,7 @@ function sliceParagraphLikeRaw(
 	origins: MdOriginInfo,
 	startCut: SelectionCut | undefined,
 	endCut: SelectionCut | undefined,
-): string | undefined {
+): { text: string; offsetInRaw?: number } | undefined {
 	const output = call.outputs[0];
 	if (typeof output !== "string" || typeof callRow.raw !== "string") return undefined;
 	const rendered = deps.strip(output).trimEnd();
@@ -1508,13 +1561,14 @@ function sliceParagraphLikeRaw(
 	return sliceInlineRaw(deps, raw, rendered, fragments, record.contentWidth, s, e);
 }
 
+
 /** Code blocks: covered code lines map 1:1 to interior raw lines (no fences). */
 function sliceCodeRaw(
 	call: TokenCallRecord,
 	callRow: { start: number; end: number; raw: string | undefined },
 	selectedLocal: Set<number>,
 	origins: MdOriginInfo,
-): string | undefined {
+): { text: string; offsetInRaw?: number } | undefined {
 	if (typeof callRow.raw !== "string") return undefined;
 	const groups = callGroupsInOrder(origins, callRow);
 	// outputs: [fence, ...codeLines, fence, spacing?]
@@ -1537,13 +1591,23 @@ function sliceCodeRaw(
 	if (rawLines.length < 2) return undefined;
 	const interior = rawLines.slice(1, -1);
 	if (interior.length !== codeLineCount) return undefined;
+	const pickedIdx = [...coveredOutputs].sort((a, b) => a - b).map((outputIndex) => outputIndex - 1);
 	const picked: string[] = [];
-	for (const outputIndex of [...coveredOutputs].sort((a, b) => a - b)) {
-		const line = interior[outputIndex - 1];
+	for (const interiorIndex of pickedIdx) {
+		const line = interior[interiorIndex];
 		if (line === undefined) return undefined;
 		picked.push(line);
 	}
-	return picked.join("\n");
+	// Contiguous picked lines are an exact substring of the raw — carry the
+	// character offset so tab unnormalization never guesses by search.
+	let offsetInRaw: number | undefined;
+	const contiguous = pickedIdx.every((v, i) => i === 0 || v === pickedIdx[i - 1]! + 1);
+	if (contiguous && pickedIdx.length > 0) {
+		let at = 0;
+		for (let i = 0; i < pickedIdx[0]! + 1; i++) at += rawLines[i]!.length + 1;
+		offsetInRaw = at;
+	}
+	return { text: picked.join("\n"), offsetInRaw };
 }
 
 const TABLE_SEPARATOR = /^\s*\|?[\s:|-]*-+[\s:|-]*\|?\s*$/;
@@ -1678,7 +1742,7 @@ function sliceQuoteRaw(
 			parts.push(prefixQuote(raw.replace(/\n$/, "")));
 			continue;
 		}
-		parts.push(prefixQuote(sliced));
+		parts.push(prefixQuote(sliced.text));
 	}
 	return parts.join("\n");
 }
