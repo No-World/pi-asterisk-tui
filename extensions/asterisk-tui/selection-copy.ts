@@ -1283,6 +1283,15 @@ function emitRawRun(
 		return typeof record.text === "string" ? record.text : undefined;
 	}
 	const raws: string[] = [];
+	// Blank-only calls (space tokens) between two emitted calls carry the
+	// source's blank-line separation — without them adjacent blocks would
+	// concatenate with no blank line. Leading/trailing blanks stay dropped.
+	let separators: string[] = [];
+	let emittedAny = false;
+	const flushSeparators = (): void => {
+		raws.push(...separators);
+		separators = [];
+	};
 	for (let callIndex = 0; callIndex < origins.callRows.length; callIndex++) {
 		const callRow = origins.callRows[callIndex]!;
 		if (callRow.start > spanEnd || callRow.end <= spanStart) continue;
@@ -1293,13 +1302,19 @@ function emitRawRun(
 			hasNonBlank = true;
 			if (!selectedLocal.has(r)) allCovered = false;
 		}
-		if (!hasNonBlank) continue; // pure spacing call — skippable
+		if (!hasNonBlank) {
+			// pure spacing call — separator material only when interior
+			if (emittedAny && typeof callRow.raw === "string") separators.push(callRow.raw);
+			continue;
+		}
 		const cutInCall =
 			(startCut !== undefined && startCut.row >= callRow.start && startCut.row < callRow.end) ||
 			(endCut !== undefined && endCut.row >= callRow.start && endCut.row < callRow.end);
 		const fullyCovered = !cutInCall && allCovered && callRow.start >= spanStart && callRow.end <= spanEnd + 1;
 		if (fullyCovered) {
 			if (typeof callRow.raw !== "string") return undefined;
+			flushSeparators();
+			emittedAny = true;
 			raws.push(callRow.raw);
 			continue;
 		}
@@ -1309,13 +1324,17 @@ function emitRawRun(
 		const callEndCut = endCut && endCut.row >= callRow.start && endCut.row < callRow.end ? endCut : undefined;
 		const sliced = sliceCallRaw(deps, record, call, callRow, selectedLocal, origins, callStartCut, callEndCut);
 		if (sliced !== undefined) {
+			flushSeparators();
+			emittedAny = true;
 			raws.push(sliced);
 			continue;
 		}
 		if (typeof callRow.raw !== "string") return undefined;
+		flushSeparators();
+		emittedAny = true;
 		raws.push(callRow.raw);
 	}
-	if (raws.length === 0) return undefined;
+	if (!emittedAny) return undefined;
 	return raws.join("");
 }
 

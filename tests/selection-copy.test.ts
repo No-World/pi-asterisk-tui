@@ -585,3 +585,61 @@ test("e2e: raw copy of a table inside a user message (Box-wrapped, OSC133, blank
 		cleanupInstall();
 	}
 });
+
+test("raw emission keeps blank-line separation between blocks (space tokens)", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+	const source = [
+		"## 标题一",
+		"",
+		"第一段正文。",
+		"",
+		"| a | b |",
+		"|---|---|",
+		"| 1 | 2 |",
+	].join("\n");
+	const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+	const width = 40;
+	const lines = md.render(width);
+	const mdRecord = __testing.markdownRecords.get(md as never);
+	assert.ok(mdRecord, "recorded");
+	const origins = buildMarkdownOrigins(deps, mdRecord);
+	// Select every non-blank row but NOT the blank separator rows.
+	const selectedRows: number[] = [];
+	for (let r = 0; r < lines.length; r++) {
+		if (stripTerminalSequences(lines[r]!).trim() !== "") selectedRows.push(r);
+	}
+	const selectedLines = selectedRows.map((r) => lines[r]!);
+	// Start mid-line on the heading (col 2, past "##") — a drag that begins
+	// inside the first line. The whole-component shortcut must NOT fire; the
+	// per-call path runs and must still preserve blank-line separators.
+	const resolution = {
+		bounds: {
+			start: { row: selectedRows[0]!, col: 2 },
+			end: { row: selectedRows[selectedRows.length - 1]!, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+		},
+		sourceLines: lines,
+		contentWidth: mdRecord.contentWidth,
+		mapping: {
+			entries: selectedRows.map((r) => {
+				const g = origins.origins[r]!;
+				return g >= 0 ? { record: mdRecord, group: g, text: origins.groups[g] ?? "" } : undefined;
+			}),
+			lines: selectedLines,
+			markdown: selectedRows.map((r) => ({ record: mdRecord, localRow: r })),
+		},
+	} as unknown as ResolvedSelection;
+	const result = emitRaw(deps, resolution);
+	assert.ok(result !== undefined);
+	assert.ok(
+		result!.includes("## 标题一\n\n第一段正文。"),
+		`heading separated from paragraph by a blank line:\n${JSON.stringify(result)}`,
+	);
+	assert.ok(
+		result!.includes("第一段正文。\n\n| a | b |"),
+		`paragraph separated from table by a blank line:\n${JSON.stringify(result)}`,
+	);
+	} finally {
+		cleanupInstall();
+	}
+});
