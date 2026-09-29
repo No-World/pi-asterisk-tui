@@ -13,6 +13,16 @@ import {
 } from "./fullscreen-scroll.ts";
 import { findBottomBorderIndex, isEditorBorderLine, stripAnsi } from "./utils.ts";
 
+/** Plain-text working status embedded in the editor's top border. Returned
+ * strings are painted with the frame's border color (ponytail routing), so
+ * the status recolors together with thinking-level / bash-mode borders.
+ * Width is the display-column budget; empty string means "nothing to show". */
+export interface WorkingStatusIndicator {
+	renderInBorder(width: number): string;
+	/** Degraded form for narrow borders (e.g. spinner glyph only). */
+	renderSpinnerInBorder(width: number): string;
+}
+
 function fillLine(content: string, width: number): string {
 	const truncated = truncateToWidth(content, Math.max(0, width), "");
 	const pad = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
@@ -45,9 +55,41 @@ function roundedBorder(
 	kind: "top" | "bottom",
 	paint: (s: string) => string,
 	sourceLine?: string,
+	indicator?: WorkingStatusIndicator,
 ): string {
 	if (width < 2) return paint(truncateToWidth(kind === "top" ? "╭╮" : "╰╯", width, ""));
 	const corners = kind === "top" ? (["╭", "╮"] as const) : (["╰", "╯"] as const);
+
+	if (kind === "top" && indicator) {
+		const plain = sourceLine ? stripAnsi(sourceLine) : "";
+		const scrollMatch = plain.match(/([↑↓]\s+\d+\s+more)/);
+		const contentWidth = width - 2;
+		let status = indicator.renderInBorder(Math.max(1, contentWidth - 5));
+		let statusWidth = visibleWidth(status);
+		if (statusWidth > 0) {
+			const overflowLabel = scrollMatch ? ` ${scrollMatch[1]} ` : undefined;
+			const overflowLabelWidth = overflowLabel ? visibleWidth(overflowLabel) : 0;
+			const overflowStart = Math.floor((contentWidth - overflowLabelWidth) / 2);
+			const canFitOverflow = () => overflowLabel !== undefined
+				&& overflowLabelWidth + 2 <= contentWidth
+				&& overflowStart - (3 + statusWidth + 1) >= 1;
+			if (overflowLabel && !canFitOverflow()) {
+				status = indicator.renderSpinnerInBorder(contentWidth);
+				statusWidth = visibleWidth(status);
+			}
+			if (canFitOverflow()) {
+				const leftBlockWidth = 3 + statusWidth + 1;
+				return `${paint(`${corners[0]}── `)}${paint(status)}${paint(` ${"─".repeat(overflowStart - leftBlockWidth)}${overflowLabel}${"─".repeat(contentWidth - overflowStart - overflowLabelWidth)}${corners[1]}`)}`;
+			}
+			if (contentWidth >= statusWidth + 5) {
+				return `${paint(`${corners[0]}── `)}${paint(status)}${paint(` ${"─".repeat(contentWidth - statusWidth - 4)}${corners[1]}`)}`;
+			}
+			status = indicator.renderSpinnerInBorder(contentWidth);
+			statusWidth = visibleWidth(status);
+			const prefixWidth = Math.min(3, Math.max(0, contentWidth - statusWidth));
+			return `${paint(`${corners[0]}${"─".repeat(prefixWidth)}`)}${paint(status)}${paint(`${"─".repeat(Math.max(0, contentWidth - prefixWidth - statusWidth))}${corners[1]}`)}`;
+		}
+	}
 
 	if (sourceLine) {
 		const plain = stripAnsi(sourceLine);
@@ -67,6 +109,7 @@ export class OpenTuiEditor extends CustomEditor {
 	private readonly getBorder: (s: string) => string;
 	private cursorStyle: CursorStyle;
 	private previewHardwareCursor = false;
+	private workingStatusIndicator: WorkingStatusIndicator | undefined;
 
 	constructor(
 		tui: TUI,
@@ -104,6 +147,11 @@ export class OpenTuiEditor extends CustomEditor {
 		this.tui.requestRender();
 	}
 
+	setWorkingStatusIndicator(indicator: WorkingStatusIndicator | undefined): void {
+		this.workingStatusIndicator = indicator;
+		this.tui.requestRender();
+	}
+
 	private renderBase(width: number): string[] {
 		const renderedLines = super.render(width);
 		if (this.cursorStyle === "block") return renderedLines;
@@ -136,7 +184,7 @@ export class OpenTuiEditor extends CustomEditor {
 		const bottomIdx = findBottomBorderIndex(baseLines);
 
 		const result: string[] = [];
-		result.push(roundedBorder(width, "top", borderPaint, baseLines[0]));
+		result.push(roundedBorder(width, "top", borderPaint, baseLines[0], this.workingStatusIndicator));
 
 		for (let i = 1; i < bottomIdx; i++) {
 			const line = baseLines[i] ?? "";
@@ -168,12 +216,14 @@ export function installEditor(
 	let previousHardwareCursor: boolean | undefined;
 	let currentCursorStyle = cursorStyle;
 	let currentWheelScrollLines = wheelScrollLines;
+	let workingStatusIndicator: WorkingStatusIndicator | undefined;
 
 	ctx.ui.setEditorComponent((tui, editorTheme, keybindings) => {
 		activeTui = tui;
 		applyFullscreenWheelScrollLines(tui, currentWheelScrollLines);
 		previousHardwareCursor = tui.getShowHardwareCursor();
 		activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle);
+		activeEditor.setWorkingStatusIndicator(workingStatusIndicator);
 		return activeEditor;
 	});
 	return {
@@ -184,6 +234,10 @@ export function installEditor(
 		setWheelScrollLines(nextWheelScrollLines: number): void {
 			currentWheelScrollLines = nextWheelScrollLines;
 			if (activeTui) applyFullscreenWheelScrollLines(activeTui, currentWheelScrollLines);
+		},
+		setWorkingStatusIndicator(indicator: WorkingStatusIndicator | undefined): void {
+			workingStatusIndicator = indicator;
+			activeEditor?.setWorkingStatusIndicator(indicator);
 		},
 		cleanup(): void {
 			ctx.ui.setEditorComponent(undefined);

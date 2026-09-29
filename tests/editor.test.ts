@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
-import { TuiMainScreen, type EditorTheme, type Terminal, type TUI } from "@earendil-works/pi-tui";
+import { TuiMainScreen, visibleWidth, type EditorTheme, type Terminal, type TUI } from "@earendil-works/pi-tui";
 import { installEditor, OpenTuiEditor } from "../extensions/asterisk-tui/editor.ts";
 import { stripAnsi } from "../extensions/asterisk-tui/utils.ts";
 
@@ -177,4 +177,77 @@ test("frame recolors via borderColor (bash mode / thinking level hook)", () => {
 	assert.ok(top.startsWith("╭") && top.endsWith("╮"), `top border shape: ${top!}`);
 	assert.ok(body.startsWith("│") && body.endsWith("│"), `body rails: ${body!}`);
 	assert.ok(painted.length > 0, "borderColor was invoked for the frame");
+});
+
+test("embeds the working status in the top border", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setWorkingStatusIndicator({
+		renderInBorder: () => "◐ working",
+		renderSpinnerInBorder: () => "◐",
+	});
+
+	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /^╭── ◐ working ─+╮$/);
+});
+
+test("degrades the working border to spinner-only when narrow", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setWorkingStatusIndicator({
+		renderInBorder: () => "◐ working",
+		renderSpinnerInBorder: () => "◐",
+	});
+
+	// width 14 → contentWidth 12 < status(9) + 5: spinner-only ladder rung.
+	const top = stripAnsi(editor.render(14)[0] ?? "");
+	assert.ok(top.includes("◐"), `spinner missing: ${top}`);
+	assert.ok(!top.includes("working"), `full status leaked on narrow border: ${top}`);
+	assert.equal(visibleWidth(top), 14);
+});
+
+test("keeps a narrow scrolled working border intact", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setText(Array.from({ length: 10 }, (_, index) => `line ${index}`).join("\n"));
+	let spinnerRenders = 0;
+	editor.setWorkingStatusIndicator({
+		renderInBorder: () => "◐ working status that ignores width",
+		renderSpinnerInBorder: () => {
+			spinnerRenders++;
+			return "◐";
+		},
+	});
+
+	const topBorder = stripAnsi(editor.render(30)[0] ?? "");
+
+	assert.equal(spinnerRenders, 1);
+	assert.equal(visibleWidth(topBorder), 30);
+	assert.match(topBorder, /↑ 3 more/);
+	assert.ok(topBorder.endsWith("╮"));
+});
+
+test("drops the working status when the indicator goes empty", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	let working = true;
+	editor.setWorkingStatusIndicator({
+		renderInBorder: () => (working ? "◐ working" : ""),
+		renderSpinnerInBorder: () => (working ? "◐" : ""),
+	});
+
+	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /◐ working/);
+	working = false;
+	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /^╭─+╮$/);
 });

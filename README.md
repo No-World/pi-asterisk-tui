@@ -117,6 +117,12 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
 ## Editor & settings
 
 - Framed editor with block / bar / underline cursor styles.
+- **Working status in the top border** (`╭── ◐ 12s ────╮`): while the agent runs, the
+  editor frame itself carries the elapsed time next to the working glyph — painted
+  with the frame color, so it recolors together with thinking-level and bash-mode
+  borders. Narrow frames degrade to a glyph-only rung, then to a plain border;
+  the scroll hint (`↑ 3 more`) keeps its centered slot. The footer's own working
+  segment is unchanged.
 - **Selection copy (fullscreen)** in three modes (`/*tui` panel or `selection.copy`,
   default `unwrapped`): `plain` copies visual content (pi stock, row by row);
   `unwrapped` copies logical content — soft-wrapped rows join back into their logical

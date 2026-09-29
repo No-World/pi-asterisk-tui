@@ -11,7 +11,7 @@ import {
 	toggleExpandAll,
 	uninstallTurnCollapse,
 } from "./turn-collapse.ts";
-import { installEditor } from "./editor.ts";
+import { installEditor, type WorkingStatusIndicator } from "./editor.ts";
 import { installFooter } from "./footer.ts";
 import { installHeader } from "./header.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
@@ -26,7 +26,8 @@ import {
 	invalidateUsageCache,
 	type FooterState,
 } from "./state.ts";
-import { formatDuration, fmtTokens } from "./utils.ts";
+import { formatDuration, fmtTokens, truncateToWidth, visibleWidth } from "./utils.ts";
+import { resolveGlyphs } from "./icons.ts";
 
 function isInteractiveLaunch(): boolean {
 	if (!process.stdout.isTTY) return false;
@@ -128,6 +129,25 @@ export default function (pi: ExtensionAPI) {
 				},
 			);
 			editor = installEditor(pi, ctx, config.cursorStyle, config.fullscreen.wheelScrollLines);
+			// Working status rides the editor's top border: plain text painted with
+			// the frame color, so it recolors with thinking-level / bash-mode borders.
+			// The 250ms working timer drives tui.requestRender(), so the elapsed
+			// time and degradation ladder refresh for free.
+			editor.setWorkingStatusIndicator({
+				renderInBorder: (width) => {
+					if (!sessionLifecycle.isCurrent() || !active) return "";
+					if (state.workingSince === undefined) return "";
+					const glyphs = resolveGlyphs(config.icons.mode);
+					const elapsed = formatDuration(Date.now() - state.workingSince);
+					return truncateToWidth(`${glyphs.working} ${elapsed}`, Math.max(0, width), "");
+				},
+				renderSpinnerInBorder: (width) => {
+					if (!sessionLifecycle.isCurrent() || !active) return "";
+					if (state.workingSince === undefined) return "";
+					const glyphs = resolveGlyphs(config.icons.mode);
+					return truncateToWidth(glyphs.working, Math.max(0, width), "");
+				},
+			});
 			// Re-enabled mid-session: the collapse/click patches install here too
 			// (session_start only covers fresh sessions).
 			if (!cleanupThinkingClick) cleanupThinkingClick = installThinkingClickExpand();
