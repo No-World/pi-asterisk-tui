@@ -60,7 +60,7 @@ function startTurn(tracker: TurnTelemetryTracker, message: AssistantMessage, tur
 
 function endTurn(tracker: TurnTelemetryTracker, message: AssistantMessage, turnIndex = 0) {
 	tracker.handle({ type: "message_end", message });
-	return tracker.handle({ type: "turn_end", turnIndex, message, toolResults: [] });
+	return tracker.handle({ type: "turn_end", turnIndex, message, toolResults: [], messageEntryId: "m1", toolResultEntryIds: [] });
 }
 
 test("uses total output over full generation time", () => {
@@ -111,7 +111,7 @@ test("normalizes invalid usage without breaking turn telemetry", () => {
 		now += 100;
 		tracker.handle({ type: "message_end", message });
 	}
-	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message: messages[1]!, toolResults: [] })!;
+	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message: messages[1]!, toolResults: [], messageEntryId: "m1", toolResultEntryIds: [] })!;
 
 	assert.equal(telemetry.inputTokens, 50);
 	assert.equal(telemetry.outputTokens, 20);
@@ -129,7 +129,7 @@ test("measures non-streamed responses from turn start", () => {
 	now = 5_000;
 	tracker.handle({ type: "message_start", message });
 	tracker.handle({ type: "message_end", message });
-	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message, toolResults: [] })!;
+	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message, toolResults: [], messageEntryId: "m1", toolResultEntryIds: [] })!;
 
 	assert.equal(telemetry.tps, 4);
 	assert.equal(telemetry.ttftMs, 5_000);
@@ -592,7 +592,7 @@ test("asterisk-tui notifies once after a complete agent run", () => {
 	emit("message_start", { type: "message_start", message });
 	emit("message_update", update(message));
 	emit("message_end", { type: "message_end", message });
-	emit("turn_end", { type: "turn_end", turnIndex: 0, message, toolResults: [] });
+	emit("turn_end", { type: "turn_end", turnIndex: 0, message, toolResults: [], messageEntryId: "m1", toolResultEntryIds: [] });
 
 	assert.equal(notifications.length, 0);
 	emit("agent_settled", { type: "agent_settled" });

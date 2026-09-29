@@ -36,8 +36,8 @@
 		"image": "https://raw.githubusercontent.com/No-World/pi-asterisk-tui/main/assets/preview_dashboard_1.png"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": ">=0.80",
 		"@earendil-works/pi-ai": ">=0.80",
+		"@earendil-works/pi-coding-agent": ">=0.80",
 		"@earendil-works/pi-tui": ">=0.80"
 	},
 	"peerDependenciesMeta": {
@@ -52,8 +52,8 @@
 		}
 	},
 	"devDependencies": {
+		"@earendil-works/pi-ai": "0.87.1",
 		"@earendil-works/pi-coding-agent": "*",
-		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-tui": "*",
 		"@types/node": "^22.0.0",
 		"typescript": "^5.5.0"
