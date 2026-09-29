@@ -2,6 +2,7 @@ import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-cod
 import { hostname as osHostname } from "node:os";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { OpenTuiConfig } from "./config.ts";
+import type { InlineBorderContent } from "./editor.ts";
 import type { IconGlyphs } from "./icons.ts";
 import { resolveGlyphs, resolveIconMode } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
@@ -206,14 +207,147 @@ export interface FooterHooks {
 	scheduleGitRefresh: () => void;
 }
 
+export interface ClassicFooterHandle {
+	cleanup(): void;
+	/** Inline footer provider: classic content drawn in the editor borders. */
+	inline: InlineBorderContent;
+}
+
+interface ClassicParts {
+	locationParts: PrioritizedSegment[];
+	timerSeg: string;
+	contextText: string;
+	contextCompact: string | undefined;
+	modelBlock: string;
+	statsBlock: string;
+}
+
+/** One pass of classic-footer content, shared by the row renderer and the
+ * inline (editor-border) renderer so both stay in lockstep. */
+function collectClassicParts(
+	theme: Theme,
+	ctx: ExtensionContext,
+	state: FooterState,
+	config: OpenTuiConfig,
+	glyphs: IconGlyphs,
+	meta: ModelMeta,
+	totals: UsageTotals,
+	width: number,
+): ClassicParts {
+	const segments = config.footerSegments;
+	const locationParts: PrioritizedSegment[] = [];
+	if (segments.cwd) {
+		const maxCwd = Math.min(30, Math.max(10, Math.floor(width * 0.4)));
+		const cwd = formatCwd(ctx.sessionManager.getCwd());
+		const cwdPrefix = `${theme.fg("mdLink", glyphs.cwd)} `;
+		const accent = (text: string) => theme.fg("accent", text);
+		locationParts.push({
+			text: `${cwdPrefix}${accent(truncatePath(cwd, maxCwd))}`,
+			compactText: `${cwdPrefix}${accent(truncatePath(basenamePath(cwd), maxCwd))}`,
+			priority: 0,
+			truncate: (_text, maxWidth, ellipsis) => {
+				const pathWidth = maxWidth - visibleWidth(cwdPrefix);
+				if (pathWidth <= visibleWidth(ellipsis)) {
+					return truncateToWidth(`${cwdPrefix}${accent(basenamePath(cwd))}`, maxWidth, ellipsis);
+				}
+				return `${cwdPrefix}${accent(truncatePath(basenamePath(cwd), pathWidth))}`;
+			},
+		});
+	}
+	if (segments.hostname) {
+		const shortHost = shortHostname(osHostname());
+		if (shortHost) {
+			locationParts.push({
+				text: `${theme.fg("dim", glyphs.hostname)} ${theme.fg("accent", shortHost)}`,
+				priority: 1,
+			});
+		}
+	}
+	if (segments.sessionName) {
+		const sessionName = ctx.sessionManager.getSessionName();
+		if (sessionName) {
+			locationParts.push({
+				text: `${theme.fg("dim", glyphs.session)} ${theme.fg("text", truncateToWidth(sessionName, 24, theme.fg("dim", "...")))}`,
+				priority: 2,
+			});
+		}
+	}
+	// Budget the branch length via the packer: render the full name first,
+	// then re-render with a smaller cap when the segment must shrink.
+	const renderGit = (branchMax: number) =>
+		renderGitSegment(theme, state.git, glyphs, segments, branchMax);
+	const gitSeg = renderGit(Number.POSITIVE_INFINITY);
+	if (gitSeg) {
+		const branch = state.git.branch ?? "";
+		// Everything in the segment except the branch text itself.
+		const decoW = branch ? Math.max(0, visibleWidth(gitSeg) - branch.length) : 0;
+		locationParts.push({
+			text: gitSeg,
+			priority: 3,
+			truncate: branch
+			? (_text, maxWidth): string => {
+				const budget = maxWidth - decoW;
+				// Below the ellipsis threshold, drop the segment so the packer
+				// makes progress instead of spinning on a floor.
+				return budget > 3 ? renderGit(budget) : "";
+			}
+			: undefined,
+		});
+	}
+	const timerSeg = renderTimerSegment(theme, state, glyphs);
+
+	// The context bar competes with the left segments for the same row:
+	// full bar first, then the compact icon+pct form, then dropped.
+	let contextText = "";
+	let contextCompact: string | undefined;
+	if (segments.context) {
+		contextText = renderContextBar(theme, ctx, width, glyphs, config.icons.mode);
+		const compact = renderContextCompact(theme, ctx, glyphs);
+		if (compact && visibleWidth(compact) < visibleWidth(contextText)) {
+			contextCompact = compact;
+		}
+	}
+
+	const modelParts: string[] = [];
+	modelParts.push(theme.fg("mdLink", glyphs.model));
+	if (meta.provider && meta.provider !== "Unknown") {
+		modelParts.push(theme.fg(providerColor(ctx.model?.provider ?? "none"), meta.provider));
+	}
+	modelParts.push(theme.fg("text", meta.model));
+	if (meta.effort && meta.effort !== "off") {
+		modelParts.push(theme.fg(effortColor(meta.effort), `${glyphs.thinking} ${meta.effort}`));
+	}
+	const modelBlock = modelParts.join(theme.fg("dim", " · "));
+
+	const statsBlock = renderStatsBlock(theme, totals, glyphs, segments);
+
+	return { locationParts, timerSeg, contextText, contextCompact, modelBlock, statsBlock };
+}
+
+function fitInlineSegments(
+	parts: readonly PrioritizedSegment[],
+	width: number,
+	theme: Theme,
+): string {
+	const separator = theme.fg("dim", " · ");
+	const separatorReserve = Math.max(0, parts.length - 1) * Math.max(0, visibleWidth(separator) - 1);
+	return fitSegmentsByPriority(
+		parts,
+		Math.max(0, width - separatorReserve),
+		theme.fg("dim", "..."),
+	).join(separator);
+}
+
 export function installClassicFooter(
 	ctx: ExtensionContext,
 	getState: () => FooterState,
 	getConfig: () => OpenTuiConfig,
 	getModelMeta: () => ModelMeta,
 	hooks: FooterHooks,
-): () => void {
+): ClassicFooterHandle {
+	let footerTheme: Theme | undefined;
 	ctx.ui.setFooter((tui, theme, footerData) => {
+		footerTheme = theme;
 		hooks.setRequestRender(() => tui.requestRender());
 		const unsubBranch = footerData.onBranchChange(() => {
 			hooks.scheduleGitRefresh();
@@ -233,111 +367,28 @@ export function installClassicFooter(
 				const glyphs = resolveGlyphs(config.icons.mode);
 				const segments = config.footerSegments;
 				const meta = getModelMeta();
-
 				const totals = getUsageTotals(ctx);
+				const parts = collectClassicParts(theme, ctx, state, config, glyphs, meta, totals, width);
 
-				const leftParts: PrioritizedSegment[] = [];
-				if (segments.cwd) {
-					const maxCwd = Math.min(30, Math.max(10, Math.floor(width * 0.4)));
-					const cwd = formatCwd(ctx.sessionManager.getCwd());
-					const cwdPrefix = `${theme.fg("mdLink", glyphs.cwd)} `;
-					const accent = (text: string) => theme.fg("accent", text);
-					leftParts.push({
-						text: `${cwdPrefix}${accent(truncatePath(cwd, maxCwd))}`,
-						compactText: `${cwdPrefix}${accent(truncatePath(basenamePath(cwd), maxCwd))}`,
-						priority: 0,
-						truncate: (_text, maxWidth, ellipsis) => {
-							const pathWidth = maxWidth - visibleWidth(cwdPrefix);
-							if (pathWidth <= visibleWidth(ellipsis)) {
-								return truncateToWidth(`${cwdPrefix}${accent(basenamePath(cwd))}`, maxWidth, ellipsis);
-							}
-							return `${cwdPrefix}${accent(truncatePath(basenamePath(cwd), pathWidth))}`;
-						},
-					});
+				// Inline mode: the two main rows live in the editor borders; only
+				// extension status rows remain below the editor.
+				if (config.inlineFooter) {
+					return segments.extensionStatuses
+						? renderExtensionStatusLines(theme, footerData.getExtensionStatuses(), glyphs, width)
+						: [];
 				}
-				if (segments.hostname) {
-				const shortHost = shortHostname(osHostname());
-				if (shortHost) {
-					leftParts.push({
-						text: `${theme.fg("dim", glyphs.hostname)} ${theme.fg("accent", shortHost)}`,
-						priority: 1,
-					});
-				}
-			}
-			if (segments.sessionName) {
-					const sessionName = ctx.sessionManager.getSessionName();
-					if (sessionName) {
-						leftParts.push({
-							text: `${theme.fg("dim", glyphs.session)} ${theme.fg("text", truncateToWidth(sessionName, 24, theme.fg("dim", "...")))}`,
-							priority: 2,
-						});
-					}
-				}
-				// Budget the branch length via the packer: render the full name first,
-				// then re-render with a smaller cap when the segment must shrink.
-				const renderGit = (branchMax: number) =>
-					renderGitSegment(theme, state.git, glyphs, segments, branchMax);
-				const gitSeg = renderGit(Number.POSITIVE_INFINITY);
-				if (gitSeg) {
-					const branch = state.git.branch ?? "";
-					// Everything in the segment except the branch text itself.
-					const decoW = branch ? Math.max(0, visibleWidth(gitSeg) - branch.length) : 0;
-				leftParts.push({
-					text: gitSeg,
-					priority: 3,
-					truncate: branch
-						? (_text, maxWidth): string => {
-							const budget = maxWidth - decoW;
-							// Below the ellipsis threshold, drop the segment so the packer
-							// makes progress instead of spinning on a floor.
-							return budget > 3 ? renderGit(budget) : "";
-						}
-						: undefined,
-				});
-				}
-				const timerSeg = renderTimerSegment(theme, state, glyphs);
-				if (timerSeg) leftParts.push({ text: timerSeg, priority: 1 });
 
-				// The context bar competes with the left segments for the same row:
-				// full bar first, then the compact icon+pct form, then dropped.
-				let contextText = "";
-				let contextCompact: string | undefined;
-				if (segments.context) {
-					contextText = renderContextBar(theme, ctx, width, glyphs, config.icons.mode);
-					const compact = renderContextCompact(theme, ctx, glyphs);
-					if (compact && visibleWidth(compact) < visibleWidth(contextText)) {
-						contextCompact = compact;
-					}
-				}
-				const allParts: PrioritizedSegment[] = [...leftParts];
-				if (contextText) {
+				const allParts: PrioritizedSegment[] = [...parts.locationParts];
+				if (parts.timerSeg) allParts.push({ text: parts.timerSeg, priority: 1 });
+				if (parts.contextText) {
 					// ponytail: priority 4 sheds before git/timer/cwd.
-					allParts.push({ text: contextText, compactText: contextCompact, priority: 4 });
+					allParts.push({ text: parts.contextText, compactText: parts.contextCompact, priority: 4 });
 				}
 
 				const fitted = fitSegmentsByPriority(allParts, width, theme.fg("dim", "..."));
-				const fittedContext = contextText ? fitted.pop() ?? "" : "";
+				const fittedContext = parts.contextText ? fitted.pop() ?? "" : "";
 				const line1 = alignRight(fitted.join(" "), fittedContext, width, theme);
-
-				const modelParts: string[] = [];
-				modelParts.push(theme.fg("mdLink", glyphs.model));
-				if (meta.provider && meta.provider !== "Unknown") {
-					modelParts.push(theme.fg(providerColor(ctx.model?.provider ?? "none"), meta.provider));
-				}
-				modelParts.push(theme.fg("text", meta.model));
-				if (meta.effort && meta.effort !== "off") {
-					modelParts.push(theme.fg(effortColor(meta.effort), `${glyphs.thinking} ${meta.effort}`));
-				}
-				const modelBlock = modelParts.join(theme.fg("dim", " · "));
-
-				const statsBlock = renderStatsBlock(
-					theme,
-					totals,
-					glyphs,
-					segments,
-				);
-
-				const line2 = alignRight(modelBlock, statsBlock, width, theme);
+				const line2 = alignRight(parts.modelBlock, parts.statsBlock, width, theme);
 
 				const mainLines = [line1, line2]
 					.map((line) => truncateToWidth(line, width, theme.fg("dim", "...")));
@@ -356,7 +407,49 @@ export function installClassicFooter(
 		};
 	});
 
-	return () => {
-		ctx.ui.setFooter(undefined);
+	return {
+		cleanup() {
+			ctx.ui.setFooter(undefined);
+		},
+		inline: {
+			enabled: () => getConfig().inlineFooter,
+			render(kind, budget) {
+				if (!getConfig().inlineFooter || !footerTheme) return undefined;
+				const theme = footerTheme;
+				const state = getState();
+				const config = getConfig();
+				const glyphs = resolveGlyphs(config.icons.mode);
+				const meta = getModelMeta();
+				const totals = getUsageTotals(ctx);
+				const parts = collectClassicParts(theme, ctx, state, config, glyphs, meta, totals, budget);
+
+				if (kind === "top") {
+					// Right block (model) survives; the left location segments shrink
+					// through the packer and drop before the model ever truncates.
+					const right = parts.modelBlock;
+					const rightW = visibleWidth(right);
+					if (rightW > budget) {
+						return { left: "", right: truncateToWidth(right, budget, theme.fg("dim", "...")) };
+					}
+					const leftBudget = budget - rightW - 1;
+					return { left: fitInlineSegments(parts.locationParts, leftBudget, theme), right };
+				}
+
+				// Bottom: stats (plus compact context) on the right; the left cell
+				// carries the done summary only — while working, the editor's
+				// top-border status owns the live indicator… unless it's disabled
+				// (borderWorkingStatus off), in which case the working timer falls
+				// back here so the state is never invisible.
+				const rightBits = [parts.contextCompact ?? "", parts.statsBlock].filter((b) => b.length > 0);
+				const right = rightBits.join(theme.fg("dim", " · "));
+				const suppressTimer = state.workingSince !== undefined && config.borderWorkingStatus;
+				const left = suppressTimer ? "" : parts.timerSeg;
+				if (visibleWidth(right) > budget) {
+					return { left: "", right: truncateToWidth(right, budget, theme.fg("dim", "...")) };
+				}
+				const leftBudget = budget - visibleWidth(right) - 1;
+				return { left: truncateToWidth(left, Math.max(0, leftBudget), ""), right };
+			},
+		},
 	};
 }

@@ -323,6 +323,9 @@ export interface OpenTuiConfig {
 	/** Working status embedded in the editor's top border (elapsed time next
 	 * to the working glyph, frame-colored). Applies to both footer styles. */
 	borderWorkingStatus: boolean;
+	/** Classic footer rows render inside the editor frame borders instead of
+	 * dedicated rows (vertical-space saver). Inert under footerStyle "hud". */
+	inlineFooter: boolean;
 	hud: HudConfig;
 	/** Selection copy behavior (fullscreen TUI); see selection-copy.ts. */
 	selection: SelectionConfig;
@@ -359,6 +362,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		capitalizeProviderName: true,
 	},
 	borderWorkingStatus: true,
+	inlineFooter: false,
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
 	telemetry: {

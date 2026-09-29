@@ -561,7 +561,7 @@ test("hud cost segment shows the tools side-spend suffix when present", () => {
 		lastTurnSummary: undefined,
 		outputTps: null,
 	};
-	const cleanup = installHudFooter(
+	const handle = installHudFooter(
 		ctx,
 		() => state,
 		() => config,
@@ -584,7 +584,7 @@ test("hud cost segment shows the tools side-spend suffix when present", () => {
 		const out = component.render(160).join("\n");
 		assert.ok(out.includes("+$1.25 tools"), `side-spend suffix missing\n${out}`);
 	} finally {
-		cleanup();
+		handle.cleanup();
 		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
 	}
 });
@@ -777,7 +777,7 @@ test("hud hostname segment is opt-in on the status line", () => {
 		lastTurnSummary: undefined,
 		outputTps: null,
 	};
-	const cleanup = installHudFooter(
+	const handle = installHudFooter(
 		ctx,
 		() => state,
 		() => config,
@@ -803,7 +803,7 @@ test("hud hostname segment is opt-in on the status line", () => {
 		const on = component.render(160).join("\n");
 		assert.ok(on.includes(shortHostname(osHostname())), `host segment missing\n${on}`);
 	} finally {
-		cleanup();
+		handle.cleanup();
 		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
 	}
 });
@@ -1000,7 +1000,7 @@ test("hud compact token mode renders language-independent shorthand", () => {
 		lastTurnSummary: undefined,
 		outputTps: null,
 	};
-	const cleanup = installHudFooter(
+	const handle = installHudFooter(
 		ctx,
 			() => state,
 			() => config,
@@ -1062,7 +1062,7 @@ test("hud compact token mode renders language-independent shorthand", () => {
 		assert.ok(!off.includes("↑ 7.8M"), `input leaked while off\n${off}`);
 		assert.ok(!off.includes("↓ 266k"), `output leaked while off\n${off}`);
 	} finally {
-		cleanup();
+		handle.cleanup();
 		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
 	}
 });
@@ -1094,7 +1094,7 @@ test("hud labels follow the settings language", () => {
 		lastTurnSummary: undefined,
 		outputTps: null,
 	};
-	const cleanup = installHudFooter(
+	const handle = installHudFooter(
 		ctx,
 		() => state,
 		() => config,
@@ -1125,7 +1125,7 @@ test("hud labels follow the settings language", () => {
 		assert.ok(zh.includes("上下文"), `chinese context label missing\n${zh}`);
 		assert.ok(!zh.includes("ctx "), `english label leaked in chinese mode\n${zh}`);
 	} finally {
-		cleanup();
+		handle.cleanup();
 		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
 	}
 });
@@ -1158,7 +1158,7 @@ test("hud budgets the branch to the space line 1 actually has", () => {
 		lastTurnSummary: undefined,
 		outputTps: null,
 	};
-	const cleanup = installHudFooter(
+	const handle = installHudFooter(
 		ctx,
 		() => state,
 		() => config,
@@ -1187,7 +1187,7 @@ test("hud budgets the branch to the space line 1 actually has", () => {
 		assert.ok(narrow.includes("git:("), `git segment missing\n${narrow}`);
 		assert.ok(visibleWidth(narrow) <= 80, `line 1 overflows the viewport\n${narrow}`);
 	} finally {
-		cleanup();
+		handle.cleanup();
 		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
 	}
 });
@@ -1220,7 +1220,7 @@ test("classic shows the full branch until the packer runs out of room", () => {
 		lastTurnSummary: undefined,
 		outputTps: null,
 	};
-	const cleanup = installFooter(
+	const handle = installFooter(
 		ctx,
 		() => state,
 		() => config,
@@ -1248,7 +1248,89 @@ test("classic shows the full branch until the packer runs out of room", () => {
 		assert.ok(narrow.includes("fix/ops/"), `branch prefix missing\n${narrow}`);
 		assert.ok(visibleWidth(narrow) <= 30, `line 1 overflows the viewport\n${narrow}`);
 	} finally {
-		cleanup();
+		handle.cleanup();
 		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
 	}
+});
+
+test("inline footer moves classic rows into border content", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => [],
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250, contextWindow: 1_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	config.footerStyle = "classic";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: 12_000,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	const handle = installFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	const component = footerFactory(
+		{ requestRender() {} } as TUI,
+		theme,
+		footerData,
+	) as Component;
+
+	// Default off: two main rows, provider disabled.
+	assert.equal(handle.inline.enabled(), false);
+	assert.equal(handle.inline.render("top", 60), undefined);
+	const rows = component.render(80);
+	assert.equal(rows.length, 2);
+
+	// Opt-in: rows vanish (no extension statuses configured), borders carry content.
+	config.inlineFooter = true;
+	assert.equal(handle.inline.enabled(), true);
+	assert.deepEqual(component.render(80), []);
+	const top = handle.inline.render("top", 60);
+	assert.ok(top, "top line missing");
+	assert.ok(top.left.includes("project"), `cwd missing from top-left: ${top.left}`);
+	assert.ok(top.right.includes("gpt-5"), `model missing from top-right: ${top.right}`);
+	const bottom = handle.inline.render("bottom", 60);
+	assert.ok(bottom, "bottom line missing");
+	assert.ok(bottom.right.length > 0, `stats missing from bottom-right: ${bottom.right}`);
+	// Idle state: the done summary rides bottom-left.
+	assert.ok(bottom.left.includes("done"), `done summary missing: ${bottom.left}`);
+
+	// Working state: bottom-left suppresses the timer while the border status
+	// owns it (default on)…
+	state.workingSince = Date.now() - 5_000;
+	const working = handle.inline.render("bottom", 60);
+	assert.ok(working, "bottom line missing while working");
+	assert.equal(working.left, "", `timer leaked while working: ${working.left}`);
+
+	// …and falls back to the bottom cell when the border status is disabled,
+	// so the working state is never invisible.
+	config.borderWorkingStatus = false;
+	const fallback = handle.inline.render("bottom", 60);
+	assert.ok(fallback, "bottom line missing in fallback");
+	assert.ok(fallback.left.includes("working"), `fallback timer missing: ${fallback.left}`);
+
+	handle.cleanup();
 });

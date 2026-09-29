@@ -466,6 +466,24 @@ test("lists seen extension tools only when present", async () => {
 	assert.equal(withTools.getConfig().turnCollapse.tools.mcp_search, "single");
 });
 
+test("inline footer toggles from the segments tab", async () => {
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.footerStyle = "classic";
+	const settings = await openSettings(config);
+
+	// Segments tab: style, cwd, hostname, sessionName, gitBranch, gitStatus,
+	// gitCommit, context, tokens, cost, extensionStatuses, capitalizeProviderName,
+	// borderWorkingStatus, then inlineFooter.
+	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
+	for (let i = 0; i < 13; i++) settings.component.handleInput("\x1b[B");
+	assert.match(selectedLine(settings.component), /Inline footer/);
+
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().inlineFooter, true);
+});
+
 test("border working status toggles from the segments tab in both styles", async () => {
 	for (const footerStyle of ["classic", "hud"] as const) {
 		const config = structuredClone(DEFAULT_CONFIG);

@@ -43,6 +43,7 @@ const COPY = {
 			cwd: "CWD",
 		hostname: "Hostname",
 		capitalizeProviderName: "Provider capitalization",
+		inlineFooter: "Inline footer",
 		borderWorkingStatus: "Border working status",
 			sessionName: "Session name",
 			gitBranch: "Git branch",
@@ -138,6 +139,7 @@ const COPY = {
 			cwd: "当前目录",
 		hostname: "主机名",
 		capitalizeProviderName: "Provider 大小写",
+		inlineFooter: "内嵌底栏",
 		borderWorkingStatus: "边框工作状态",
 			sessionName: "会话名",
 			gitBranch: "Git 分支",
@@ -458,6 +460,7 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			{ id: "extensionStatuses", label: copy.labels.extensionStatuses, currentValue: flag(segs.extensionStatuses) },
 			{ id: "capitalizeProviderName", label: copy.labels.capitalizeProviderName, currentValue: flag(segs.capitalizeProviderName) },
 			{ id: "borderWorkingStatus", label: copy.labels.borderWorkingStatus, currentValue: flag(config.borderWorkingStatus) },
+			{ id: "inlineFooter", label: copy.labels.inlineFooter, currentValue: flag(config.inlineFooter) },
 		];
 	}
 	const hud = config.hud;
@@ -564,6 +567,8 @@ function handleSettingChange(
 		let next: OpenTuiConfig;
 		if (itemId === "footerStyle") {
 			next = cycleFooterStyle(config);
+		} else if (itemId === "inlineFooter") {
+			next = { ...config, inlineFooter: !config.inlineFooter };
 		} else if (itemId === "borderWorkingStatus") {
 			next = { ...config, borderWorkingStatus: !config.borderWorkingStatus };
 		} else if (config.footerStyle === "hud" && itemId === "tokens") {
