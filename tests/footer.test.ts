@@ -6,13 +6,13 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
-import { DEFAULT_CONFIG } from "../extensions/open-tui/config.ts";
-import { installClassicFooter as installFooter } from "../extensions/open-tui/footer-classic.ts";
-import { installHudFooter } from "../extensions/open-tui/footer-hud.ts";
-import { emptyGitStatus } from "../extensions/open-tui/git.ts";
-import { resolveGlyphs } from "../extensions/open-tui/icons.ts";
-import { getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/open-tui/state.ts";
-import { fitSegmentsByPriority, truncateBranch, truncatePath } from "../extensions/open-tui/utils.ts";
+import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
+import { installClassicFooter as installFooter } from "../extensions/asterisk-tui/footer-classic.ts";
+import { installHudFooter } from "../extensions/asterisk-tui/footer-hud.ts";
+import { emptyGitStatus } from "../extensions/asterisk-tui/git.ts";
+import { resolveGlyphs } from "../extensions/asterisk-tui/icons.ts";
+import { getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/asterisk-tui/state.ts";
+import { fitSegmentsByPriority, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LOGO_FRAMES, renderLogo } from "../extensions/open-tui/header.ts";
+import { LOGO_FRAMES, renderLogo } from "../extensions/asterisk-tui/header.ts";
 
 const lastFrame = LOGO_FRAMES.length - 1;
 const identity = (s: string) => s;

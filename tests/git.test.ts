@@ -9,7 +9,7 @@ import {
 	hasGitChanges,
 	readBranchViaRevParse,
 	readGitStatus,
-} from "../extensions/open-tui/git.ts";
+} from "../extensions/asterisk-tui/git.ts";
 
 function git(cwd: string, ...args: string[]): void {
 	execFileSync("git", args, { cwd, stdio: "ignore" });

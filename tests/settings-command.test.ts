@@ -5,10 +5,10 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, visibleWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { DEFAULT_CONFIG, loadConfig, type OpenTuiConfig } from "../extensions/open-tui/config.ts";
-import { installEditor } from "../extensions/open-tui/editor.ts";
-import { getPendingUiChange } from "../extensions/open-tui/index.ts";
-import { registerSettingsCommand } from "../extensions/open-tui/settings-command.ts";
+import { DEFAULT_CONFIG, loadConfig, type OpenTuiConfig } from "../extensions/asterisk-tui/config.ts";
+import { installEditor } from "../extensions/asterisk-tui/editor.ts";
+import { getPendingUiChange } from "../extensions/asterisk-tui/index.ts";
+import { registerSettingsCommand } from "../extensions/asterisk-tui/settings-command.ts";
 
 interface SettingsComponent extends Component {
 	handleInput(data: string): void;

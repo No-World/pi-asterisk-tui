@@ -7,7 +7,7 @@ import {
 	parseSgrMouseEvent,
 	parseSgrPrimaryPress,
 	wrapViewportPrototype,
-} from "../extensions/open-tui/thinking-click.ts";
+} from "../extensions/asterisk-tui/thinking-click.ts";
 
 interface LayoutBox {
 	component: unknown;

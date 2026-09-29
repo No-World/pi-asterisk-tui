@@ -16,7 +16,7 @@ import {
 	setRendererModeForTest,
 	toggleExpandAll,
 	wrapMainScreenRequestRender,
-} from "../extensions/open-tui/turn-collapse.ts";
+} from "../extensions/asterisk-tui/turn-collapse.ts";
 
 interface Child {
 	render: (width: number) => string[];

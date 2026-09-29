@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { DEFAULT_TURN_COLLAPSE, DEFAULT_HUD_CONFIG, effectiveThoughtTreatment, loadConfig, normalizeHudConfig, normalizeTurnCollapse } from "../extensions/open-tui/config.ts";
+import { DEFAULT_TURN_COLLAPSE, DEFAULT_HUD_CONFIG, effectiveThoughtTreatment, loadConfig, normalizeHudConfig, normalizeTurnCollapse } from "../extensions/asterisk-tui/config.ts";
 
 test("loadConfig adopts settings from a legacy open-tui.json on first run", () => {
 	const agentDir = mkdtempSync(join(tmpdir(), "open-tui-config-"));

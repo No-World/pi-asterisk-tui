@@ -31,7 +31,7 @@
 	},
 	"pi": {
 		"extensions": [
-			"./extensions/open-tui/index.ts"
+			"./extensions/asterisk-tui/index.ts"
 		],
 		"image": "https://raw.githubusercontent.com/No-World/pi-asterisk-tui/main/assets/preview_dashboard_1.png"
 	},

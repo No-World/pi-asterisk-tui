@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sliceByColumn, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { DEFAULT_CONFIG, normalizeSelectionConfig, type OpenTuiConfig } from "../extensions/open-tui/config.ts";
-import { cycleSelectionCopy, toggleSelectionTrimPadding } from "../extensions/open-tui/settings-command.ts";
+import { DEFAULT_CONFIG, normalizeSelectionConfig, type OpenTuiConfig } from "../extensions/asterisk-tui/config.ts";
+import { cycleSelectionCopy, toggleSelectionTrimPadding } from "../extensions/asterisk-tui/settings-command.ts";
 import {
 	buildMarkdownOrigins,
 	buildTextOrigins,
@@ -14,7 +14,7 @@ import {
 	type SelectionDeps,
 	type TextRecord,
 	type TokenCallRecord,
-} from "../extensions/open-tui/selection-copy.ts";
+} from "../extensions/asterisk-tui/selection-copy.ts";
 
 const deps: SelectionDeps = {
 	wrapTextWithAnsi,
