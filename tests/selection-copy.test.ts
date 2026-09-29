@@ -697,6 +697,179 @@ test("e2e: raw copy keeps fenced code blocks verbatim (indentation, fences, inli
 	}
 });
 
+test("e2e: raw copy of a line inside a nested list code block copies exactly that line", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+		const source = [
+			"## 操作步骤",
+			"",
+			"1. 本机通告路由（保持默认 SNAT 开启，这样对端网关看到的还是 Mac 的源地址，ZeroTier 侧不用加回程路由）：",
+			"   ```bash",
+			"   sudo tailscale up --advertise-routes=192.168.5.0/24",
+			"   ```",
+			"2. **去后台批准**：https://login.tailscale.com/admin/machines → 找到 macbook-pro → Edit route settings → 勾选 `192.168.5.0/24` → Save。这步不做，其他设备照样静默超时。",
+			"3. 开完后先在本机回归验证通路没被破坏：",
+			"   ```bash",
+			"   ping -c 3 192.168.5.119 && curl -sS -m 6 -o /dev/null -w \"%{http_code}\\n\" http://192.168.5.119:4000/",
+			"   ```",
+			"4. 到 Windows 那台 DESKTOP-JLOLE21 验证：",
+			"   ```powershell",
+			"   ping 192.168.5.119",
+			"   curl http://192.168.5.119:4000/",
+			"   ```",
+		].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const lines = md.render(80);
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "recorded");
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+
+		// every list row maps to a logical group — the marker prefix must not
+		// break origin verification (all-opaque used to snap to the whole list)
+		const listCall = origins.callRows.find((c) => typeof c.raw === "string" && c.raw.startsWith("1. 本机通告路由"));
+		assert.ok(listCall, "list call located");
+		const listGroups = origins.origins.slice(listCall.start, listCall.end);
+		assert.ok(listGroups.every((g) => g >= 0), "no opaque rows inside the list");
+
+		const target = lines.findIndex((l) => stripTerminalSequences(l).includes("sudo tailscale up"));
+		assert.ok(target >= 0, "sudo row rendered");
+		const selectedRows = [target];
+		const selectedLines = selectedRows.map((r) => lines[r]!);
+		const resolution = {
+			bounds: {
+				start: { row: target, col: 0 },
+				end: { row: target, col: visibleWidth(selectedLines[0]!), boundary: false },
+			},
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: selectedRows.map((r) => {
+					const g = origins.origins[r]!;
+					return g >= 0 ? { record: mdRecord, group: g, text: origins.groups[g] ?? "" } : undefined;
+				}),
+				lines: selectedLines,
+				markdown: selectedRows.map((r) => ({ record: mdRecord, localRow: r })),
+			},
+		} as unknown as ResolvedSelection;
+		const result = emitRaw(deps, resolution);
+		assert.equal(result, "sudo tailscale up --advertise-routes=192.168.5.0/24");
+	} finally {
+		cleanupInstall();
+	}
+});
+
+test("e2e: raw copy covering a whole nested code child keeps fences; partial interior keeps bare lines", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+		const source = [
+			"1. 准备：",
+			"   ```bash",
+			"   echo one",
+			"   echo two",
+			"   ```",
+			"2. 结束。",
+		].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const lines = md.render(80);
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "recorded");
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+
+		const rowOf = (needle: string): number => {
+			const i = lines.findIndex((l) => stripTerminalSequences(l).includes(needle));
+			assert.ok(i >= 0, `row with ${needle}`);
+			return i;
+		};
+		const make = (rows: number[]) => {
+			const selectedLines = rows.map((r) => lines[r]!);
+			return {
+				bounds: {
+					start: { row: rows[0]!, col: 0 },
+					end: { row: rows[rows.length - 1]!, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+				},
+				sourceLines: lines,
+				contentWidth: mdRecord.contentWidth,
+				mapping: {
+					entries: rows.map((r) => {
+						const g = origins.origins[r]!;
+						return g >= 0 ? { record: mdRecord, group: g, text: origins.groups[g] ?? "" } : undefined;
+					}),
+					lines: selectedLines,
+					markdown: rows.map((r) => ({ record: mdRecord, localRow: r })),
+				},
+			} as unknown as ResolvedSelection;
+		};
+
+		// whole child (fence rows covered) → fenced block verbatim
+		const whole = emitRaw(deps, make([rowOf("```bash"), rowOf("echo one"), rowOf("echo two"), ...lines.map((l, i) => stripTerminalSequences(l).includes("```") && i > rowOf("echo two") ? i : -1).filter((i) => i >= 0)]));
+		assert.ok(whole !== undefined);
+		assert.ok(whole!.includes("```bash"), "opening fence");
+		assert.ok(whole!.includes("echo one") && whole!.includes("echo two"), "both code lines");
+		assert.ok(!whole!.includes("准备"), "no item text leakage");
+		assert.ok(!whole!.includes("结束"), "no other items");
+
+		// interior only → bare lines, no fences
+		const interior = emitRaw(deps, make([rowOf("echo one"), rowOf("echo two")]));
+		assert.equal(interior, "echo one\necho two");
+
+		// single interior line
+		const single = emitRaw(deps, make([rowOf("echo two")]));
+		assert.equal(single, "echo two");
+
+		// fully covered text child → its raw markdown
+		const text = emitRaw(deps, make([lines.findIndex((l, i) => stripTerminalSequences(l).includes("准备") && i < rowOf("```bash"))]));
+		assert.equal(text, "准备：");
+	} finally {
+		cleanupInstall();
+	}
+});
+
+test("e2e: unwrapped copy joins wrapped list rows into logical lines (marker prefix verified)", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+		const source = [
+			"1. 这是一条会被折行的长列表项，内容足够长以触发软折行，验证逻辑行重组是否包含列表标记前缀：",
+			"2. 短项。",
+		].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const width = 30;
+		const lines = md.render(width);
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "recorded");
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+		const listRows: number[] = [];
+		for (let i = 0; i < lines.length; i++) {
+			if (origins.origins[i] !== undefined && origins.origins[i]! >= 0) listRows.push(i);
+		}
+		const firstGroup = origins.origins[listRows[0]!]!;
+		const item1Rows = listRows.filter((r) => origins.origins[r] === firstGroup);
+		assert.ok(item1Rows.length > 1, "item 1 wraps across rows");
+		const selectedLines = item1Rows.map((r) => lines[r]!);
+		const resolution = {
+			bounds: {
+				start: { row: item1Rows[0]!, col: 0 },
+				end: { row: item1Rows[item1Rows.length - 1]!, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+			},
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: item1Rows.map((r) => {
+					const g = origins.origins[r]!;
+					return g >= 0 ? { record: mdRecord, group: g, text: origins.groups[g] ?? "" } : undefined;
+				}),
+				lines: selectedLines,
+				markdown: item1Rows.map((r) => ({ record: mdRecord, localRow: r })),
+			},
+		} as unknown as ResolvedSelection;
+		const result = emitUnwrapped(deps, resolution);
+		assert.ok(result !== undefined);
+		assert.ok(result!.startsWith("1. 这是一条会被折行的长列表项"), "logical line carries the list marker");
+		assert.equal(result, "1. 这是一条会被折行的长列表项，内容足够长以触发软折行，验证逻辑行重组是否包含列表标记前缀：");
+	} finally {
+		cleanupInstall();
+	}
+});
+
 test("raw copy tab policy: keep tabs, expand to 4, whole-message path", () => {
 	const cleanupInstall = installSelectionCopy(piTui as never);
 	try {

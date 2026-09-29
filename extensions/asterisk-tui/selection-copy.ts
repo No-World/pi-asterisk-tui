@@ -351,7 +351,9 @@ function modelListRows(
 				}
 				entry.index += 1;
 				if (entry.index >= entry.fragments.length) queueIndex += 1;
-				rows.push({ plain: deps.strip(entry.fragments[entry.index - 1] ?? ""), group: entry.group ?? -1 });
+				// The drawn row is the whole pre-wrap output line — marker prefix
+				// included — so verification against the rendered line matches.
+				rows.push({ plain: deps.strip(output), group: entry.group ?? -1 });
 				continue;
 			}
 			// Mismatch: resync by scanning for a queue entry whose current
@@ -379,7 +381,7 @@ function modelListRows(
 				}
 				entry2.index += 1;
 				if (entry2.index >= entry2.fragments.length) queueIndex += 1;
-				rows.push({ plain: deps.strip(entry2.fragments[entry2.index - 1] ?? ""), group: entry2.group ?? -1 });
+				rows.push({ plain: deps.strip(output), group: entry2.group ?? -1 });
 				continue;
 			}
 		}
@@ -1318,10 +1320,11 @@ function callRawOffsets(record: MarkdownRecord, origins: MdOriginInfo): Array<nu
  * Raw mode, segment-granular: the selection is partitioned into runs of
  * consecutive rows. Markdown runs emit raw source (whole-component →
  * component text; block boundaries sliced: inline regex alignment for
- * paragraphs/quotes, raw-line granularity for code blocks and tables, item
- * granularity for lists; anything unslicable snaps to its whole block —
- * still raw). Non-markdown runs (tool lines, ✻ labels, borders, Text
- * components) degrade to unwrapped text for those rows only.
+ * paragraphs/quotes, raw-line granularity for code blocks and tables,
+ * child-token granularity for lists — code children slice at code-line
+ * level, text children inline-align cuts; anything unslicable snaps to its
+ * whole child token — still raw). Non-markdown runs (tool lines, ✻ labels,
+ * borders, Text components) degrade to unwrapped text for those rows only.
  */
 export function emitRaw(deps: SelectionDeps, resolution: ResolvedSelection): string | undefined {
 	const { mapping } = resolution;
@@ -1519,7 +1522,7 @@ function sliceCallRaw(
 			return sliced === undefined ? undefined : { text: sliced };
 		}
 		case "list": {
-			const sliced = sliceListRaw(call, callRow, selectedLocal, origins);
+			const sliced = sliceListRaw(deps, record, call, callRow, selectedLocal, origins, startCut, endCut);
 			return sliced === undefined ? undefined : { text: sliced };
 		}
 		case "blockquote": {
@@ -1645,31 +1648,112 @@ function sliceTableRaw(
 }
 
 /** Lists: covered items (via group→child mapping) emit their raw lines. */
+/**
+ * Lists: the renderer's child calls are the items' nested tokens (text,
+ * code, nested lists), each owning a contiguous row range under the list's
+ * marker prefix. Selection slices per child — code children at code-line
+ * granularity (interior lines, no fences; fence rows covered → whole
+ * child), text children inline-align partial cuts; anything unslicable
+ * snaps to the whole CHILD token, never the whole list.
+ */
 function sliceListRaw(
+	deps: SelectionDeps,
+	record: MarkdownRecord,
 	call: TokenCallRecord,
-	callRow: { start: number; end: number; ownerByGroup?: Map<number, { child: number; output: number }> },
+	callRow: { start: number; end: number; raw: string | undefined; ownerByGroup?: Map<number, { child: number; output: number }> },
 	selectedLocal: Set<number>,
 	origins: MdOriginInfo,
+	startCut: SelectionCut | undefined,
+	endCut: SelectionCut | undefined,
 ): string | undefined {
 	const owners = callRow.ownerByGroup;
 	if (!owners) return undefined;
-	const coveredChildren = new Set<number>();
+	const childRows = new Map<number, number[]>();
 	for (let r = callRow.start; r < callRow.end; r++) {
-		if (!selectedLocal.has(r)) continue;
 		const group = origins.origins[r];
 		if (group === undefined || group < 0) continue;
 		const owner = owners.get(group);
-		if (owner) coveredChildren.add(owner.child);
+		if (!owner) continue;
+		let rows = childRows.get(owner.child);
+		if (!rows) {
+			rows = [];
+			childRows.set(owner.child, rows);
+		}
+		rows.push(r);
 	}
-	if (coveredChildren.size === 0) return undefined;
-	const raws: string[] = [];
-	for (const childIndex of [...coveredChildren].sort((a, b) => a - b)) {
+	if (childRows.size === 0) return undefined;
+	const cutChild = (cut: SelectionCut | undefined): number | undefined => {
+		if (!cut) return undefined;
+		const group = origins.origins[cut.row];
+		if (group === undefined || group < 0) return undefined;
+		return owners.get(group)?.child;
+	};
+	const startCutChild = cutChild(startCut);
+	const endCutChild = cutChild(endCut);
+	const parts: string[] = [];
+	for (const childIndex of [...childRows.keys()].sort((a, b) => a - b)) {
+		const rows = childRows.get(childIndex)!;
 		const child = call.children[childIndex];
-		const raw = child?.token.raw;
-		if (typeof raw !== "string") return undefined;
-		raws.push(raw);
+		if (!child || typeof child.token.raw !== "string") return undefined;
+		const childRaw = child.token.raw.replace(/\r?\n$/, "");
+		const anyCovered = rows.some((r) => selectedLocal.has(r));
+		if (!anyCovered) continue;
+		const fullyCovered =
+			rows.every((r) => selectedLocal.has(r)) && startCutChild !== childIndex && endCutChild !== childIndex;
+		let part: string | undefined;
+		if (!fullyCovered) {
+			const tokenType = typeof child.token.type === "string" ? child.token.type : "";
+			if (tokenType === "code") {
+				const sliced = sliceCodeRaw(
+					child,
+					{ start: rows[0]!, end: rows[rows.length - 1]! + 1, raw: child.token.raw },
+					selectedLocal,
+					origins,
+				);
+				part = sliced?.text;
+			} else {
+				part = sliceListItemTextRaw(
+					deps, record, call, child, origins,
+					startCutChild === childIndex ? startCut : undefined,
+					endCutChild === childIndex ? endCut : undefined,
+				);
+			}
+		}
+		parts.push(part ?? childRaw);
 	}
-	return raws.join("");
+	if (parts.length === 0) return undefined;
+	return parts.join("\n");
+}
+
+/** Partial text-child slice: inline-aligns the selection cut into the
+ * child's single logical line, wrapped at the child's (narrower) width. */
+function sliceListItemTextRaw(
+	deps: SelectionDeps,
+	record: MarkdownRecord,
+	call: TokenCallRecord,
+	child: TokenCallRecord,
+	origins: MdOriginInfo,
+	startCut: SelectionCut | undefined,
+	endCut: SelectionCut | undefined,
+): string | undefined {
+	if (typeof child.token.raw !== "string" || child.outputs.length !== 1) return undefined;
+	const output = child.outputs[0];
+	if (typeof output !== "string") return undefined;
+	const raw = child.token.raw.replace(/\r?\n$/, "");
+	const rendered = deps.strip(output).trimEnd();
+	const fragments = deps.wrapTextWithAnsi(output, child.width);
+	// Child content starts after the markdown margin plus the list marker
+	// prefix (numbering bullet / continuation indent).
+	const contentColStart = record.paddingX + Math.max(0, call.width - child.width);
+	const toCut = (cut: SelectionCut) => {
+		const first = firstRowOfGroup(origins, cut.row);
+		if (first === undefined) return undefined;
+		return { fragmentIndex: cut.row - first, col: cut.col, contentColStart };
+	};
+	const s = startCut ? toCut(startCut) : undefined;
+	const e = endCut ? toCut(endCut) : undefined;
+	if ((startCut && !s) || (endCut && !e)) return undefined;
+	return sliceInlineRaw(deps, raw, rendered, fragments, child.width, s, e)?.text;
 }
 
 /** Quotes: covered content children emit `> `-prefixed raw; partial children
