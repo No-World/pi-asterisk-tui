@@ -98,9 +98,10 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 ## 编辑器与设置
 
 - 带边框编辑器，块状 / 竖线 / 下划线三种光标样式。
-- **上边框工作状态**（`╭── ◐ 12s ────╮`）：agent 运行期间，编辑器边框自带耗时
-  与工作图标——随边框着色（与思考级别 / bash 模式变色同源）。窄边框先退化为仅图标，
-  再退化为纯边框；滚动提示（`↑ 3 more`）保持居中槽位。底栏自身的工作段不变。
+- **上边框工作状态**（`borderWorkingStatus`，默认开，`/*tui` → Footer 页）：agent 运行
+  期间，编辑器边框自带耗时与工作图标（`╭── ◐ 12s ────╮`）——随边框着色（与思考级别 /
+  bash 模式变色同源），两种底栏风格下均生效。窄边框先退化为仅图标，再退化为纯边框；
+  滚动提示（`↑ 3 more`）保持居中槽位。底栏自身的工作段不变。
 - **选区复制（全屏）三级模式**（`/*tui` 面板或 `selection.copy` 配置，默认
   `unwrapped`）：`plain` 按视觉内容复制（pi 原生，逐显示行）；`unwrapped` 按逻辑
   内容复制——软换行拼回逻辑行（段落、列表项、引用、表格换行单元格全部还原）；
@@ -151,6 +152,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `footerSegments.*` | 混合 | classic 底栏段落开关 |
 | `footerSegments.hostname` | `false` | 可选主机名段（取主机名的首个标签）——多机 SSH 时一眼区分所在主机；HUD 侧同款开关为 `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | 首字母大写 provider 名；`false` 保留原始 id 大小写（适配 `cc-switch-zhipu-glm` 这类代理 id） |
+| `borderWorkingStatus` | `true` | 编辑器上边框内嵌工作状态；两种底栏风格均适用 |
 | `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`） |
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
 | `selection.copy` | `"unwrapped"` | 选区复制：`plain`（视觉内容）/ `unwrapped`（逻辑内容，默认）/ `raw`（原始内容）；依赖 pi-tui 内部结构，pi 升级后可能静默回退原生 |

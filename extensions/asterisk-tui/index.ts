@@ -135,6 +135,7 @@ export default function (pi: ExtensionAPI) {
 			// time and degradation ladder refresh for free.
 			editor.setWorkingStatusIndicator({
 				renderInBorder: (width) => {
+					if (!config.borderWorkingStatus) return "";
 					if (!sessionLifecycle.isCurrent() || !active) return "";
 					if (state.workingSince === undefined) return "";
 					const glyphs = resolveGlyphs(config.icons.mode);
@@ -142,6 +143,7 @@ export default function (pi: ExtensionAPI) {
 					return truncateToWidth(`${glyphs.working} ${elapsed}`, Math.max(0, width), "");
 				},
 				renderSpinnerInBorder: (width) => {
+					if (!config.borderWorkingStatus) return "";
 					if (!sessionLifecycle.isCurrent() || !active) return "";
 					if (state.workingSince === undefined) return "";
 					const glyphs = resolveGlyphs(config.icons.mode);
