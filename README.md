@@ -171,7 +171,7 @@ Notable keys:
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
 | `selection.copy` | `"unwrapped"` | selection copy: `plain` (visual content) / `unwrapped` (logical content, default) / `raw` (source content); depends on pi-tui internals, may silently fall back to stock after a pi upgrade |
 | `selection.trimPadding` | `true` | trim selection margins: highlight skips padded blanks; visual-content copies carry no margin spaces |
-| `selection.tabWidth` | `3` | tab width for source-content copies: `3` (as rendered) / `2` / `4` / `8` / `tab` (literal tabs, recovered deterministically from the original text for per-block copies) |
+| `selection.tabWidth` | `3` | tab width for source-content copies: any integer 2–8 (`3` as rendered) or `tab` for literal tabs (recovered deterministically from the original text for per-block copies) |
 
 ## How it works
 

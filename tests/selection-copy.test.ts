@@ -6,7 +6,7 @@ import { alignChildRow as alignChildRowImpl, findLeafAtLine, resolveSelectionRow
 import { attachForTest, renderCollapsedForTest, setCollapseOptions, uninstallTurnCollapse } from "../extensions/asterisk-tui/turn-collapse.ts";
 const selectionCopyInternals = { alignChildRow: alignChildRowImpl, findLeafAtLine };
 import { DEFAULT_CONFIG, normalizeSelectionConfig, type OpenTuiConfig } from "../extensions/asterisk-tui/config.ts";
-import { cycleSelectionCopy, cycleSelectionTabWidth, toggleSelectionTrimPadding } from "../extensions/asterisk-tui/settings-command.ts";
+import { cycleSelectionCopy, setSelectionTabWidthInput, toggleSelectionTrimPadding } from "../extensions/asterisk-tui/settings-command.ts";
 import {
 	buildMarkdownOrigins,
 	installSelectionCopy,
@@ -751,16 +751,24 @@ test("raw copy tab policy: keep tabs, expand to 4, whole-message path", () => {
 	}
 });
 
-test("normalizeSelectionConfig: tabWidth validation and cycling", () => {
+test("normalizeSelectionConfig + panel input: tabWidth accepts every integer 2-8 or tab", () => {
 	assert.equal(normalizeSelectionConfig({}).tabWidth, 3);
 	assert.equal(normalizeSelectionConfig({ tabWidth: 4 }).tabWidth, 4);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 5 }).tabWidth, 5);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 6 }).tabWidth, 6);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 7 }).tabWidth, 7);
 	assert.equal(normalizeSelectionConfig({ tabWidth: "tab" }).tabWidth, "tab");
-	assert.equal(normalizeSelectionConfig({ tabWidth: 5 }).tabWidth, 3);
-	let config = structuredClone(DEFAULT_CONFIG);
-	const order = [3, 2, 4, 8, "tab"] as const;
-	for (const expected of [2, 4, 8, "tab" as const, 3]) {
-		config = cycleSelectionTabWidth(config);
-		assert.equal(config.selection.tabWidth, expected);
+	// out of range / junk → default
+	assert.equal(normalizeSelectionConfig({ tabWidth: 1 }).tabWidth, 3);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 9 }).tabWidth, 3);
+	assert.equal(normalizeSelectionConfig({ tabWidth: "bogus" }).tabWidth, 3);
+	// panel input parsing: every integer 2-8, "tab", whitespace tolerated
+	for (const value of [2, 3, 4, 5, 6, 7, 8]) {
+		const config = setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), String(value));
+		assert.equal(config?.selection.tabWidth, value, `input ${value}`);
 	}
-	void order;
+	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), " tab ")?.selection.tabWidth, "tab");
+	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), "1"), undefined);
+	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), "9"), undefined);
+	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), "x"), undefined);
 });

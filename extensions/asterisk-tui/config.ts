@@ -25,10 +25,22 @@ export interface SelectionConfig {
 	tabWidth: SelectionTabWidth;
 }
 
-/** Tab presentation for raw copies: 3 (renderer default) / 2 / 4 / 8, or
- * "tab" to keep literal tab characters. */
-export type SelectionTabWidth = 2 | 3 | 4 | 8 | "tab";
-export const SELECTION_TAB_WIDTHS: readonly SelectionTabWidth[] = [3, 2, 4, 8, "tab"];
+/** Tab presentation for raw copies: any integer 2–8 (3 = renderer default),
+ * or "tab" to keep literal tab characters. */
+export type SelectionTabWidth = 2 | 3 | 4 | 5 | 6 | 7 | 8 | "tab";
+export const MIN_SELECTION_TAB_WIDTH = 2;
+export const MAX_SELECTION_TAB_WIDTH = 8;
+
+/** Parses raw panel input into a tab width: an integer 2–8, or "tab". */
+export function parseSelectionTabWidth(raw: string): SelectionTabWidth | undefined {
+	const trimmed = raw.trim();
+	if (trimmed === "tab") return "tab";
+	if (/^\d+$/.test(trimmed)) {
+		const value = Number(trimmed);
+		if (value >= MIN_SELECTION_TAB_WIDTH && value <= MAX_SELECTION_TAB_WIDTH) return value as SelectionTabWidth;
+	}
+	return undefined;
+}
 
 export const DEFAULT_SELECTION_CONFIG: SelectionConfig = {
 	copy: DEFAULT_SELECTION_COPY_MODE,
@@ -44,9 +56,15 @@ export function normalizeSelectionConfig(value: unknown): SelectionConfig {
 			? (raw.copy as SelectionCopyMode)
 			: DEFAULT_SELECTION_COPY_MODE,
 		trimPadding: raw.trimPadding !== false,
-		tabWidth: SELECTION_TAB_WIDTHS.includes(raw.tabWidth as SelectionTabWidth)
-			? (raw.tabWidth as SelectionTabWidth)
-			: DEFAULT_SELECTION_CONFIG.tabWidth,
+		tabWidth:
+			typeof raw.tabWidth === "number" &&
+			Number.isInteger(raw.tabWidth) &&
+			raw.tabWidth >= MIN_SELECTION_TAB_WIDTH &&
+			raw.tabWidth <= MAX_SELECTION_TAB_WIDTH
+				? (raw.tabWidth as SelectionTabWidth)
+				: raw.tabWidth === "tab"
+					? "tab"
+					: DEFAULT_SELECTION_CONFIG.tabWidth,
 	};
 }
 
