@@ -748,6 +748,7 @@ export function resolveSelectionRows(
 	const entries: RowMapping["entries"] = [];
 	const markdown: RowMapping["markdown"] = [];
 	const lines: string[] = [];
+	const stageMiss = { segment: 0, align: 0, leaf: 0, group: 0 };
 	for (let row = bounds.start.row; row <= bounds.end.row; row++) {
 		const line = sourceLines[row] ?? "";
 		lines.push(line);
@@ -758,8 +759,10 @@ export function resolveSelectionRows(
 		if (segment) {
 			const childLines = memoRender(memo, segment.child, contentWidth);
 			const local = alignChildRow(deps, line, segment, containerLine, childLines);
+			if (local === undefined) stageMiss.align += 1;
 			if (local !== undefined) {
 				const hit = findLeafAtLine(deps, segment.child, contentWidth, local, memo);
+				if (!hit) stageMiss.leaf += 1;
 				if (hit && hit.localRow >= 0) {
 					if ("topCalls" in hit.record) {
 						const record = hit.record as MarkdownRecord;
@@ -767,6 +770,8 @@ export function resolveSelectionRows(
 						const group = origins.origins[hit.localRow];
 						if (group !== undefined && group >= 0) {
 							entry = { record, group, text: origins.groups[group] ?? "" };
+						} else {
+							stageMiss.group += 1;
 						}
 						md = { record, localRow: hit.localRow };
 					} else {
@@ -780,9 +785,14 @@ export function resolveSelectionRows(
 				}
 			}
 		}
+		if (!segment) stageMiss.segment += 1;
 		entries.push(entry);
 		markdown.push(md);
 	}
+	debug(
+		`copy: resolved rows=${lines.length} unmapped=${markdown.filter((m) => !m).length}` +
+			` (segment:${stageMiss.segment} align:${stageMiss.align} leaf:${stageMiss.leaf} group:${stageMiss.group})`,
+	);
 	return { bounds, sourceLines, contentWidth, mapping: { entries, lines, markdown } };
 }
 
@@ -1140,6 +1150,7 @@ export function emitRaw(deps: SelectionDeps, resolution: ResolvedSelection): str
 		let end = idx + 1;
 		while (end < rows && mapping.markdown[end]?.record === record) end += 1;
 		const raw = emitRawRun(deps, resolution, idx, end);
+		debug(`copy: run [${idx},${end}) → ${raw !== undefined ? "raw" : "unwrapped"}`);
 		parts.push(raw ?? emitRows(deps, resolution, idx, end) ?? "");
 		idx = end;
 	}
