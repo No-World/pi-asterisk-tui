@@ -1603,36 +1603,33 @@ interface PiTuiModule {
 }
 
 let cachedDeps: SelectionDeps | undefined;
+/** Module resolved at install time (require in pi runtime, injected in tests). */
+let resolvedModule: PiTuiModule | undefined;
 
 function getDeps(): SelectionDeps | undefined {
 	if (cachedDeps) return cachedDeps;
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const piTui = require("@earendil-works/pi-tui") as PiTuiModule;
-		if (
-			typeof piTui.wrapTextWithAnsi !== "function" ||
-			typeof piTui.visibleWidth !== "function" ||
-			typeof piTui.sliceByColumn !== "function" ||
-			typeof piTui.stripTerminalSequences !== "function"
-		) {
-			return undefined;
-		}
-		cachedDeps = {
-			wrapTextWithAnsi: piTui.wrapTextWithAnsi,
-			visibleWidth: piTui.visibleWidth,
-			sliceByColumn: piTui.sliceByColumn,
-			strip: piTui.stripTerminalSequences,
-			renderLatex: typeof piTui.renderLatex === "function" ? piTui.renderLatex : undefined,
-			hyperlinks:
-				typeof piTui.getCapabilities === "function"
-				? () => piTui.getCapabilities?.().hyperlinks === true
-				: undefined,
-		};
-		return cachedDeps;
-	} catch (error) {
-		debug(`deps: require failed: ${error instanceof Error ? error.message : String(error)}`);
+	const piTui = resolvedModule;
+	if (!piTui) return undefined;
+	if (
+		typeof piTui.wrapTextWithAnsi !== "function" ||
+		typeof piTui.visibleWidth !== "function" ||
+		typeof piTui.sliceByColumn !== "function" ||
+		typeof piTui.stripTerminalSequences !== "function"
+	) {
 		return undefined;
 	}
+	cachedDeps = {
+		wrapTextWithAnsi: piTui.wrapTextWithAnsi,
+		visibleWidth: piTui.visibleWidth,
+		sliceByColumn: piTui.sliceByColumn,
+		strip: piTui.stripTerminalSequences,
+		renderLatex: typeof piTui.renderLatex === "function" ? piTui.renderLatex : undefined,
+		hyperlinks:
+			typeof piTui.getCapabilities === "function"
+				? () => piTui.getCapabilities?.().hyperlinks === true
+				: undefined,
+	};
+	return cachedDeps;
 }
 
 interface AltScreenLike {
@@ -1757,10 +1754,15 @@ function wrapAltScreen(proto: object | null | undefined): () => void {
 			const deps = getDeps();
 			if (!deps) return stock();
 			const resolution = resolveSelectionRows(deps, this);
-			if (!resolution) return stock();
+			if (!resolution) {
+				debug(`copy: no resolution (mode=${copyMode})`);
+				return stock();
+			}
 			if (copyMode === "raw") {
 				const raw = emitRaw(deps, resolution);
 				if (raw !== undefined && raw.length > 0) return raw;
+			const unmapped = resolution.mapping.markdown.filter((entry) => !entry).length;
+				debug(`copy: raw fell back (rows=${resolution.mapping.entries.length}, unmapped=${unmapped})`);
 			}
 			if (copyMode === "plain") {
 				// Plain + trimPadding: stock visual-row copy minus the margin
@@ -1804,16 +1806,29 @@ export const __testing = {
 
 /**
  * Installs selection-copy for the whole process (same module-instance
- * discipline as thinking-click.ts). Silently no-ops on unknown shapes.
+ * discipline as thinking-click.ts). The pi-tui module is resolved via
+ * require in the pi runtime; tests inject the ESM namespace directly.
+ * Silently no-ops on unknown shapes.
  */
-export function installSelectionCopy(): () => void {
+export function installSelectionCopy(piTui?: PiTuiModule): () => void {
 	try {
 		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const piTui = require("@earendil-works/pi-tui") as PiTuiModule;
+		let module: PiTuiModule | undefined = piTui;
+		if (!module) {
+			try {
+				// eslint-disable-next-line @typescript-eslint/no-require-imports
+				module = require("@earendil-works/pi-tui") as PiTuiModule;
+			} catch (error) {
+				debug(`install: require failed: ${error instanceof Error ? error.message : String(error)}`);
+				return () => {};
+			}
+		}
+		if (!module) return () => {};
+		resolvedModule = module;
 		const cleanups = [
-			wrapMarkdown(piTui.Markdown?.prototype),
-			wrapText(piTui.Text?.prototype),
-			wrapAltScreen(piTui.TuiAltScreen?.prototype),
+			wrapMarkdown(module.Markdown?.prototype),
+			wrapText(module.Text?.prototype),
+			wrapAltScreen(module.TuiAltScreen?.prototype),
 		];
 		return () => {
 			for (const cleanup of cleanups) cleanup();

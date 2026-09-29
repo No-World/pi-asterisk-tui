@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sliceByColumn, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Markdown, sliceByColumn, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, normalizeSelectionConfig, type OpenTuiConfig } from "../extensions/asterisk-tui/config.ts";
 import { cycleSelectionCopy, toggleSelectionTrimPadding } from "../extensions/asterisk-tui/settings-command.ts";
 import {
 	buildMarkdownOrigins,
+	installSelectionCopy,
 	buildTextOrigins,
 	emitRaw,
 	emitUnwrapped,
@@ -14,6 +15,7 @@ import {
 	type SelectionDeps,
 	type TextRecord,
 	type TokenCallRecord,
+	__testing,
 } from "../extensions/asterisk-tui/selection-copy.ts";
 
 const deps: SelectionDeps = {
@@ -357,4 +359,68 @@ test("trimHighlightColumns clamps to content and skips padded rows", () => {
 	const cjk = " \u4f60\u597d\u4e16\u754c";
 	const cjkTrim = trimHighlightColumns(deps, cjk, 0, visibleWidth(cjk));
 	assert.deepEqual(cjkTrim, { start: 1, end: 9 });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: real pi-tui Markdown pipeline (records via the real wrapper)
+// ---------------------------------------------------------------------------
+
+const identityTheme = {
+	heading: (t: string) => t, link: (t: string) => t, linkUrl: (t: string) => t, code: (t: string) => t,
+	codeBlock: (t: string) => t, codeBlockBorder: (t: string) => t, quote: (t: string) => t, quoteBorder: (t: string) => t,
+	hr: (t: string) => t, listBullet: (t: string) => t, bold: (t: string) => t, italic: (t: string) => t,
+	strikethrough: (t: string) => t, underline: (t: string) => t,
+} as const;
+
+test("integration: raw copy of a fully selected real-rendered table yields the pipe source", () => {
+	const cleanup = installSelectionCopy({
+		Markdown: { prototype: Markdown.prototype },
+		// biome-ignore lint: partial module is fine — only Markdown is exercised
+	} as unknown as Parameters<typeof installSelectionCopy>[0]);
+	try {
+		const source = [
+			"intro paragraph before the table",
+			"",
+			"| 模式 | 复制结果 |",
+			"|------|------|",
+			"| 视觉内容 | 逐显示行无边距空格 |",
+			"| 逻辑内容 | 每行拼回单行画法长文本长文本长文本 |",
+			"",
+			"tail text",
+		].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const width = 56;
+		const lines = md.render(width);
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "recording captured");
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+		const tableIdx = mdRecord.topCalls.findIndex((call) => call.token.type === "table");
+		assert.ok(tableIdx >= 0, "table token recorded");
+		const tableCall = origins.callRows[tableIdx]!;
+		const rows: number[] = [];
+		for (let r = tableCall.start; r < tableCall.end; r++) rows.push(r);
+		const selectedLines = rows.map((r) => lines[r]!);
+		const resolution = {
+			bounds: {
+				start: { row: rows[0]!, col: 0 },
+				end: { row: rows[rows.length - 1]!, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+			},
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: rows.map((r) => {
+					const group = origins.origins[r]!;
+					return group >= 0 ? { record: mdRecord, group, text: origins.groups[group] ?? "" } : undefined;
+				}),
+				lines: selectedLines,
+				markdown: rows.map((r) => ({ record: mdRecord, localRow: r })),
+			},
+		} as unknown as ResolvedSelection;
+		const result = emitRaw(deps, resolution);
+		assert.ok(result !== undefined, "raw emission produced text");
+		assert.ok(result!.startsWith("| 模式 |"), "pipe source, not the drawn form");
+		assert.ok(result!.includes("| 视觉内容 | 逐显示行无边距空格 |"), "data row source");
+	} finally {
+		cleanup();
+	}
 });
