@@ -99,6 +99,8 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
   内容复制——软换行拼回逻辑行（段落、列表项、引用、表格换行单元格全部还原）；
   `raw` 按原始内容复制——markdown 覆盖段输出渲染前源文（`**加粗**`、`$x^2$`、
   表格管道原样；整条消息选中直接取原文；非 markdown 行只对该部分退回逻辑内容）。
+  另有独立开关 `selection.trimPadding`（默认开）：选中高亮不覆盖补齐空白、
+  视觉内容复制前后不多出边距空格。
   注意：此功能依赖 pi-tui 渲染内部结构，**pi 版本更新后可能静默失效**（自动回退
   pi 原生复制，不报错）；失效后升级本扩展即可恢复。
 - 双语 `/*tui` 设置面板（英文 / 简体中文，语言选择同时作用于 HUD 标签）：底栏
@@ -143,6 +145,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`） |
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
 | `selection.copy` | `"unwrapped"` | 选区复制：`plain`（视觉内容）/ `unwrapped`（逻辑内容，默认）/ `raw`（原始内容）；依赖 pi-tui 内部结构，pi 升级后可能静默回退原生 |
+| `selection.trimPadding` | `true` | 选区边距裁剪：高亮不覆盖补齐空白、视觉内容复制不含前后边距空格 |
 
 ## 实现方式
 

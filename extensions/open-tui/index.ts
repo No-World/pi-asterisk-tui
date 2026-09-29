@@ -17,7 +17,7 @@ import { installHeader } from "./header.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
-import { installSelectionCopy, setSelectionCopyMode } from "./selection-copy.ts";
+import { installSelectionCopy, setSelectionCopyMode, setSelectionTrimPadding } from "./selection-copy.ts";
 import { installThinkingClickExpand } from "./thinking-click.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
 import {
@@ -315,6 +315,7 @@ export default function (pi: ExtensionAPI) {
 			cleanupSelectionCopy?.();
 			cleanupSelectionCopy = installSelectionCopy();
 			setSelectionCopyMode(config.selection.copy);
+			setSelectionTrimPadding(config.selection.trimPadding);
 			const sessionThought = resolveSessionThought(config);
 			applyTurnCollapseConfig(config, sessionThought);
 			setThoughtPreference(sessionThought);
@@ -459,6 +460,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (config.selection.copy !== newConfig.selection.copy) {
 				setSelectionCopyMode(newConfig.selection.copy);
+			}
+			if (config.selection.trimPadding !== newConfig.selection.trimPadding) {
+				setSelectionTrimPadding(newConfig.selection.trimPadding);
 			}
 			if (cursorStyleChanged && active && editor) {
 				editor.setCursorStyle(newConfig.cursorStyle);

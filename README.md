@@ -120,6 +120,9 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
   non-markdown rows degrade to logical content for those rows only). Note: this depends
   on pi-tui rendering internals and **may silently stop working after a pi upgrade**
   (it falls back to stock copy without errors); updating this extension restores it.
+  A separate switch, `selection.trimPadding` (default on), keeps the selection
+  highlight off padded margins and drops the leading/trailing margin spaces
+  from visual-content copies.
 - Bilingual `/*tui` settings panel (English / 简体中文) — the language choice also
   localizes HUD labels — covering footer segments, HUD toggles, telemetry fields, icon
   mode (nerd / ascii / auto), cursor style, fullscreen wheel-scroll speed, and a Collapse
@@ -167,6 +170,7 @@ Notable keys:
 | `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
 | `selection.copy` | `"unwrapped"` | selection copy: `plain` (visual content) / `unwrapped` (logical content, default) / `raw` (source content); depends on pi-tui internals, may silently fall back to stock after a pi upgrade |
+| `selection.trimPadding` | `true` | trim selection margins: highlight skips padded blanks; visual-content copies carry no margin spaces |
 
 ## How it works
 
