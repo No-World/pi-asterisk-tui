@@ -473,13 +473,37 @@ test("inline footer toggles from the segments tab", async () => {
 
 	// Segments tab: style, cwd, hostname, sessionName, gitBranch, gitStatus,
 	// gitCommit, context, tokens, cost, extensionStatuses, capitalizeProviderName,
-	// then inlineFooter.
+	// borderWorkingStatus, then inlineFooter.
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
-	for (let i = 0; i < 12; i++) settings.component.handleInput("\x1b[B");
+	for (let i = 0; i < 13; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Inline footer/);
 
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().inlineFooter, true);
+});
+
+test("border working status toggles from the segments tab in both styles", async () => {
+	for (const footerStyle of ["classic", "hud"] as const) {
+		const config = structuredClone(DEFAULT_CONFIG);
+		config.footerStyle = footerStyle;
+		const settings = await openSettings(config);
+
+		settings.component.handleInput("\t");
+		settings.component.handleInput("\t");
+		settings.component.handleInput("\t");
+		// Classic: item sits after capitalizeProviderName (slot 12).
+		// HUD: item sits after the toggle list, before toolsMax.
+		const downs = footerStyle === "classic" ? 12 : 29;
+		for (let i = 0; i < downs; i++) settings.component.handleInput("\x1b[B");
+		assert.match(
+			selectedLine(settings.component),
+			/Border working status/,
+			`${footerStyle}: item not reached`,
+		);
+
+		settings.component.handleInput("\r");
+		assert.equal(settings.getConfig().borderWorkingStatus, false, footerStyle);
+	}
 });
