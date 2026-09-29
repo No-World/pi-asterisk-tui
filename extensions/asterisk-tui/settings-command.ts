@@ -43,6 +43,7 @@ const COPY = {
 			cwd: "CWD",
 		hostname: "Hostname",
 		capitalizeProviderName: "Provider capitalization",
+		borderWorkingStatus: "Border working status",
 			sessionName: "Session name",
 			gitBranch: "Git branch",
 			gitStatus: "Git status",
@@ -137,6 +138,7 @@ const COPY = {
 			cwd: "当前目录",
 		hostname: "主机名",
 		capitalizeProviderName: "Provider 大小写",
+		borderWorkingStatus: "边框工作状态",
 			sessionName: "会话名",
 			gitBranch: "Git 分支",
 			gitStatus: "Git 状态",
@@ -455,6 +457,7 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			{ id: "cost", label: copy.labels.cost, currentValue: flag(segs.cost) },
 			{ id: "extensionStatuses", label: copy.labels.extensionStatuses, currentValue: flag(segs.extensionStatuses) },
 			{ id: "capitalizeProviderName", label: copy.labels.capitalizeProviderName, currentValue: flag(segs.capitalizeProviderName) },
+			{ id: "borderWorkingStatus", label: copy.labels.borderWorkingStatus, currentValue: flag(config.borderWorkingStatus) },
 		];
 	}
 	const hud = config.hud;
@@ -474,6 +477,7 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 	return [
 		styleItem,
 		...toggleItems,
+		{ id: "borderWorkingStatus", label: labels.borderWorkingStatus, currentValue: flag(config.borderWorkingStatus) },
 		{ id: "toolsMax", label: labels.hudToolsMax, currentValue: copy.values.count(hud.toolsMax) },
 		{ id: "filesMax", label: labels.hudFilesMax, currentValue: copy.values.count(hud.filesMax) },
 	];
@@ -560,6 +564,8 @@ function handleSettingChange(
 		let next: OpenTuiConfig;
 		if (itemId === "footerStyle") {
 			next = cycleFooterStyle(config);
+		} else if (itemId === "borderWorkingStatus") {
+			next = { ...config, borderWorkingStatus: !config.borderWorkingStatus };
 		} else if (config.footerStyle === "hud" && itemId === "tokens") {
 			next = cycleTokenMode(config); // tri-state, not a boolean toggle
 		} else if (config.footerStyle === "hud" && itemId in config.hud) {

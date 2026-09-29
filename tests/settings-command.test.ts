@@ -465,3 +465,27 @@ test("lists seen extension tools only when present", async () => {
 	withTools.component.handleInput("\r");
 	assert.equal(withTools.getConfig().turnCollapse.tools.mcp_search, "single");
 });
+
+test("border working status toggles from the segments tab in both styles", async () => {
+	for (const footerStyle of ["classic", "hud"] as const) {
+		const config = structuredClone(DEFAULT_CONFIG);
+		config.footerStyle = footerStyle;
+		const settings = await openSettings(config);
+
+		settings.component.handleInput("\t");
+		settings.component.handleInput("\t");
+		settings.component.handleInput("\t");
+		// Classic: item sits after capitalizeProviderName (slot 12).
+		// HUD: item sits after the toggle list, before toolsMax.
+		const downs = footerStyle === "classic" ? 12 : 29;
+		for (let i = 0; i < downs; i++) settings.component.handleInput("\x1b[B");
+		assert.match(
+			selectedLine(settings.component),
+			/Border working status/,
+			`${footerStyle}: item not reached`,
+		);
+
+		settings.component.handleInput("\r");
+		assert.equal(settings.getConfig().borderWorkingStatus, false, footerStyle);
+	}
+});

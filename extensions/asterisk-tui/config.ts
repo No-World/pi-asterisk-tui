@@ -320,6 +320,9 @@ export interface OpenTuiConfig {
 	};
 	footerStyle: FooterStyle;
 	footerSegments: FooterSegments;
+	/** Working status embedded in the editor's top border (elapsed time next
+	 * to the working glyph, frame-colored). Applies to both footer styles. */
+	borderWorkingStatus: boolean;
 	hud: HudConfig;
 	/** Selection copy behavior (fullscreen TUI); see selection-copy.ts. */
 	selection: SelectionConfig;
@@ -355,6 +358,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		extensionStatuses: true,
 		capitalizeProviderName: true,
 	},
+	borderWorkingStatus: true,
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
 	telemetry: {
