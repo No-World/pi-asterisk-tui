@@ -41,6 +41,7 @@ const COPY = {
 			selectionTrimPadding: "Trim selection margins",
 			iconMode: "Icon mode",
 			cwd: "CWD",
+		capitalizeProviderName: "Provider capitalization",
 			sessionName: "Session name",
 			gitBranch: "Git branch",
 			gitStatus: "Git status",
@@ -132,6 +133,7 @@ const COPY = {
 			selectionTrimPadding: "选区边距裁剪",
 			iconMode: "图标模式",
 			cwd: "当前目录",
+		capitalizeProviderName: "Provider 大小写",
 			sessionName: "会话名",
 			gitBranch: "Git 分支",
 			gitStatus: "Git 状态",
@@ -446,6 +448,7 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			{ id: "tokens", label: copy.labels.tokens, currentValue: flag(segs.tokens) },
 			{ id: "cost", label: copy.labels.cost, currentValue: flag(segs.cost) },
 			{ id: "extensionStatuses", label: copy.labels.extensionStatuses, currentValue: flag(segs.extensionStatuses) },
+			{ id: "capitalizeProviderName", label: copy.labels.capitalizeProviderName, currentValue: flag(segs.capitalizeProviderName) },
 		];
 	}
 	const hud = config.hud;

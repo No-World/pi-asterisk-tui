@@ -11,12 +11,75 @@ import { installClassicFooter as installFooter } from "../extensions/asterisk-tu
 import { installHudFooter } from "../extensions/asterisk-tui/footer-hud.ts";
 import { emptyGitStatus } from "../extensions/asterisk-tui/git.ts";
 import { resolveGlyphs } from "../extensions/asterisk-tui/icons.ts";
-import { getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/asterisk-tui/state.ts";
-import { fitSegmentsByPriority, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
+import { getModelMeta, getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/asterisk-tui/state.ts";
+import { fitSegmentsByPriority, formatProviderLabel, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
 } as Theme;
+
+test("formatProviderLabel capitalizes by default and preserves raw casing on demand", () => {
+	assert.equal(formatProviderLabel("anthropic"), "Anthropic");
+	assert.equal(formatProviderLabel("anthropic", false), "anthropic");
+	// Proxy-style ids stay untouched when capitalization is off.
+	assert.equal(formatProviderLabel("cc-switch-zhipu-glm", false), "cc-switch-zhipu-glm");
+	assert.equal(formatProviderLabel(undefined), "Unknown");
+	assert.equal(formatProviderLabel(undefined, false), "Unknown");
+});
+
+test("classic footer keeps the raw provider casing when capitalization is off", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = {
+		model: { provider: "cc-switch-zhipu-glm", contextWindow: 1_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => [],
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250, contextWindow: 1_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	installFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => getModelMeta(ctx, () => "high", config.footerSegments.capitalizeProviderName),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	const component = footerFactory(
+		{ requestRender() {} } as TUI,
+		theme,
+		footerData,
+	) as Component;
+
+	// Default on: capitalized.
+	const on = component.render(160).join("\n");
+	assert.ok(on.includes("Cc-switch-zhipu-glm"), `capitalized provider missing\n${on}`);
+
+	// Off: raw id casing preserved.
+	config.footerSegments.capitalizeProviderName = false;
+	const off = component.render(160).join("\n");
+	assert.ok(off.includes("cc-switch-zhipu-glm"), `raw provider casing missing\n${off}`);
+});
 
 test("branch truncation preserves the branch prefix", () => {
 	assert.equal(truncateBranch("fix/cwd-footer-truncation", 20), "fix/cwd-footer-tr...");
