@@ -94,8 +94,8 @@ _Avoid_: Token 开关（已是三态，不是布尔）
 fullscreen TUI 模式下的滚轮滚动（`fullscreen.wheelScrollLines`）。
 
 **选区复制**：
-fullscreen TUI 鼠标选区复制到剪贴板的行为（`selection.copy`）三级：plain（按显示行逐行，pi 原生）/ unwrapped（软换行拼回逻辑行单行，WYSIWYG，默认）/ raw（markdown 覆盖段输出渲染前源文，非 markdown 行只对该部分退回 unwrapped）。
-_Avoid_: 复制修复（是行为契约的三档模式，不是单点 bugfix）、复制原文（「原文」只指 raw 档；unwrapped 复制的是显示内容）
+fullscreen TUI 鼠标选区复制到剪贴板的行为（`selection.copy`）三级：plain（按视觉内容，逐显示行，pi 原生）/ unwrapped（按逻辑内容，软换行拼回逻辑行，默认）/ raw（按原始内容，markdown 覆盖段输出渲染前源文，非 markdown 行只对该部分退回逻辑内容）。实现依赖 pi-tui 渲染内部结构，版本更新后可能静默失效并回退原生。
+_Avoid_: 复制修复（是三档内容形态契约，不是单点 bugfix）、拼接为单行（那只描述了折行症状；三档是视觉/逻辑/原始内容之分）
 
 **逻辑行**：
 渲染折行前的原始行（markdown 词元的一次 renderToken 输出）；软换行把它折成多个显示行，选区复制把它拼回去。
