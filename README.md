@@ -111,6 +111,15 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
 ## Editor & settings
 
 - Framed editor with block / bar / underline cursor styles.
+- **Selection copy (fullscreen)** in three modes (`/*tui` panel or `selection.copy`,
+  default `unwrapped`): `plain` copies visual content (pi stock, row by row);
+  `unwrapped` copies logical content — soft-wrapped rows join back into their logical
+  line (paragraphs, list items, quotes, table rows with wrapped cells); `raw` copies
+  source content — markdown-covered runs yield the pre-render source (`**bold**`,
+  `$x^2$`, table pipes; selecting a whole message yields its original text;
+  non-markdown rows degrade to logical content for those rows only). Note: this depends
+  on pi-tui rendering internals and **may silently stop working after a pi upgrade**
+  (it falls back to stock copy without errors); updating this extension restores it.
 - Bilingual `/*tui` settings panel (English / 简体中文) — the language choice also
   localizes HUD labels — covering footer segments, HUD toggles, telemetry fields, icon
   mode (nerd / ascii / auto), cursor style, fullscreen wheel-scroll speed, and a Collapse
@@ -157,6 +166,7 @@ Notable keys:
 | `footerSegments.*` | mixed | classic footer segment toggles |
 | `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
+| `selection.copy` | `"unwrapped"` | selection copy: `plain` (visual content) / `unwrapped` (logical content, default) / `raw` (source content); depends on pi-tui internals, may silently fall back to stock after a pi upgrade |
 
 ## How it works
 

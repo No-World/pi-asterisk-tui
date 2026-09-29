@@ -10,6 +10,30 @@ import type { IconMode } from "./icons.ts";
 export type SettingsLanguage = "en" | "zh";
 export type CursorStyle = "block" | "bar" | "underline";
 
+/** Selection copy semantics (fullscreen TUI): stock rows / WYSIWYG logical
+ * lines / pre-render markdown source. */
+export type SelectionCopyMode = "plain" | "unwrapped" | "raw";
+export const SELECTION_COPY_MODES: readonly SelectionCopyMode[] = ["plain", "unwrapped", "raw"];
+export const DEFAULT_SELECTION_COPY_MODE: SelectionCopyMode = "unwrapped";
+
+export interface SelectionConfig {
+	copy: SelectionCopyMode;
+}
+
+export const DEFAULT_SELECTION_CONFIG: SelectionConfig = {
+	copy: DEFAULT_SELECTION_COPY_MODE,
+};
+
+/** Migrates/normalizes the selection block (missing → defaults). */
+export function normalizeSelectionConfig(value: unknown): SelectionConfig {
+	const raw = (typeof value === "object" && value !== null ? value : {}) as Partial<SelectionConfig>;
+	return {
+		copy: SELECTION_COPY_MODES.includes(raw.copy as SelectionCopyMode)
+			? (raw.copy as SelectionCopyMode)
+			: DEFAULT_SELECTION_COPY_MODE,
+	};
+}
+
 export type { IconMode } from "./icons.ts";
 
 export type FooterStyle = "hud" | "classic";
@@ -255,6 +279,8 @@ export interface OpenTuiConfig {
 	footerStyle: FooterStyle;
 	footerSegments: FooterSegments;
 	hud: HudConfig;
+	/** Selection copy behavior (fullscreen TUI); see selection-copy.ts. */
+	selection: SelectionConfig;
 	/** Which named style is active; manual footer edits downgrade it to "custom". */
 	stylePreset: StylePreset;
 	telemetry: TelemetryConfig;
@@ -286,6 +312,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		extensionStatuses: true,
 	},
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
+	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
 	telemetry: {
 		enabled: true,
 		tps: true,
@@ -436,6 +463,7 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 			config.footerStyle = DEFAULT_CONFIG.footerStyle;
 		}
 		config.turnCollapse = normalizeTurnCollapse(config.turnCollapse);
+		config.selection = normalizeSelectionConfig(config.selection);
 		if (!["hud", "classic", "custom"].includes(config.stylePreset)) {
 			config.stylePreset = "custom";
 		}

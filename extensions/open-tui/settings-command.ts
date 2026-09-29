@@ -9,8 +9,8 @@ import {
 	type TUI,
 	Text,
 } from "@earendil-works/pi-tui";
-import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
+import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SelectionCopyMode, SettingsLanguage, StylePreset } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -36,6 +36,7 @@ const COPY = {
 			language: "Language",
 			wheelScrollLines: "Mouse wheel speed",
 			cursorStyle: "Cursor style",
+			selectionCopy: "Selection copy",
 			iconMode: "Icon mode",
 			cwd: "CWD",
 			sessionName: "Session name",
@@ -97,6 +98,7 @@ const COPY = {
 			wheelLines: (count: number) => `${count} ${count === 1 ? "line" : "lines"} / notch`,
 			wheelPrompt: (count: number) => `Wheel scroll lines per notch, 1-10 (current: ${count}). Enter: apply · Esc: cancel`,
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
+			selectionCopyModes: { plain: "Visual content", unwrapped: "Logical content (default)", raw: "Source content" },
 			footerStyles: { hud: "HUD", classic: "Classic" },
 			stylePresets: { hud: "HUD", classic: "Classic", custom: "Custom" },
 			tokenModes: { off: "Off", verbose: "Full (↑in 77M ·cache 77M …)", compact: "Compact (↑ 77M (U 855k + R 77M) …)" },
@@ -119,6 +121,7 @@ const COPY = {
 			language: "语言",
 			wheelScrollLines: "鼠标滚轮速度",
 			cursorStyle: "光标样式",
+			selectionCopy: "选区复制",
 			iconMode: "图标模式",
 			cwd: "当前目录",
 			sessionName: "会话名",
@@ -180,6 +183,7 @@ const COPY = {
 			wheelLines: (count: number) => `每格 ${count} 行`,
 			wheelPrompt: (count: number) => `滚轮每格滚动行数（当前 ${count}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
+			selectionCopyModes: { plain: "按视觉内容复制", unwrapped: "按逻辑内容复制（默认）", raw: "按原始内容复制" },
 			footerStyles: { hud: "HUD 风格", classic: "经典风格" },
 			stylePresets: { hud: "HUD 风格", classic: "经典风格", custom: "自定义" },
 			tokenModes: { off: "关闭", verbose: "完整（↑输入 77M ·缓存 77M …）", compact: "紧凑（↑ 77M (U 855k + R 77M) …）" },
@@ -257,6 +261,13 @@ function cycleCursorStyle(config: OpenTuiConfig): OpenTuiConfig {
 	return { ...config, cursorStyle: next };
 }
 
+/** Cycles the selection-copy mode: plain → unwrapped → raw → plain. */
+export function cycleSelectionCopy(config: OpenTuiConfig): OpenTuiConfig {
+	const idx = SELECTION_COPY_MODES.indexOf(config.selection.copy);
+	const next = SELECTION_COPY_MODES[(idx + 1) % SELECTION_COPY_MODES.length]! as SelectionCopyMode;
+	return { ...config, selection: { ...config.selection, copy: next } };
+}
+
 function setWheelScrollLines(config: OpenTuiConfig, raw: string): OpenTuiConfig | undefined {
 	if (!/^\d+$/.test(raw)) return undefined;
 	const parsed = Number(raw);
@@ -324,6 +335,7 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			label: copy.labels.wheelScrollLines,
 			currentValue: copy.values.wheelLines(config.fullscreen.wheelScrollLines),
 		},
+		{ id: "selectionCopy", label: copy.labels.selectionCopy, currentValue: copy.values.selectionCopyModes[config.selection.copy] },
 	];
 }
 
@@ -489,6 +501,7 @@ function handleSettingChange(
 	if (tab === "features") {
 		if (itemId === "enabled") return toggleEnabled(config);
 		if (itemId === "settingsLanguage") return toggleLanguage(config);
+		if (itemId === "selectionCopy") return cycleSelectionCopy(config);
 	}
 	if (tab === "icons") {
 		if (itemId === "mode") return cycleIconMode(config);

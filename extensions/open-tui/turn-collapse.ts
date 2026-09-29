@@ -273,6 +273,16 @@ export function findThinkingHostViaSegments(lineIndex: number): unknown | undefi
 	}
 	return undefined;
 }
+
+/** Segment lookup for selection-copy: the raw per-child segment at a line. */
+export function childSegmentAt(lineIndex: number): { start: number; end: number; child: unknown } | undefined {
+	for (const segment of childSegments) {
+		if (lineIndex >= segment.start && lineIndex < segment.end) {
+			return segment;
+		}
+	}
+	return undefined;
+}
 let themeRef: Theme | undefined;
 let requestRenderRef: (() => void) | undefined;
 
