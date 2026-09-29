@@ -256,6 +256,7 @@ test("keeps the changed setting selected", async () => {
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
+	settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Git branch/);
 
 	settings.component.handleInput("\r");
@@ -274,6 +275,7 @@ test("remembers the selection for each tab", async () => {
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
+	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
@@ -286,12 +288,12 @@ test("remembers the selection for each tab", async () => {
 test("cycles the HUD token-stats presentation off → verbose → compact", async () => {
 	const settings = await openSettings();
 
-	// Footer tab is three Tab presses from General; Tokens sits at slot 15
-	// (footerStyle + model … contextTokens come first).
+	// Footer tab is three Tab presses from General; Tokens sits at slot 16
+	// (footerStyle + model … contextTokens come first, hostname after sessionName).
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
-	for (let i = 0; i < 15; i++) settings.component.handleInput("\x1b[B");
+	for (let i = 0; i < 16; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Tokens/);
 
 	settings.component.handleInput("\r"); // verbose → compact
@@ -315,7 +317,7 @@ test("classic footer keeps its Tokens item a boolean toggle", async () => {
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
-	for (let i = 0; i < 7; i++) settings.component.handleInput("\x1b[B"); // cwd..context, then Tokens
+	for (let i = 0; i < 8; i++) settings.component.handleInput("\x1b[B"); // cwd..context (+hostname), then Tokens
 	assert.match(selectedLine(settings.component), /Tokens/);
 
 	settings.component.handleInput("\r");
@@ -370,7 +372,7 @@ test("configures the extension status line with Space", async () => {
 	settings.component.handleInput("\x1b[C");
 	settings.component.handleInput("\x1b[C");
 	settings.component.handleInput("\x1b[C");
-	for (let i = 0; i < 9; i++) settings.component.handleInput("\x1b[B");
+	for (let i = 0; i < 10; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Extension status line/);
 
 	settings.component.handleInput(" ");

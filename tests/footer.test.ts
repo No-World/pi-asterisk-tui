@@ -12,7 +12,8 @@ import { installHudFooter } from "../extensions/asterisk-tui/footer-hud.ts";
 import { emptyGitStatus } from "../extensions/asterisk-tui/git.ts";
 import { resolveGlyphs } from "../extensions/asterisk-tui/icons.ts";
 import { getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/asterisk-tui/state.ts";
-import { fitSegmentsByPriority, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
+import { fitSegmentsByPriority, shortHostname, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
+import { hostname as osHostname } from "node:os";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -614,6 +615,134 @@ test("ASCII footer renders icons as semantic labels", () => {
 	assert.equal(hiddenOutput.length, 2);
 	assert.doesNotMatch(hiddenOutput.join("\n"), /goal active/);
 	assert.equal(extensionStatusReads, 1);
+});
+
+test("shortHostname takes the first label only", () => {
+	assert.equal(shortHostname("mba.example.com"), "mba");
+	assert.equal(shortHostname("single-host"), "single-host");
+	assert.equal(shortHostname(""), "");
+});
+
+test("classic hostname segment is opt-in and renders the short host", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => [],
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250, contextWindow: 1_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	installFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	const component = footerFactory(
+		{ requestRender() {} } as TUI,
+		theme,
+		footerData,
+	) as Component;
+
+	// Default off: no host in the footer.
+	const off = component.render(160).join("\n");
+	assert.ok(!off.includes(shortHostname(osHostname())), `host leaked while disabled\n${off}`);
+
+	// Opt-in: short host appears with the ascii glyph.
+	config.footerSegments.hostname = true;
+	const on = component.render(160).join("\n");
+	assert.ok(on.includes(`h ${shortHostname(osHostname())}`), `host segment missing\n${on}`);
+});
+
+test("hud hostname segment is opt-in on the status line", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const entries = [{
+		type: "message",
+		id: "usage-entry-1",
+		timestamp: new Date().toISOString(),
+		message: {
+			role: "assistant",
+			content: [],
+			usage: { input: 855, cacheRead: 0, cacheWrite: 0, output: 266, cost: { total: 0 } },
+		},
+	}];
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => entries,
+			getBranch: () => entries,
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250_000, contextWindow: 1_000_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	const cleanup = installHudFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const hudTheme = { ...theme, underline: (text: string) => text } as Theme;
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	let component: Component | undefined;
+	try {
+		component = footerFactory(
+			{ requestRender() {} } as TUI,
+			hudTheme,
+			footerData,
+		) as Component;
+		const off = component.render(160).join("\n");
+		assert.ok(!off.includes(shortHostname(osHostname())), `host leaked while disabled\n${off}`);
+		config.hud.hostname = true;
+		const on = component.render(160).join("\n");
+		assert.ok(on.includes(shortHostname(osHostname())), `host segment missing\n${on}`);
+	} finally {
+		cleanup();
+		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
+	}
 });
 
 function renderFooterWithSession(opts: {

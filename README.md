@@ -173,6 +173,7 @@ Notable keys:
 | `cursorStyle` | `"block"` | editor cursor style |
 | `telemetry.*` | on | working-indicator and post-turn telemetry fields |
 | `footerSegments.*` | mixed | classic footer segment toggles |
+| `footerSegments.hostname` | `false` | opt-in short host name segment (first label of the machine's host name) — for telling SSH targets apart at a glance; same toggle exists as `hud.hostname` |
 | `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
 | `selection.copy` | `"unwrapped"` | selection copy: `plain` (visual content) / `unwrapped` (logical content, default) / `raw` (source content); depends on pi-tui internals, may silently fall back to stock after a pi upgrade |

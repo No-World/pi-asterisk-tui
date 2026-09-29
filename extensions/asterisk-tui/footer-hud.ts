@@ -26,6 +26,7 @@ import {
 	formatDuration,
 	formatInputBreakdown,
 	sanitizeStatus,
+	shortHostname,
 	stressColor,
 	truncateBranch,
 } from "./utils.ts";
@@ -587,6 +588,15 @@ export function installHudFooter(
 					const name = ctx.sessionManager.getSessionName();
 					if (name) nameStr = theme.fg("success", truncateToWidth(name, 24, "…"));
 				}
+				let hostStr = "";
+				if (hud.hostname) {
+					const shortHost = shortHostname(os.hostname());
+					if (shortHost) {
+						// HUD is icon-mode agnostic (⏱️/moon icons are hardcoded):
+						// plain muted text, no glyph plumbing.
+						hostStr = theme.fg("muted", shortHost);
+					}
+				}
 
 				const right1: string[] = [];
 				if (hud.time) {
@@ -615,6 +625,7 @@ export function installHudFooter(
 					const gitStr = buildGitStr(branchMax);
 					if (gitStr) parts.push(gitStr);
 					if (nameStr) parts.push(nameStr);
+					if (hostStr) parts.push(hostStr);
 					return parts.join(sep);
 				};
 				const fullBranchLen = git.branch ? git.branch.length : 0;
