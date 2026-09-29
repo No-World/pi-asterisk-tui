@@ -2,7 +2,7 @@
 
 ## Project Layout
 
-- `extensions/open-tui/` contains the TypeScript extension source.
+- `extensions/asterisk-tui/` contains the TypeScript extension source.
 - `tests/` contains the `node:test` test files.
 - `assets/` contains repository and package images.
 - `scripts/` contains repo-level checks (`check-docs.mjs`).

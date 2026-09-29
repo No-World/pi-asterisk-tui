@@ -7,10 +7,10 @@ import type {
 	MessageUpdateEvent,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_CONFIG } from "../extensions/open-tui/config.ts";
-import openTui from "../extensions/open-tui/index.ts";
-import { formatTurnTelemetry, TurnTelemetryTracker } from "../extensions/open-tui/telemetry.ts";
-import { estimateStreamedTokens } from "../extensions/open-tui/utils.ts";
+import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
+import openTui from "../extensions/asterisk-tui/index.ts";
+import { formatTurnTelemetry, TurnTelemetryTracker } from "../extensions/asterisk-tui/telemetry.ts";
+import { estimateStreamedTokens } from "../extensions/asterisk-tui/utils.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -566,7 +566,7 @@ test("working output tokens survive turn boundaries within an agent run", () => 
 	assert.equal(tracker.getRunOutputTokens(), 0);
 });
 
-test("open-tui notifies once after a complete agent run", () => {
+test("asterisk-tui notifies once after a complete agent run", () => {
 	const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => void>>();
 	const notifications: string[] = [];
 	const pi = {

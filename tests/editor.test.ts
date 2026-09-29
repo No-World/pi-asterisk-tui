@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { TuiMainScreen, type EditorTheme, type Terminal, type TUI } from "@earendil-works/pi-tui";
-import { installEditor, OpenTuiEditor } from "../extensions/open-tui/editor.ts";
-import { stripAnsi } from "../extensions/open-tui/utils.ts";
+import { installEditor, OpenTuiEditor } from "../extensions/asterisk-tui/editor.ts";
+import { stripAnsi } from "../extensions/asterisk-tui/utils.ts";
 
 const tui = {
 	terminal: { rows: 24 },

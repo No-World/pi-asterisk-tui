@@ -11,15 +11,15 @@ import {
 	type Terminal,
 	type TUI,
 } from "@earendil-works/pi-tui";
-import { DEFAULT_CONFIG, loadConfig } from "../extensions/open-tui/config.ts";
-import { installEditor } from "../extensions/open-tui/editor.ts";
+import { DEFAULT_CONFIG, loadConfig } from "../extensions/asterisk-tui/config.ts";
+import { installEditor } from "../extensions/asterisk-tui/editor.ts";
 import {
 	applyFullscreenWheelScrollLines,
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	MAX_FULLSCREEN_WHEEL_SCROLL_LINES,
 	MIN_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
-} from "../extensions/open-tui/fullscreen-scroll.ts";
+} from "../extensions/asterisk-tui/fullscreen-scroll.ts";
 
 const editorTheme = {
 	borderColor: (text: string) => text,
@@ -37,7 +37,7 @@ test("defaults and normalizes fullscreen mouse wheel speed", () => {
 });
 
 test("loads old configs and normalizes persisted fullscreen values", () => {
-	const agentDir = mkdtempSync(join(tmpdir(), "pi-open-tui-fullscreen-"));
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-asterisk-tui-fullscreen-"));
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;

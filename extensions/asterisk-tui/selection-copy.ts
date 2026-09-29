@@ -41,7 +41,7 @@
 import { childSegmentAt, lineIndexInAttachedContainer } from "./turn-collapse.ts";
 import type { SelectionCopyMode } from "./config.ts";
 
-const DEBUG_LOG = process.env.OPEN_TUI_DEBUG;
+const DEBUG_LOG = process.env.ASTERISK_TUI_DEBUG;
 function debug(message: string): void {
 	if (!DEBUG_LOG) return;
 	try {
@@ -1648,9 +1648,9 @@ interface MutableProto {
 
 type GuardedProto = MutableProto & Record<symbol, boolean | undefined>;
 
-const INSTALLED_MD = Symbol.for("open-tui.selectionCopy.markdown");
-const INSTALLED_TEXT = Symbol.for("open-tui.selectionCopy.text");
-const INSTALLED_ALT = Symbol.for("open-tui.selectionCopy.altScreen");
+const INSTALLED_MD = Symbol.for("asterisk-tui.selectionCopy.markdown");
+const INSTALLED_TEXT = Symbol.for("asterisk-tui.selectionCopy.text");
+const INSTALLED_ALT = Symbol.for("asterisk-tui.selectionCopy.altScreen");
 
 function wrapMarkdown(proto: object | null | undefined): () => void {
 	const target = proto as GuardedProto | null | undefined;

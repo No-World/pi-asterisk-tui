@@ -6,13 +6,13 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
-import { DEFAULT_CONFIG } from "../extensions/open-tui/config.ts";
-import { installClassicFooter as installFooter } from "../extensions/open-tui/footer-classic.ts";
-import { installHudFooter } from "../extensions/open-tui/footer-hud.ts";
-import { emptyGitStatus } from "../extensions/open-tui/git.ts";
-import { resolveGlyphs } from "../extensions/open-tui/icons.ts";
-import { getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/open-tui/state.ts";
-import { fitSegmentsByPriority, truncateBranch, truncatePath } from "../extensions/open-tui/utils.ts";
+import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
+import { installClassicFooter as installFooter } from "../extensions/asterisk-tui/footer-classic.ts";
+import { installHudFooter } from "../extensions/asterisk-tui/footer-hud.ts";
+import { emptyGitStatus } from "../extensions/asterisk-tui/git.ts";
+import { resolveGlyphs } from "../extensions/asterisk-tui/icons.ts";
+import { getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/asterisk-tui/state.ts";
+import { fitSegmentsByPriority, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -24,21 +24,21 @@ test("branch truncation preserves the branch prefix", () => {
 });
 
 test("cwd path truncation keeps head and tail segments", () => {
-	assert.equal(truncatePath("~/projects/pi-open-tui", 30), "~/projects/pi-open-tui");
-	assert.equal(truncatePath("~/projects/pi-open-tui", 18), "~/.../pi-open-tui");
+	assert.equal(truncatePath("~/projects/pi-asterisk-tui", 30), "~/projects/pi-asterisk-tui");
+	assert.equal(truncatePath("~/projects/pi-asterisk-tui", 24), "~/.../pi-asterisk-tui");
 });
 
 test("footer compacts cwd before truncating lower-priority segments", () => {
 	assert.deepEqual(
 		fitSegmentsByPriority(
 			[
-				{ text: "@ ~/projects/pi-open-tui", compactText: "@ pi-open-tui", priority: 0 },
+				{ text: "@ ~/projects/pi-asterisk-tui", compactText: "@ pi-asterisk-tui", priority: 0 },
 				{ text: "* fix/cwd-footer-truncation", priority: 3 },
 				{ text: "node 24.6.0", priority: 4 },
 			],
-			53,
+			57,
 		),
-		["@ pi-open-tui", "* fix/cwd-footer-truncation", "node 24.6.0"],
+		["@ pi-asterisk-tui", "* fix/cwd-footer-truncation", "node 24.6.0"],
 	);
 });
 
@@ -52,7 +52,7 @@ test("narrow footer keeps the cwd basename", () => {
 			},
 		},
 		sessionManager: {
-			getCwd: () => "/work/projects/pi-open-tui",
+			getCwd: () => "/work/projects/pi-asterisk-tui",
 			getEntries: () => [],
 			getSessionName: () => undefined,
 		},
@@ -88,7 +88,7 @@ test("narrow footer keeps the cwd basename", () => {
 	// Width 59: the full cwd does not fit alongside git+context bar.
 	// The footer compacts the cwd to its basename before dropping segments.
 	const out = component.render(59).join("\n");
-	assert.ok(out.includes("pi-o"), `cwd basename prefix missing\n${out}`);
+	assert.ok(out.includes("pi-a"), `cwd basename prefix missing\n${out}`);
 	assert.ok(!out.includes("~/work/projects"), `full cwd should be compacted\n${out}`);
 });
 

@@ -63,7 +63,7 @@ export function parseSgrMouseEvent(data: string): SgrMouseEvent | undefined {
 
 const ANSI_CODE = /\x1b\[[0-9;?]*[A-Za-z]/g;
 
-const DEBUG_LOG = process.env.OPEN_TUI_DEBUG;
+const DEBUG_LOG = process.env.ASTERISK_TUI_DEBUG;
 function debug(message: string): void {
 	if (!DEBUG_LOG) return;
 	try {
@@ -188,7 +188,7 @@ export function labelSpan(line: string): { start: number; end: number } | undefi
 	return { start, end: plain.trimEnd().length };
 }
 
-const INSTALLED = Symbol.for("open-tui.thinkingClickExpand");
+const INSTALLED = Symbol.for("asterisk-tui.thinkingClickExpand");
 const expanded = new WeakSet<object>();
 
 /**

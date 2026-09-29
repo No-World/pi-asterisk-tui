@@ -2,7 +2,7 @@
  * Footer dispatcher — selects the active footer style.
  *
  * - "hud":     4-line claude-hud inspired layout (default)
- * - "classic": the original pi-open-tui starship-style footer
+ * - "classic": the original starship-style footer
  *
  * Configure via /*tui → Footer → Footer style.
  */

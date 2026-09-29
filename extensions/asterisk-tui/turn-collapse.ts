@@ -61,15 +61,15 @@ interface ViewportAltScreen {
 	layoutRoot?: unknown;
 }
 
-const ATTACHED = Symbol.for("open-tui.turnCollapse");
-const COLLAPSE_INSTALLED = Symbol.for("open-tui.turnCollapseInstalled");
+const ATTACHED = Symbol.for("asterisk-tui.turnCollapse");
+const COLLAPSE_INSTALLED = Symbol.for("asterisk-tui.turnCollapseInstalled");
 /** Reclaim bookkeeping: lets a reloaded module instance take over the patch. */
-const ORIGINAL_RENDER = Symbol.for("open-tui.turnCollapse.originalRender");
-const ORIGINAL_ADD_CHILD = Symbol.for("open-tui.turnCollapse.originalAddChild");
+const ORIGINAL_RENDER = Symbol.for("asterisk-tui.turnCollapse.originalRender");
+const ORIGINAL_ADD_CHILD = Symbol.for("asterisk-tui.turnCollapse.originalAddChild");
 /** Global slot: any module instance can find the patched chat container. */
-const CONTAINER_SLOT = Symbol.for("open-tui.turnCollapse.container");
+const CONTAINER_SLOT = Symbol.for("asterisk-tui.turnCollapse.container");
 
-const DEBUG_LOG = process.env.OPEN_TUI_DEBUG;
+const DEBUG_LOG = process.env.ASTERISK_TUI_DEBUG;
 function debug(message: string): void {
 	if (!DEBUG_LOG) return;
 	try {
@@ -1286,11 +1286,11 @@ function renderCollapsed(container: ChatContainer, original: (width: number) => 
 }
 
 /**
- * Opt-in frame probe (OPEN_TUI_PROFILE=<path>): logs walk duration, child and
+ * Opt-in frame probe (ASTERISK_TUI_PROFILE=<path>): logs walk duration, child and
  * line counts for slow frames — rate-limited to one line per second, zero cost
  * when unset. Answers "is the transcript walk the lag source" with data.
  */
-const PROFILE_LOG = process.env.OPEN_TUI_PROFILE;
+const PROFILE_LOG = process.env.ASTERISK_TUI_PROFILE;
 let profileLastLog = 0;
 function profileFrame(container: ChatContainer, width: number, lines: number, durationMs: number): void {
 	if (!PROFILE_LOG || durationMs < 4) return;
@@ -1358,7 +1358,7 @@ export function summarizeErrorLines(lines: string[]): string | undefined {
 }
 
 const RETRY_LINE = /^Retrying \(\d+\/\d+\) in /;
-const LOADER_PATCHED = Symbol.for("open-tui.retryErrorSummary");
+const LOADER_PATCHED = Symbol.for("asterisk-tui.retryErrorSummary");
 
 /** Appends the held error summary to retry indicator lines. */
 function installRetrySummaryPatch(): () => void {
@@ -1622,7 +1622,7 @@ interface MainScreenLike {
 	requestRender?: (...args: unknown[]) => void;
 }
 
-const MAIN_INSTALLED = Symbol.for("open-tui.turnCollapseMainInstalled");
+const MAIN_INSTALLED = Symbol.for("asterisk-tui.turnCollapseMainInstalled");
 
 /**
  * Wraps TuiMainScreen.prototype.requestRender (regular TUI): flags the
