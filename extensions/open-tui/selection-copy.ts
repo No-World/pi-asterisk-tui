@@ -554,58 +554,86 @@ interface WalkHit {
 	localRow: number;
 }
 
+/** Per-copy-invocation walk cache: the document is frozen while the
+ * synchronous copy runs, so component renders and transparency checks are
+ * computed once per component instead of once per selected row. */
+export interface WalkMemo {
+	renders: Map<object, string[]>;
+	walks: Map<object, { spans: Array<{ component: unknown; start: number; lines: string[] }>; total: number }>;
+}
+
+function createWalkMemo(): WalkMemo {
+	return { renders: new Map(), walks: new Map() };
+}
+
+function memoRender(memo: WalkMemo, component: unknown, width: number): string[] | undefined {
+	const existing = memo.renders.get(component as object);
+	if (existing) return existing;
+	if (typeof component !== "object" || component === null) return undefined;
+	try {
+		const lines = (component as { render?: (width: number) => string[] }).render?.(width) ?? [];
+		if (!Array.isArray(lines)) return undefined;
+		memo.renders.set(component as object, lines);
+		return lines;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Cached transparency walk for one container: child spans + own-render
+ * verification, computed once per copy invocation. */
+function memoWalk(deps: SelectionDeps, memo: WalkMemo, component: object, width: number): { spans: Array<{ component: unknown; start: number; lines: string[] }>; total: number } | undefined {
+	const cached = memo.walks.get(component);
+	if (cached) return cached;
+	const children = (component as { children?: unknown[] }).children;
+	if (!Array.isArray(children) || children.length === 0) return undefined;
+	const own = memoRender(memo, component, width);
+	if (!own) return undefined;
+	const spans: Array<{ component: unknown; start: number; lines: string[] }> = [];
+	let total = 0;
+	for (const child of children) {
+		const lines = memoRender(memo, child, width);
+		if (!lines) return undefined;
+		spans.push({ component: child, start: total, lines });
+		total += lines.length;
+	}
+	if (total !== own.length) return undefined;
+	const flat: string[] = [];
+	for (const span of spans) flat.push(...span.lines);
+	for (let i = 0; i < own.length; i++) {
+		if (!stripEq(deps, own[i], flat[i])) return undefined;
+	}
+	const result = { spans, total };
+	memo.walks.set(component, result);
+	return result;
+}
+
 /**
  * Finds the Markdown/Text leaf that rendered `localLine` inside a component
  * subtree, recursing only through containers whose render is a plain
- * concatenation of their children (verified; OSC133 prefixes tolerated).
+ * concatenation of their children (verified once per copy invocation;
+ * OSC133 prefixes tolerated). Rows beyond a leaf's own lines are opaque.
  */
 export function findLeafAtLine(
 	deps: SelectionDeps,
 	component: unknown,
 	width: number,
 	localLine: number,
+	memo: WalkMemo = createWalkMemo(),
 	depth = 0,
 ): WalkHit | undefined {
 	if (typeof component !== "object" || component === null || depth > 8) return undefined;
 	if (localLine < 0) return undefined;
 	const mdRecord = markdownRecords.get(component);
-	if (mdRecord && mdRecord.width === width) return { record: mdRecord, localRow: localLine };
+	if (mdRecord && mdRecord.width === width) return { record: mdRecord, localRow: localLine < mdRecord.lines.length ? localLine : -1 };
 	const txRecord = textRecords.get(component);
-	if (txRecord && txRecord.width === width) return { record: txRecord, localRow: localLine };
-	const children = (component as { children?: unknown[] }).children;
-	if (!Array.isArray(children) || children.length === 0) return undefined;
-	let own: string[] | undefined;
-	try {
-		own = (component as { render?: (width: number) => string[] }).render?.(width);
-	} catch {
-		return undefined;
-	}
-	if (!own || own.length <= localLine) return undefined;
-	const childLines: string[][] = [];
-	let total = 0;
-	for (const child of children) {
-		let lines: string[];
-		try {
-			lines = (child as { render?: (width: number) => string[] }).render?.(width) ?? [];
-		} catch {
-			return undefined;
+	if (txRecord && txRecord.width === width) return { record: txRecord, localRow: localLine < txRecord.lines.length ? localLine : -1 };
+	const walk = memoWalk(deps, memo, component, width);
+	if (!walk || localLine >= walk.total) return undefined;
+	for (const span of walk.spans) {
+		if (localLine < span.start + span.lines.length) {
+			return findLeafAtLine(deps, span.component, width, localLine - span.start, memo, depth + 1);
 		}
-		childLines.push(lines);
-		total += lines.length;
-	}
-	if (total !== own.length) return undefined;
-	const flat: string[] = [];
-	for (const lines of childLines) flat.push(...lines);
-	for (let i = 0; i < own.length; i++) {
-		if (!stripEq(deps, own[i], flat[i])) return undefined;
-	}
-	let offset = 0;
-	for (let index = 0; index < children.length; index++) {
-		const lines = childLines[index]!;
-		if (localLine < offset + lines.length) {
-			return findLeafAtLine(deps, children[index], width, localLine - offset, depth + 1);
-		}
-		offset += lines.length;
 	}
 	return undefined;
 }
@@ -626,16 +654,6 @@ function findScrollViewBox(box: LayoutBoxLike | undefined, scrollView: unknown):
 		if (hit) return hit;
 	}
 	return undefined;
-}
-
-function safeRender(component: unknown, width: number): string[] | undefined {
-	if (typeof component !== "object" || component === null) return undefined;
-	try {
-		const lines = (component as { render?: (width: number) => string[] }).render?.(width);
-		return Array.isArray(lines) ? lines : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 /**
@@ -711,6 +729,13 @@ export function resolveSelectionRows(
 	const docComponent = childBox?.component;
 	if (typeof docComponent !== "object" || docComponent === null) return undefined;
 
+	// The document→container offset is structural (banners before the chat
+	// container); compute it once instead of per row.
+	const firstContainerLine = lineIndexInAttachedContainer(docComponent, bounds.start.row, contentWidth);
+	if (firstContainerLine === undefined) return undefined;
+	const docOffset = bounds.start.row - firstContainerLine;
+	const memo = createWalkMemo();
+
 	const entries: RowMapping["entries"] = [];
 	const markdown: RowMapping["markdown"] = [];
 	const lines: string[] = [];
@@ -719,14 +744,14 @@ export function resolveSelectionRows(
 		lines.push(line);
 		let entry: RowMapping["entries"][number];
 		let md: RowMapping["markdown"][number];
-		const containerLine = lineIndexInAttachedContainer(docComponent, row, contentWidth);
-		const segment = containerLine === undefined ? undefined : childSegmentAt(containerLine);
+		const containerLine = row - docOffset;
+		const segment = childSegmentAt(containerLine);
 		if (segment) {
-			const childLines = safeRender(segment.child, contentWidth);
-			const local = alignChildRow(deps, line, segment, containerLine ?? 0, childLines);
+			const childLines = memoRender(memo, segment.child, contentWidth);
+			const local = alignChildRow(deps, line, segment, containerLine, childLines);
 			if (local !== undefined) {
-				const hit = findLeafAtLine(deps, segment.child, contentWidth, local);
-				if (hit) {
+				const hit = findLeafAtLine(deps, segment.child, contentWidth, local, memo);
+				if (hit && hit.localRow >= 0) {
 					if ("topCalls" in hit.record) {
 						const record = hit.record as MarkdownRecord;
 						const origins = buildMarkdownOrigins(deps, record);
@@ -1606,6 +1631,12 @@ function wrapText(proto: object | null | undefined): () => void {
 	type TextSelf = TextComponentLike;
 	target.render = function (this: TextSelf, width: number) {
 		const out = original.call(this, width) ?? [];
+		// Fast path: cached renders return the same array — reuse the record
+		// instead of re-allocating one on every frame (spinner labels etc.).
+		const prior = textRecords.get(this as object);
+		if (prior && prior.width === width && prior.text === this.text && prior.lines === out) {
+			return out;
+		}
 		textRecords.set(this as object, { component: this, width, text: this.text, lines: out });
 		return out;
 	};
