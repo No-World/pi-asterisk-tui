@@ -10,7 +10,7 @@ import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
 import { installClassicFooter as installFooter } from "../extensions/asterisk-tui/footer-classic.ts";
 import { installHudFooter } from "../extensions/asterisk-tui/footer-hud.ts";
 import { emptyGitStatus } from "../extensions/asterisk-tui/git.ts";
-import { resolveGlyphs } from "../extensions/asterisk-tui/icons.ts";
+import { autoIconHintText, resolveGlyphs, resolveIconMode, shouldShowAutoIconHint } from "../extensions/asterisk-tui/icons.ts";
 import { getModelMeta, getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/asterisk-tui/state.ts";
 import { fitSegmentsByPriority, formatProviderLabel, shortHostname, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
 import { hostname as osHostname } from "node:os";
@@ -1333,4 +1333,93 @@ test("inline footer moves classic rows into border content", () => {
 	assert.ok(fallback.left.includes("working"), `fallback timer missing: ${fallback.left}`);
 
 	handle.cleanup();
+});
+
+test("auto gates nerd icons by TTY and UTF-8 support (ADR-0006)", () => {
+	const envKeys = ["TERM_PROGRAM", "LC_TERMINAL", "WT_SESSION", "TERM", "LC_ALL", "LC_CTYPE", "LANG"];
+	const originalEnv = new Map(envKeys.map((key) => [key, process.env[key]]));
+	const hadOwnIsTTY = Object.hasOwn(process.stdout, "isTTY");
+	const originalIsTTY = process.stdout.isTTY;
+	const setIsTTY = (value: boolean) => {
+		Object.defineProperty(process.stdout, "isTTY", { configurable: true, value });
+	};
+
+	try {
+		for (const key of envKeys) delete process.env[key];
+		process.env.TERM = "xterm-256color";
+		process.env.LANG = "C.UTF-8";
+
+		// Optimistic: interactive UTF-8 TTY ⇒ nerd, unknown terminal included.
+		setIsTTY(true);
+		assert.equal(resolveIconMode("auto"), "nerd");
+		process.env.TERM_PROGRAM = "some-unlisted-runner";
+		assert.equal(resolveIconMode("auto"), "nerd");
+
+		// Non-UTF-8 locale, TERM=dumb, non-TTY output ⇒ ascii.
+		process.env.LANG = "C";
+		assert.equal(resolveIconMode("auto"), "ascii");
+		process.env.LANG = "C.UTF-8";
+		process.env.TERM = "dumb";
+		assert.equal(resolveIconMode("auto"), "ascii");
+		process.env.TERM = "xterm-256color";
+		setIsTTY(false);
+		assert.equal(resolveIconMode("auto"), "ascii");
+
+		// Missing locale defaults to optimistic (matches upstream).
+		setIsTTY(true);
+		delete process.env.LANG;
+		assert.equal(resolveIconMode("auto"), "nerd");
+	} finally {
+		for (const key of envKeys) {
+			const value = originalEnv.get(key);
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+		if (hadOwnIsTTY) {
+			Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: originalIsTTY });
+		} else {
+			Reflect.deleteProperty(process.stdout, "isTTY");
+		}
+	}
+});
+
+test("tofu hint fires once only for auto-resolved nerd (ADR-0006)", () => {
+	const envKeys = ["TERM", "LC_ALL", "LC_CTYPE", "LANG"];
+	const originalEnv = new Map(envKeys.map((key) => [key, process.env[key]]));
+	const hadOwnIsTTY = Object.hasOwn(process.stdout, "isTTY");
+	const originalIsTTY = process.stdout.isTTY;
+
+	try {
+		for (const key of envKeys) delete process.env[key];
+		process.env.TERM = "xterm-256color";
+		process.env.LANG = "C.UTF-8";
+		Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+
+		// Auto → nerd, hint not yet shown: fires.
+		assert.equal(shouldShowAutoIconHint("auto", false), true);
+		// Persisted marker suppresses it.
+		assert.equal(shouldShowAutoIconHint("auto", true), false);
+		// Explicit modes never hint — the user chose.
+		assert.equal(shouldShowAutoIconHint("nerd", false), false);
+		assert.equal(shouldShowAutoIconHint("ascii", false), false);
+
+		// Auto resolving to ascii stays silent.
+		Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: false });
+		assert.equal(shouldShowAutoIconHint("auto", false), false);
+
+		// Both languages carry the remediation path.
+		assert.match(autoIconHintText("en"), /icons\.mode=ascii/);
+		assert.match(autoIconHintText("zh"), /ascii/);
+	} finally {
+		for (const key of envKeys) {
+			const value = originalEnv.get(key);
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+		if (hadOwnIsTTY) {
+			Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: originalIsTTY });
+		} else {
+			Reflect.deleteProperty(process.stdout, "isTTY");
+		}
+	}
 });

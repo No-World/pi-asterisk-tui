@@ -317,6 +317,9 @@ export interface OpenTuiConfig {
 	fullscreen: FullscreenConfig;
 	icons: {
 		mode: IconMode;
+		/** Internal marker: the auto-mode tofu hint has been shown once. Not a
+		 * user-facing setting; persisted so the hint never nags. */
+		autoHintShown: boolean;
 	};
 	footerStyle: FooterStyle;
 	footerSegments: FooterSegments;
@@ -344,6 +347,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	},
 	icons: {
 		mode: "auto",
+		autoHintShown: false,
 	},
 	footerStyle: "hud",
 	stylePreset: "hud",

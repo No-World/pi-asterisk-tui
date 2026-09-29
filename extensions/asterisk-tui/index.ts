@@ -12,6 +12,7 @@ import {
 	uninstallTurnCollapse,
 } from "./turn-collapse.ts";
 import { installEditor, type WorkingStatusIndicator } from "./editor.ts";
+import { autoIconHintText, shouldShowAutoIconHint } from "./icons.ts";
 import { installFooter, type FooterHandle } from "./footer.ts";
 import { installHeader } from "./header.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
@@ -161,6 +162,16 @@ export default function (pi: ExtensionAPI) {
 				cleanupTurnCollapse = installTurnCollapse();
 			}
 			active = true;
+
+			// ADR-0006: optimistic auto icons — when nerd glyphs are chosen without
+			// explicit user intent, make the tofu failure mode self-diagnosing with a
+			// one-time hint (persisted, never nags). Silent ASCII downgrades stay
+			// silent: nothing looks broken, so there is nothing to diagnose.
+			if (shouldShowAutoIconHint(config.icons.mode, config.icons.autoHintShown)) {
+				ctx.ui.notify(autoIconHintText(config.settingsLanguage), "info");
+				config.icons.autoHintShown = true;
+				saveConfig(config);
+			}
 		}
 	};
 
