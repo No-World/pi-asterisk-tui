@@ -37,6 +37,7 @@ const COPY = {
 			wheelScrollLines: "Mouse wheel speed",
 			cursorStyle: "Cursor style",
 			selectionCopy: "Selection copy",
+			selectionTrimPadding: "Trim selection margins",
 			iconMode: "Icon mode",
 			cwd: "CWD",
 			sessionName: "Session name",
@@ -99,6 +100,7 @@ const COPY = {
 			wheelPrompt: (count: number) => `Wheel scroll lines per notch, 1-10 (current: ${count}). Enter: apply · Esc: cancel`,
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
 			selectionCopyModes: { plain: "Visual content", unwrapped: "Logical content (default)", raw: "Source content" },
+			trimPaddingHint: "Highlight and visual copy skip padded margins",
 			footerStyles: { hud: "HUD", classic: "Classic" },
 			stylePresets: { hud: "HUD", classic: "Classic", custom: "Custom" },
 			tokenModes: { off: "Off", verbose: "Full (↑in 77M ·cache 77M …)", compact: "Compact (↑ 77M (U 855k + R 77M) …)" },
@@ -122,6 +124,7 @@ const COPY = {
 			wheelScrollLines: "鼠标滚轮速度",
 			cursorStyle: "光标样式",
 			selectionCopy: "选区复制",
+			selectionTrimPadding: "选区边距裁剪",
 			iconMode: "图标模式",
 			cwd: "当前目录",
 			sessionName: "会话名",
@@ -184,6 +187,7 @@ const COPY = {
 			wheelPrompt: (count: number) => `滚轮每格滚动行数（当前 ${count}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
 			selectionCopyModes: { plain: "按视觉内容复制", unwrapped: "按逻辑内容复制（默认）", raw: "按原始内容复制" },
+			trimPaddingHint: "高亮与视觉内容复制不覆盖补齐空白（前后不多出空格）",
 			footerStyles: { hud: "HUD 风格", classic: "经典风格" },
 			stylePresets: { hud: "HUD 风格", classic: "经典风格", custom: "自定义" },
 			tokenModes: { off: "关闭", verbose: "完整（↑输入 77M ·缓存 77M …）", compact: "紧凑（↑ 77M (U 855k + R 77M) …）" },
@@ -268,6 +272,11 @@ export function cycleSelectionCopy(config: OpenTuiConfig): OpenTuiConfig {
 	return { ...config, selection: { ...config.selection, copy: next } };
 }
 
+/** Toggles selection margin trimming (highlight + plain copy). */
+export function toggleSelectionTrimPadding(config: OpenTuiConfig): OpenTuiConfig {
+	return { ...config, selection: { ...config.selection, trimPadding: !config.selection.trimPadding } };
+}
+
 function setWheelScrollLines(config: OpenTuiConfig, raw: string): OpenTuiConfig | undefined {
 	if (!/^\d+$/.test(raw)) return undefined;
 	const parsed = Number(raw);
@@ -336,6 +345,11 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			currentValue: copy.values.wheelLines(config.fullscreen.wheelScrollLines),
 		},
 		{ id: "selectionCopy", label: copy.labels.selectionCopy, currentValue: copy.values.selectionCopyModes[config.selection.copy] },
+		{
+			id: "selectionTrimPadding",
+			label: copy.labels.selectionTrimPadding,
+			currentValue: config.selection.trimPadding ? copy.values.on : copy.values.off,
+		},
 	];
 }
 
@@ -502,6 +516,7 @@ function handleSettingChange(
 		if (itemId === "enabled") return toggleEnabled(config);
 		if (itemId === "settingsLanguage") return toggleLanguage(config);
 		if (itemId === "selectionCopy") return cycleSelectionCopy(config);
+		if (itemId === "selectionTrimPadding") return toggleSelectionTrimPadding(config);
 	}
 	if (tab === "icons") {
 		if (itemId === "mode") return cycleIconMode(config);

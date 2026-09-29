@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sliceByColumn, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, normalizeSelectionConfig, type OpenTuiConfig } from "../extensions/open-tui/config.ts";
-import { cycleSelectionCopy } from "../extensions/open-tui/settings-command.ts";
+import { cycleSelectionCopy, toggleSelectionTrimPadding } from "../extensions/open-tui/settings-command.ts";
 import {
 	buildMarkdownOrigins,
 	buildTextOrigins,
 	emitRaw,
 	emitUnwrapped,
+	trimHighlightColumns,
 	type MarkdownRecord,
 	type ResolvedSelection,
 	type SelectionDeps,
@@ -323,4 +324,37 @@ test("raw emission: non-markdown runs degrade per-part to unwrapped text", () =>
 	const [first, second] = result!.split("\n");
 	assert.equal(first, text);
 	assert.equal(second, toolLine);
+});
+
+test("normalizeSelectionConfig: trimPadding defaults on, explicit off respected", () => {
+	assert.equal(normalizeSelectionConfig(undefined).trimPadding, true);
+	assert.equal(normalizeSelectionConfig({ copy: "raw" }).trimPadding, true);
+	assert.equal(normalizeSelectionConfig({ trimPadding: false }).trimPadding, false);
+	assert.equal(normalizeSelectionConfig({ trimPadding: true }).trimPadding, true);
+});
+
+test("toggleSelectionTrimPadding flips the switch", () => {
+	let config = structuredClone(DEFAULT_CONFIG);
+	assert.equal(config.selection.trimPadding, true);
+	config = toggleSelectionTrimPadding(config);
+	assert.equal(config.selection.trimPadding, false);
+});
+
+test("trimHighlightColumns clamps to content and skips padded rows", () => {
+	const line = " content here   "; // left margin + trailing padding
+	// full-width selection trims to the content span
+	const full = trimHighlightColumns(deps, line, 0, visibleWidth(line));
+	assert.deepEqual(full, { start: 1, end: 13 });
+	// selection inside the content is untouched
+	const inside = trimHighlightColumns(deps, line, 5, 8);
+	assert.deepEqual(inside, { start: 5, end: 8 });
+	// selection only over the padding disappears
+	const padOnly = trimHighlightColumns(deps, line, 0, 1);
+	assert.equal(padOnly, undefined);
+	// blank rows never highlight
+	assert.equal(trimHighlightColumns(deps, "    ", 0, 4), undefined);
+	// CJK content measures by display columns
+	const cjk = " \u4f60\u597d\u4e16\u754c";
+	const cjkTrim = trimHighlightColumns(deps, cjk, 0, visibleWidth(cjk));
+	assert.deepEqual(cjkTrim, { start: 1, end: 9 });
 });

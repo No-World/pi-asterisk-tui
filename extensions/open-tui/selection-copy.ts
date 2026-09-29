@@ -66,10 +66,18 @@ export interface SelectionDeps {
 }
 
 let copyMode: SelectionCopyMode = "unwrapped";
+let trimPadding = true;
 
 /** Current copy mode (index.ts feeds this from asterisk-tui.json). */
 export function setSelectionCopyMode(mode: SelectionCopyMode): void {
 	copyMode = mode;
+}
+
+/** Whether selection skips padded margins — highlight clamps to content and
+ * plain-mode copies drop the leading/trailing margin spaces (index.ts feeds
+ * this from asterisk-tui.json). */
+export function setSelectionTrimPadding(enabled: boolean): void {
+	trimPadding = enabled;
 }
 
 // ---------------------------------------------------------------------------
@@ -641,7 +649,8 @@ export function findLeafAtLine(
 interface LayoutBoxLike {
 	scrollView?: unknown;
 	scrollContentLines?: string[];
-	rect?: { width?: number };
+	rect?: { x?: number; y?: number; width?: number; height?: number };
+	clip?: { x?: number; y?: number; width?: number; height?: number };
 	children?: LayoutBoxLike[];
 	component?: unknown;
 }
@@ -1489,6 +1498,95 @@ function sliceQuoteRaw(
 }
 
 // ---------------------------------------------------------------------------
+// Selection highlight trimming (visual only — copy semantics unaffected)
+// ---------------------------------------------------------------------------
+
+/**
+ * Claps highlight columns to actual content: leading margin and trailing
+ * padding (rows are padded to full width) stay unhighlighted. Blank rows
+ * (and image lines, which strip to empty) return undefined — no highlight.
+ */
+export function trimHighlightColumns(
+	deps: SelectionDeps,
+	line: string,
+	start: number,
+	end: number,
+): { start: number; end: number } | undefined {
+	const plain = deps.strip(line);
+	const contentEnd = deps.visibleWidth(plain.trimEnd());
+	if (contentEnd <= 0) return undefined;
+	let contentStart = 0;
+	while (contentStart < plain.length && plain[contentStart] === " ") contentStart += 1;
+	const trimmedStart = Math.max(start, contentStart);
+	const trimmedEnd = Math.min(end, contentEnd);
+	if (trimmedEnd <= trimmedStart) return undefined;
+	return { start: trimmedStart, end: trimmedEnd };
+}
+
+interface SelectionScreenLike {
+	getSelectionBounds?: () => { start: SelectionPoint; end: SelectionPoint } | undefined;
+	getSelectionColumns?: (
+		line: string,
+		row: number,
+		selection: { start: SelectionPoint; end: SelectionPoint },
+		minColumn?: number,
+		maxColumn?: number,
+	) => { start: number; end: number };
+	applySelectionHighlight?: (text: string) => string;
+	currentLayout?: { root?: LayoutBoxLike };
+	terminal?: { columns?: number };
+}
+
+/** Stock applySelection with content-clamped highlight columns. Mirrors
+ * pi-tui's implementation; image lines strip to empty and skip naturally. */
+function applySelectionTrimmed(
+	deps: SelectionDeps,
+	self: SelectionScreenLike,
+	screen: string[],
+	layout: { root?: LayoutBoxLike } | undefined,
+): string[] {
+	const selection = self.getSelectionBounds?.();
+	if (!selection) return screen;
+	let screenSelection = selection as { start: SelectionPoint & { scrollView?: unknown }; end: SelectionPoint };
+	let minRow = 0;
+	let maxRow = screen.length - 1;
+	let minColumn = 0;
+	let maxColumn = self.terminal?.columns ?? Number.POSITIVE_INFINITY;
+	const scrollView = (selection.start as { scrollView?: unknown }).scrollView;
+	if (scrollView) {
+		const box = findScrollViewBox(layout?.root, scrollView);
+		const rect = box?.rect;
+		if (!box || !rect || rect.x === undefined || rect.y === undefined || rect.width === undefined || rect.height === undefined) {
+			return screen;
+		}
+		const clip = box.clip;
+		const scrollTop = (scrollView as { scrollTop?: number }).scrollTop ?? 0;
+		minRow = Math.max(0, rect.y, clip?.y ?? 0);
+		maxRow = Math.min(screen.length - 1, rect.y + rect.height - 1, (clip?.y ?? 0) + (clip?.height ?? Number.POSITIVE_INFINITY) - 1);
+		minColumn = Math.max(0, rect.x, clip?.x ?? 0);
+		maxColumn = Math.min(self.terminal?.columns ?? Number.POSITIVE_INFINITY, rect.x + rect.width, (clip?.x ?? 0) + (clip?.width ?? Number.POSITIVE_INFINITY));
+		screenSelection = {
+			start: { ...selection.start, row: rect.y + selection.start.row - scrollTop, col: rect.x + selection.start.col },
+			end: { ...selection.end, row: rect.y + selection.end.row - scrollTop, col: rect.x + selection.end.col },
+		};
+	}
+	return screen.map((line, row) => {
+		if (row < minRow || row > maxRow || row < screenSelection.start.row || row > screenSelection.end.row) {
+			return line;
+		}
+		const columns = self.getSelectionColumns?.(line, row, screenSelection, minColumn, maxColumn);
+		if (!columns || columns.end <= columns.start) return line;
+		const trimmed = trimHighlightColumns(deps, line, columns.start, columns.end);
+		if (!trimmed) return line;
+		const lineWidth = deps.visibleWidth(line);
+		const before = deps.sliceByColumn(line, 0, trimmed.start, true);
+		const selected = deps.sliceByColumn(line, trimmed.start, trimmed.end - trimmed.start, true);
+		const after = deps.sliceByColumn(line, trimmed.end, Math.max(0, lineWidth - trimmed.end), true);
+		return `${before}${self.applySelectionHighlight?.(selected) ?? selected}${after}`;
+	});
+}
+
+// ---------------------------------------------------------------------------
 // Installation
 // ---------------------------------------------------------------------------
 
@@ -1648,13 +1746,14 @@ function wrapText(proto: object | null | undefined): () => void {
 }
 
 function wrapAltScreen(proto: object | null | undefined): () => void {
-	const target = proto as GuardedProto | null | undefined;
+	const target = proto as (GuardedProto & { applySelection?: (this: SelectionScreenLike, screen: string[], layout?: { root?: LayoutBoxLike }) => string[] }) | null | undefined;
 	if (!target || typeof target.getActiveSelectionText !== "function" || target[INSTALLED_ALT]) return () => {};
 	const original = target.getActiveSelectionText;
+	const originalApply = typeof target.applySelection === "function" ? target.applySelection : undefined;
 	target.getActiveSelectionText = function (this: AltScreenLike) {
 		const stock = (): string | undefined => original.call(this);
 		try {
-			if (copyMode === "plain") return stock();
+			if (copyMode === "plain" && !trimPadding) return stock();
 			const deps = getDeps();
 			if (!deps) return stock();
 			const resolution = resolveSelectionRows(deps, this);
@@ -1663,6 +1762,11 @@ function wrapAltScreen(proto: object | null | undefined): () => void {
 				const raw = emitRaw(deps, resolution);
 				if (raw !== undefined && raw.length > 0) return raw;
 			}
+			if (copyMode === "plain") {
+				// Plain + trimPadding: stock visual-row copy minus the margin
+				// spaces — entries blanked so every row copies as displayed.
+				resolution.mapping.entries = resolution.mapping.entries.map(() => undefined);
+			}
 			const text = emitUnwrapped(deps, resolution);
 			return text === undefined ? stock() : text;
 		} catch (error) {
@@ -1670,10 +1774,25 @@ function wrapAltScreen(proto: object | null | undefined): () => void {
 			return stock();
 		}
 	};
+	if (originalApply) {
+		target.applySelection = function (this: SelectionScreenLike, screen: string[], layout?: { root?: LayoutBoxLike }) {
+			const stockApply = (): string[] => originalApply.call(this, screen, layout);
+			if (!trimPadding) return stockApply();
+			const deps = getDeps();
+			if (!deps) return stockApply();
+			try {
+				return applySelectionTrimmed(deps, this, screen, layout ?? this.currentLayout);
+			} catch (error) {
+				debug(`applySelection: ${error instanceof Error ? error.message : String(error)}`);
+				return stockApply();
+			}
+		};
+	}
 	target[INSTALLED_ALT] = true;
 	return () => {
 		delete target[INSTALLED_ALT];
 		target.getActiveSelectionText = original;
+		if (originalApply) target.applySelection = originalApply;
 	};
 }
 

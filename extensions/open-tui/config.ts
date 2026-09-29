@@ -18,10 +18,14 @@ export const DEFAULT_SELECTION_COPY_MODE: SelectionCopyMode = "unwrapped";
 
 export interface SelectionConfig {
 	copy: SelectionCopyMode;
+	/** Skip padded margins in selections: highlight clamps to content and
+	 * plain-mode copies drop leading/trailing margin spaces. */
+	trimPadding: boolean;
 }
 
 export const DEFAULT_SELECTION_CONFIG: SelectionConfig = {
 	copy: DEFAULT_SELECTION_COPY_MODE,
+	trimPadding: true,
 };
 
 /** Migrates/normalizes the selection block (missing → defaults). */
@@ -31,6 +35,7 @@ export function normalizeSelectionConfig(value: unknown): SelectionConfig {
 		copy: SELECTION_COPY_MODES.includes(raw.copy as SelectionCopyMode)
 			? (raw.copy as SelectionCopyMode)
 			: DEFAULT_SELECTION_COPY_MODE,
+		trimPadding: raw.trimPadding !== false,
 	};
 }
 
