@@ -46,12 +46,6 @@ export function getPendingUiChange(enabled: boolean, active: boolean): PendingUi
 	return enabled ? "install" : "uninstall";
 }
 
-function clearVisibleScreen(): void {
-	if (process.stdout.isTTY) {
-		process.stdout.write("\x1b[2J\x1b[H");
-	}
-}
-
 function isTuiContext(ctx: ExtensionContext): boolean {
 	try {
 		const mode = (ctx as ExtensionContext & { mode?: string }).mode;
@@ -307,7 +301,9 @@ export default function (pi: ExtensionAPI) {
 		config = loadConfig((msg, level) => ctx.ui.notify(msg, level));
 
 		if (isInteractiveLaunch() && config.enabled) {
-			clearVisibleScreen();
+			// No startup clear-screen: `--resume`/session restore must not wipe the
+		// user's existing scrollback (upstream c0f5b4a). The interactive gate
+		// stays for the TUI-hook installs below.
 			// Wrap the shared TuiAltScreen prototype once per process — covers
 			// mode switches and sessions that start in regular mode.
 			cleanupThinkingClick?.();
