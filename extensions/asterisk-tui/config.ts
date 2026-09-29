@@ -281,6 +281,9 @@ export interface FooterSegments {
 	tokens: boolean;
 	cost: boolean;
 	extensionStatuses: boolean;
+	/** Uppercase the provider name's first letter (default); false keeps the
+	 * raw provider id casing (e.g. proxy-style ids like cc-switch-zhipu-glm). */
+	capitalizeProviderName: boolean;
 }
 
 export interface TelemetryConfig {
@@ -344,6 +347,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		tokens: true,
 		cost: true,
 		extensionStatuses: true,
+		capitalizeProviderName: true,
 	},
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
