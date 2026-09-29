@@ -197,6 +197,7 @@ test("normalizes invalid usage totals", () => {
 	invalidateUsageCache();
 	assert.deepEqual(getUsageTotals(ctx), {
 		input: 0, output: 0, cacheRead: 100, cacheWrite: 0, cost: 0, cacheHitRate: 100,
+		tools: { input: 0, output: 0, cost: 0 },
 	});
 	invalidateUsageCache();
 });
@@ -242,7 +243,195 @@ test("usage totals skip tool-result usage (not main-context accounting)", () => 
 	assert.equal(totals.output, 20);
 	assert.equal(totals.input, 10);
 	assert.equal(totals.cost, 0.001);
+	// The tool's own spend lands in the side-spend bucket, not the main counters.
+	assert.deepEqual(totals.tools, { input: 5_000, output: 9_999, cost: 9 });
 	invalidateUsageCache();
+});
+
+test("usage totals bucket summarization calls as side spend", () => {
+	// compaction/branch_summary usage is the summarization LLM call's own cost
+	// (pi: "Usage from the LLM call(s) that generated this summary") — real
+	// session spend, still not main-context accounting.
+	const ctx = {
+		sessionManager: {
+			getEntries: () => [
+				{ id: "a1", timestamp: 1, type: "message", message: { role: "assistant", usage: { input: 40, output: 8, cacheRead: 0, cacheWrite: 0, cost: { total: 0.002 } } } },
+				{ id: "c1", timestamp: 2, type: "compaction", summary: "…", firstKeptEntryId: "a1", tokensBefore: 900, usage: { input: 700, output: 300, cacheRead: 0, cacheWrite: 120, cost: { total: 0.75 } } },
+				{ id: "b1", timestamp: 3, type: "branch_summary", fromId: "a1", summary: "…", usage: { input: 200, output: 50, cacheRead: 0, cacheWrite: 0, cost: { total: 0.25 } } },
+			],
+		},
+	} as unknown as ExtensionContext;
+
+	invalidateUsageCache();
+	const totals = getUsageTotals(ctx);
+	assert.equal(totals.input, 40);
+	assert.equal(totals.output, 8);
+	assert.equal(totals.cost, 0.002);
+	// Cache-hit rate stays assistant-only (main-context quality signal).
+	assert.equal(totals.cacheHitRate, 0);
+	// input mirrors the main convention: input + cacheWrite on the input side.
+	assert.deepEqual(totals.tools, { input: 700 + 120 + 200, output: 350, cost: 1 });
+	invalidateUsageCache();
+});
+
+test("classic cost segment shows the tools side-spend suffix when present", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const entries = [
+		{
+			id: "usage-1",
+			timestamp: Date.now(),
+			type: "message",
+			message: {
+				role: "assistant",
+				usage: { input: 90, output: 12, cacheRead: 0, cacheWrite: 0, cost: { total: 0.01 } },
+			},
+		},
+		{
+			id: "tool-1",
+			timestamp: Date.now(),
+			type: "message",
+			message: {
+				role: "toolResult",
+				toolCallId: "t1",
+				toolName: "subagent",
+				content: [],
+				usage: { input: 5_000, output: 9_999, cacheRead: 0, cacheWrite: 0, cost: { total: 9 } },
+			},
+		},
+		{
+			id: "compact-1",
+			timestamp: Date.now(),
+			type: "compaction",
+			summary: "…",
+			firstKeptEntryId: "usage-1",
+			tokensBefore: 900,
+			usage: { input: 700, output: 300, cacheRead: 0, cacheWrite: 0, cost: { total: 0.5 } },
+		},
+	];
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => entries,
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250, contextWindow: 1_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	installFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	const component = footerFactory(
+		{ requestRender() {} } as TUI,
+		theme,
+		footerData,
+	) as Component;
+	const out = component.render(160).join("\n");
+	// Main cost stays assistant-only; side spend rides along dimmed.
+	assert.ok(out.includes("$0.010"), `main cost missing\n${out}`);
+	assert.ok(out.includes("+$9.500 tools"), `side-spend suffix missing\n${out}`);
+});
+
+test("hud cost segment shows the tools side-spend suffix when present", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const entries = [
+		{
+			type: "message",
+			id: "usage-entry-1",
+			timestamp: new Date().toISOString(),
+			message: {
+				role: "assistant",
+				content: [],
+				usage: { input: 855, cacheRead: 0, cacheWrite: 0, output: 266, cost: { total: 0 } },
+			},
+		},
+		{
+			type: "message",
+			id: "tool-entry-1",
+			timestamp: new Date().toISOString(),
+			message: {
+				role: "toolResult",
+				toolCallId: "t1",
+				toolName: "subagent",
+				content: [],
+				usage: { input: 500, output: 900, cacheRead: 0, cacheWrite: 0, cost: { total: 1.25 } },
+			},
+		},
+	];
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => entries,
+			getBranch: () => entries,
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250_000, contextWindow: 1_000_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	const cleanup = installHudFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const hudTheme = { ...theme, underline: (text: string) => text } as Theme;
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	let component: Component | undefined;
+	try {
+		component = footerFactory(
+			{ requestRender() {} } as TUI,
+			hudTheme,
+			footerData,
+		) as Component;
+		const out = component.render(160).join("\n");
+		assert.ok(out.includes("+$1.25 tools"), `side-spend suffix missing\n${out}`);
+	} finally {
+		cleanup();
+		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
+	}
 });
 
 test("ASCII footer renders icons as semantic labels", () => {

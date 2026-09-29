@@ -60,6 +60,8 @@ interface HudStrings {
 	memoryLabel: string;
 	extensionsLabel: string;
 	packagesLabel: string;
+	/** Suffix appended to the session-cost segment for tools/summaries spend. */
+	toolsSuffix: (cost: string) => string;
 }
 
 const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
@@ -76,6 +78,7 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 		memoryLabel: "mem ",
 		extensionsLabel: " ext",
 		packagesLabel: " pkgs",
+		toolsSuffix: (cost) => `+$${cost} tools`,
 	},
 	zh: {
 		contextLabel: "上下文 ",
@@ -90,6 +93,7 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 		memoryLabel: "内存 ",
 		extensionsLabel: " 扩展",
 		packagesLabel: " 包",
+		toolsSuffix: (cost) => `+$${cost} 工具`,
 	},
 };
 
@@ -273,7 +277,8 @@ function todayStartMs(): number {
 	return d.getTime();
 }
 
-/** Sum today's cost across this project's session files (assistant usage). */
+/** Sum today's cost across this project's session files. Assistant usage plus
+ * tools/summaries side-spend, matching the session-cost segment's scope. */
 function collectDailyCost(sessionDir: string | null): number {
 	if (!sessionDir) return 0;
 	let total = 0;
@@ -292,11 +297,18 @@ function collectDailyCost(sessionDir: string | null): number {
 			const content = fs.readFileSync(p, "utf8");
 			if (fs.statSync(p).mtimeMs < start) continue;
 			for (const line of content.split("\n")) {
-				if (!line.includes('"assistant"')) continue;
+				if (
+					!line.includes('"assistant"') && !line.includes('"toolResult"') &&
+					!line.includes('"compaction"') && !line.includes('"branch_summary"')
+				) continue;
 				try {
 					const e = JSON.parse(line);
 					if (e.type === "message" && e.message?.role === "assistant") {
 						total += e.message.usage?.cost?.total ?? 0;
+					} else if (e.type === "message" && e.message?.role === "toolResult") {
+						total += e.message.usage?.cost?.total ?? 0;
+					} else if (e.type === "branch_summary" || e.type === "compaction") {
+						total += e.usage?.cost?.total ?? 0;
 					}
 				} catch {
 					/* skip bad line */
@@ -580,7 +592,15 @@ export function installHudFooter(
 				if (hud.time) {
 					right1.push(theme.fg("muted", `⏱️ ${formatDuration(workingMs)}`));
 				}
-				if (hud.cost) right1.push(theme.fg("muted", `${strings.costLabel}$${totals.cost.toFixed(2)}`));
+				if (hud.cost) {
+					let costText = `${strings.costLabel}$${totals.cost.toFixed(2)}`;
+					// Side-spend (tools/summaries) rides the same segment: zero
+					// side-spend renders exactly as before.
+					if (totals.tools.cost > 0) {
+						costText += strings.toolsSuffix(totals.tools.cost.toFixed(2));
+					}
+					right1.push(theme.fg("muted", costText));
+				}
 				if (hud.dailyCost) right1.push(theme.fg("muted", `${strings.todayLabel}$${dailyCost.toFixed(2)}`));
 				if (hud.outputSpeed && state.outputTps !== null && state.outputTps > 0) {
 					right1.push(theme.fg("accent", `${strings.speedLabel}${state.outputTps.toFixed(1)} tok/s`));

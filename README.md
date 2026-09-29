@@ -85,6 +85,12 @@ compresses is the **compression mode** (`/*tui` → Collapse):
   tool calls), tool count as they start.
 - **Turn telemetry** after each run: TPS, TTFT, duration, stall count/time, input/output
   token breakdown with cache-read and cache-write, cache hit rate, and list-price $/M rate.
+- **Tools/summaries side spend**: token usage attached to tool results (the tool's own
+  LLM calls, e.g. subagents) and to compaction/branch summaries is real session cost, but
+  not main-context accounting — mirroring pi's own `Tools/summaries` bucket it is tracked
+  separately and shown as a dimmed suffix on the cost segment (`$0.012+$9.500 tools` /
+  `费用 $0.01+$9.50 工具`) in both footers; today's cost sums the same scope. Zero side
+  spend renders exactly as before.
 - **Classic footer summary**: `✓ done 12s · ✻ 8s · 2 shell commands` after each run.
 
 ## HUD footer
