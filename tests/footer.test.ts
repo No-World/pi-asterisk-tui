@@ -28,6 +28,40 @@ test("cwd path truncation keeps head and tail segments", () => {
 	assert.equal(truncatePath("~/projects/pi-asterisk-tui", 24), "~/.../pi-asterisk-tui");
 });
 
+test("cwd path truncation measures display columns, not code units", () => {
+	// Regression (upstream #46): CJK paths are few code units but wide on
+	// screen; every truncated result must fit its terminal-column budget.
+	const path = "~/文档/甲乙丙丁戊己项目";
+	for (const budget of [14, 10, 8, 6, 4, 3]) {
+		const out = truncatePath(path, budget);
+		assert.ok(
+			visibleWidth(out) <= budget,
+			`budget ${budget}: "${out}" is ${visibleWidth(out)} display columns`,
+		);
+	}
+});
+
+test("branch truncation measures display columns, not code units", () => {
+	const out = truncateBranch("修复/中文分支名称很长", 10);
+	assert.ok(visibleWidth(out) <= 10, `"${out}" is ${visibleWidth(out)} display columns`);
+	assert.ok(out.endsWith("..."));
+});
+
+test("fitSegmentsByPriority terminates when a truncate callback cannot shrink", () => {
+	// Regression (upstream #46): a truncate callback returning a string wider
+	// than the budget used to spin the while loop forever — 100% CPU, no
+	// repaint, SIGTERM unable to land. It must drop the stuck segment instead.
+	const stuck = "中文路径无法收缩"; // 8 code units, 16 display columns
+	const out = fitSegmentsByPriority(
+		[
+			{ text: stuck, priority: 0, truncate: () => stuck },
+			{ text: "kept", priority: 5 },
+		],
+		10,
+	);
+	assert.deepEqual(out, ["kept"]);
+});
+
 test("footer compacts cwd before truncating lower-priority segments", () => {
 	assert.deepEqual(
 		fitSegmentsByPriority(
@@ -90,6 +124,63 @@ test("narrow footer keeps the cwd basename", () => {
 	const out = component.render(59).join("\n");
 	assert.ok(out.includes("pi-a"), `cwd basename prefix missing\n${out}`);
 	assert.ok(!out.includes("~/work/projects"), `full cwd should be compacted\n${out}`);
+});
+
+test("narrow footer with a CJK cwd terminates and fits the width", () => {
+	// Regression (upstream #46): with the cwd basename short in code units but
+	// wide on screen, the fitting loop livelocked at 100% CPU and never
+	// rendered. The footer must terminate and emit lines within the budget.
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = {
+		model: { provider: "openai", contextWindow: 1_000 },
+		ui: {
+			setFooter(factory: typeof footerFactory) {
+				footerFactory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/工作空间/甲乙丙丁戊己庚辛壬癸目录",
+			getEntries: () => [],
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250, contextWindow: 1_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	installFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => ({ provider: "OpenAI", model: "gpt-5", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	const component = footerFactory(
+		{ requestRender() {} } as TUI,
+		theme,
+		footerData,
+	) as Component;
+	for (const width of [30, 24, 16]) {
+		const lines = component.render(width);
+		for (const line of lines) {
+			assert.ok(
+				visibleWidth(line) <= width,
+				`width ${width}: line is ${visibleWidth(line)} display columns: ${line}`,
+			);
+		}
+	}
 });
 
 test("narrow footer sheds the context bar before left segments", () => {

@@ -28,31 +28,40 @@ export function basenamePath(path: string): string {
 	return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
 
-/** Truncate branch names from the end so prefixes like `fix/` stay visible. */
+/** Truncate branch names from the end so prefixes like `fix/` stay visible.
+ * `maxLen` is a terminal-column budget, so comparisons and the final cut
+ * operate on display width — CJK branch names are few code units but wide.
+ * The cut stays plain text: callers wrap the result in theme colors, and
+ * truncateToWidth's injected resets would kill that color mid-segment. */
 export function truncateBranch(branch: string, maxLen: number): string {
-	if (branch.length <= maxLen) return branch;
+	if (visibleWidth(branch) <= maxLen) return branch;
 	if (maxLen <= 3) return "...".slice(0, maxLen);
-	return `${branch.slice(0, maxLen - 3)}...`;
+	return stripAnsi(truncateToWidth(branch, maxLen, "..."));
 }
 
 export function truncatePath(path: string, maxLen: number): string {
-	if (path.length <= maxLen) return path;
+	// `maxLen` is a terminal-column budget, so every comparison here must use
+	// display width. Comparing String.length let wide (CJK) paths stay wider
+	// than the budget, so fitSegmentsByPriority's `while (totalW() > maxW)`
+	// loop could never reduce the total and spun forever on the render timer
+	// (upstream #46: 100% CPU livelock, no repaint, SIGTERM unable to land).
+	if (visibleWidth(path) <= maxLen) return path;
 	if (maxLen <= 3) return "...".slice(0, maxLen);
 	const sepChar = path.includes("/") ? "/" : "\\";
 	const parts = path.split(/[\\/]/);
-	if (parts.length <= 2) return path.slice(0, maxLen - 3) + "...";
+	if (parts.length <= 2) return stripAnsi(truncateToWidth(path, maxLen, "..."));
 	// Keep first segment (e.g. ~) and as many trailing segments as fit.
 	const tail: string[] = [];
 	let tailLen = 0;
 	for (let i = parts.length - 1; i >= 1; i--) {
 		const seg = parts[i]!;
-		if (tailLen + seg.length + 4 > maxLen) break;
+		if (tailLen + visibleWidth(seg) + 4 > maxLen) break;
 		tail.unshift(seg);
-		tailLen += seg.length + 1;
+		tailLen += visibleWidth(seg) + 1;
 	}
 	const head = parts[0]!;
 	const result = `${head}${sepChar}...${sepChar}${tail.join(sepChar)}`;
-	return result.length > maxLen ? result.slice(0, maxLen - 3) + "..." : result;
+	return visibleWidth(result) > maxLen ? stripAnsi(truncateToWidth(result, maxLen, "...")) : result;
 }
 
 export function finiteOrZero(value: unknown): number {
@@ -178,7 +187,27 @@ export function fitSegmentsByPriority(
 			if (totalW() <= maxW) break;
 		}
 	}
+	// A segment whose `truncate` cannot actually shrink would otherwise spin
+	// here forever and block the render timer. Require each pass to make
+	// progress, and drop the worst segment when it does not, so layout always
+	// terminates (upstream #46: a synchronous loop in a render path has no
+	// timeout and no user-visible error — non-termination is the worst failure).
+	let lastTotal = Infinity;
 	while (totalW() > maxW) {
+		const nowTotal = totalW();
+		if (nowTotal >= lastTotal) {
+			let worst = -1;
+			for (let i = 0; i < items.length; i++) {
+				if (items[i].text !== "" && (worst === -1 || items[i].priority < items[worst].priority)) {
+					worst = i;
+				}
+			}
+			if (worst === -1) break;
+			items[worst].text = "";
+			items[worst].w = 0;
+			continue;
+		}
+		lastTotal = nowTotal;
 		let target = -1;
 		for (let i = 0; i < items.length; i++) {
 			if (items[i].text !== "" && (target === -1 || items[i].priority < items[target].priority)) {
