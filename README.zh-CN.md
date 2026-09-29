@@ -146,6 +146,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
 | `selection.copy` | `"unwrapped"` | 选区复制：`plain`（视觉内容）/ `unwrapped`（逻辑内容，默认）/ `raw`（原始内容）；依赖 pi-tui 内部结构，pi 升级后可能静默回退原生 |
 | `selection.trimPadding` | `true` | 选区边距裁剪：高亮不覆盖补齐空白、视觉内容复制不含前后边距空格 |
+| `selection.tabWidth` | `3` | 原始内容复制的 Tab 宽度：2–8 任意整数（`3` 与渲染一致）或 `tab` 保留制表符；逐块复制会从原文确定性恢复真实 Tab |
 
 ## 实现方式
 

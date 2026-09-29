@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sliceByColumn, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Box, Container, Markdown, sliceByColumn, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import * as piTui from "@earendil-works/pi-tui";
+import { alignChildRow as alignChildRowImpl, findLeafAtLine, resolveSelectionRows, setSelectionTabWidth } from "../extensions/asterisk-tui/selection-copy.ts";
+import { attachForTest, renderCollapsedForTest, setCollapseOptions, uninstallTurnCollapse } from "../extensions/asterisk-tui/turn-collapse.ts";
+const selectionCopyInternals = { alignChildRow: alignChildRowImpl, findLeafAtLine };
 import { DEFAULT_CONFIG, normalizeSelectionConfig, type OpenTuiConfig } from "../extensions/asterisk-tui/config.ts";
-import { cycleSelectionCopy, toggleSelectionTrimPadding } from "../extensions/asterisk-tui/settings-command.ts";
+import { cycleSelectionCopy, setSelectionTabWidthInput, toggleSelectionTrimPadding } from "../extensions/asterisk-tui/settings-command.ts";
 import {
 	buildMarkdownOrigins,
+	installSelectionCopy,
 	buildTextOrigins,
 	emitRaw,
 	emitUnwrapped,
@@ -14,6 +19,7 @@ import {
 	type SelectionDeps,
 	type TextRecord,
 	type TokenCallRecord,
+	__testing,
 } from "../extensions/asterisk-tui/selection-copy.ts";
 
 const deps: SelectionDeps = {
@@ -141,7 +147,8 @@ test("unwrapped emission: opaque rows fall back to stock slices", () => {
 	const result = emitUnwrapped(deps, resolution);
 	assert.ok(result !== undefined);
 	assert.ok(result.includes("\n"), "stock behavior keeps visual rows");
-	const expected = rows.map((row) => stripTerminalSequences(record.lines[row]!).trimEnd().replace(/^\s+/, "")).join("\n");
+	// col-0 slices drop exactly the one margin column; deeper indentation would stay
+	const expected = rows.map((row) => stripTerminalSequences(record.lines[row]!).trimEnd().replace(/^ /, "")).join("\n");
 	assert.equal(result, expected);
 });
 
@@ -323,7 +330,7 @@ test("raw emission: non-markdown runs degrade per-part to unwrapped text", () =>
 	assert.ok(result !== undefined);
 	const [first, second] = result!.split("\n");
 	assert.equal(first, text);
-	assert.equal(second, toolLine);
+	assert.equal(second, toolLine); // one margin column dropped
 });
 
 test("normalizeSelectionConfig: trimPadding defaults on, explicit off respected", () => {
@@ -357,4 +364,448 @@ test("trimHighlightColumns clamps to content and skips padded rows", () => {
 	const cjk = " \u4f60\u597d\u4e16\u754c";
 	const cjkTrim = trimHighlightColumns(deps, cjk, 0, visibleWidth(cjk));
 	assert.deepEqual(cjkTrim, { start: 1, end: 9 });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: real pi-tui Markdown pipeline (records via the real wrapper)
+// ---------------------------------------------------------------------------
+
+const identityTheme = {
+	heading: (t: string) => t, link: (t: string) => t, linkUrl: (t: string) => t, code: (t: string) => t,
+	codeBlock: (t: string) => t, codeBlockBorder: (t: string) => t, quote: (t: string) => t, quoteBorder: (t: string) => t,
+	hr: (t: string) => t, listBullet: (t: string) => t, bold: (t: string) => t, italic: (t: string) => t,
+	strikethrough: (t: string) => t, underline: (t: string) => t,
+} as const;
+
+test("integration: raw copy of a fully selected real-rendered table yields the pipe source", () => {
+	const cleanup = installSelectionCopy({
+		Markdown: { prototype: Markdown.prototype },
+		// biome-ignore lint: partial module is fine — only Markdown is exercised
+	} as unknown as Parameters<typeof installSelectionCopy>[0]);
+	try {
+		const source = [
+			"intro paragraph before the table",
+			"",
+			"| 模式 | 复制结果 |",
+			"|------|------|",
+			"| 视觉内容 | 逐显示行无边距空格 |",
+			"| 逻辑内容 | 每行拼回单行画法长文本长文本长文本 |",
+			"",
+			"tail text",
+		].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const width = 56;
+		const lines = md.render(width);
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "recording captured");
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+		const tableIdx = mdRecord.topCalls.findIndex((call) => call.token.type === "table");
+		assert.ok(tableIdx >= 0, "table token recorded");
+		const tableCall = origins.callRows[tableIdx]!;
+		const rows: number[] = [];
+		for (let r = tableCall.start; r < tableCall.end; r++) rows.push(r);
+		const selectedLines = rows.map((r) => lines[r]!);
+		const resolution = {
+			bounds: {
+				start: { row: rows[0]!, col: 0 },
+				end: { row: rows[rows.length - 1]!, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+			},
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: rows.map((r) => {
+					const group = origins.origins[r]!;
+					return group >= 0 ? { record: mdRecord, group, text: origins.groups[group] ?? "" } : undefined;
+				}),
+				lines: selectedLines,
+				markdown: rows.map((r) => ({ record: mdRecord, localRow: r })),
+			},
+		} as unknown as ResolvedSelection;
+		const result = emitRaw(deps, resolution);
+		assert.ok(result !== undefined, "raw emission produced text");
+		assert.ok(result!.startsWith("| 模式 |"), "pipe source, not the drawn form");
+		assert.ok(result!.includes("| 视觉内容 | 逐显示行无边距空格 |"), "data row source");
+	} finally {
+		cleanup();
+	}
+});
+
+// ---------------------------------------------------------------------------
+// Alignment drift + Box descent (user-message scenarios)
+// ---------------------------------------------------------------------------
+
+test("alignment survives blank-row drops inside a segment (monotonic cursor)", () => {
+	// Child renders 5 lines: [blank, A, B, C, blank]; the document dropped the
+	// leading blank (duplicate-blank dedup) and the trailing blank.
+	const childLines = ["", " A", " B", " C", ""];
+	const document = [" A", " B", " C"];
+	const segment = { start: 10, end: 13, child: {} };
+	const memo = { renders: new Map(), walks: new Map(), cursors: new Map() } as never;
+	for (let i = 0; i < document.length; i++) {
+		const local = (selectionCopyInternals as never as {
+			alignChildRow: (deps: SelectionDeps, memo: never, line: string, seg: typeof segment, row: number, lines: string[]) => number | undefined;
+		}).alignChildRow(deps, memo, document[i]!, segment, segment.start + i, childLines);
+		assert.equal(local, i + 1, `row ${i} aligns past the dropped blank`);
+	}
+});
+
+test("alignment drift beyond the search window degrades to opaque", () => {
+	const childLines = Array.from({ length: 20 }, (_, i) => ` line-${i}`);
+	const segment = { start: 0, end: 1, child: {} };
+	const memo = { renders: new Map(), walks: new Map(), cursors: new Map() } as never;
+	const local = (selectionCopyInternals as never as {
+		alignChildRow: (deps: SelectionDeps, memo: never, line: string, seg: typeof segment, row: number, lines: string[]) => number | undefined;
+	}).alignChildRow(deps, memo, " line-19", segment, 0, childLines);
+	assert.equal(local, undefined);
+});
+
+test("integration: raw copy descends Box-wrapped markdown (user message shape)", () => {
+	const { Box, Container, Markdown } = piTui;
+	const cleanup = installSelectionCopy(piTui as never);
+	try {
+		const source = [
+			"| 类别 | 旧 | 新 |",
+			"|------|------|------|",
+			"| 环境变量 | OPEN_TUI_DEBUG | ASTERISK_TUI_DEBUG |",
+		].join("\n");
+		const md = new Markdown(source, 0, 0, identityTheme as never, undefined, undefined);
+		// UserMessageComponent shape: Container → Box(padding 1, bg) → Markdown
+		const box = new Box(1, 1, (t: string) => `\x1b[48;2;52;53;65m${t}\x1b[0m`);
+		box.addChild(md);
+		const outer = new Container();
+		outer.addChild(box);
+		const width = 60;
+		const lines = outer.render(width);
+		assert.ok(lines.length > 3, "box renders padding + table");
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "markdown recorded");
+		const find = selectionCopyInternals.findLeafAtLine as typeof findLeafAtLine;
+		// find the first table row (after top padding + border + header)
+		const headerIndex = lines.findIndex((line) => stripTerminalSequences(line).includes("类别"));
+		assert.ok(headerIndex > 0, "header row found");
+		const hit = find(deps, outer, width, headerIndex);
+		assert.ok(hit, "leaf found through the Box");
+		assert.equal(hit!.record, mdRecord);
+		assert.ok(hit!.localRow >= 0);
+	} finally {
+		cleanup();
+	}
+});
+
+// ---------------------------------------------------------------------------
+// E2E: real pi-tui components + real turn-collapse walk + real selection-copy
+// pipeline (the layer where the wild blank-drop and Box bugs lived)
+// ---------------------------------------------------------------------------
+
+test("e2e: raw copy of a table inside a user message (Box-wrapped, OSC133, blank-dedup walk)", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	const resetCollapseE2E = () =>
+		setCollapseOptions({ mode: "group-all", style: "compact", thought: "default", tools: {}, retryErrors: true, liveThinking: true, liveTools: true });
+	resetCollapseE2E();
+	try {
+		const userTable = [
+			"| 类别 | 旧 | 新 |",
+			"|------|------|------|",
+			"| 环境变量 | OPEN_TUI_DEBUG | ASTERISK_TUI_DEBUG |",
+			"| 运行时身份键 | open-tui.* | asterisk-tui.* |",
+		].join("\n");
+		const assistantText = "这是一段足够长的中文文本用来验证软换行拼回单一逻辑行不引入多余空格并且还会继续变长以触发至少一次折行";
+		// UserMessageComponent shape: text/rebuild + Container → Box(1,1,bg) → Markdown
+		const userMd = new Markdown(userTable, 0, 0, identityTheme as never, undefined, undefined);
+		const userBox = new Box(1, 1, (t: string) => `\x1b[48;2;52;53;65m${t}\x1b[0m`);
+		userBox.addChild(userMd);
+		const userInner = new Container();
+		userInner.addChild(userBox);
+		const userMessage = {
+			text: userTable,
+			rebuild() {},
+			children: userInner.children,
+			render: (width: number) => {
+				const lines = userInner.render(width);
+				if (lines.length > 0) {
+					lines[0] = `\x1b]133;A\x07${lines[0]}`;
+					lines[lines.length - 1] = `\x1b]133;B\x07\x1b]133;C\x07${lines[lines.length - 1]}`;
+				}
+				return lines;
+			},
+		};
+		// AssistantMessageComponent shape: Container → contentContainer → Markdown
+		const assistantMd = new Markdown(assistantText, 1, 0, identityTheme as never, undefined, undefined);
+		const assistantContent = new Container();
+		assistantContent.addChild(assistantMd);
+		const assistantMessage = {
+			hideThinkingBlock: true,
+			setHideThinkingBlock() {},
+			children: assistantContent.children,
+			render: (width: number) => {
+				const lines = assistantContent.render(width);
+				if (lines.length > 0) {
+					lines[0] = `\x1b]133;A\x07${lines[0]}`;
+					lines[lines.length - 1] = `\x1b]133;B\x07\x1b]133;C\x07${lines[lines.length - 1]}`;
+				}
+				return lines;
+			},
+		};
+		const chat = {
+			children: [userMessage, assistantMessage],
+			render: (w: number) => renderCollapsedForTest(chat, w),
+		};
+		attachForTest(chat);
+		const width = 40;
+		const lines = chat.render(width); // the real patched pipeline
+		// sanity: the walked document contains the user table and assistant text
+		assert.ok(lines.some((l) => stripTerminalSequences(l).includes("│ 类别")), "user table rendered in walk output");
+
+		const scrollView = { scrollTop: 0 };
+		const view = {
+			getSelectionBounds: () => ({
+				start: { row: 0, col: 0, scrollView },
+				end: { row: lines.length - 1, col: visibleWidth(lines[lines.length - 1] ?? ""), boundary: false },
+			}),
+			currentLayout: {
+				root: {
+					scrollView,
+					scrollContentLines: lines,
+					children: [{ component: chat, rect: { x: 0, y: 0, width, height: lines.length } }],
+				},
+			},
+		};
+		const resolution = resolveSelectionRows(deps, view);
+		assert.ok(resolution, "resolution built through the real walk");
+		const raw = emitRaw(deps, resolution);
+		assert.ok(raw !== undefined, "raw emission");
+		// user-message markdown contributes its pipe source
+		assert.ok(raw!.includes("| 环境变量 | OPEN_TUI_DEBUG | ASTERISK_TUI_DEBUG |"), `pipe source in:\n${raw}`);
+		// assistant text contributes unwrapped logical line
+		assert.ok(raw!.split("\n").some((l) => l.includes("这是一段足够长的中文文本")), "assistant logical line present");
+		// unwrapped over the same selection: assistant paragraph joins to one line
+		const unwrapped = emitUnwrapped(deps, resolution);
+		assert.ok(unwrapped!.split("\n").some((l) => l.replace(/\s/g, "") === assistantText), "assistant paragraph joined as one line");
+	} finally {
+		uninstallTurnCollapse();
+		cleanupInstall();
+	}
+});
+
+test("raw emission keeps blank-line separation between blocks (space tokens)", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+	const source = [
+		"## 标题一",
+		"",
+		"第一段正文。",
+		"",
+		"| a | b |",
+		"|---|---|",
+		"| 1 | 2 |",
+	].join("\n");
+	const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+	const width = 40;
+	const lines = md.render(width);
+	const mdRecord = __testing.markdownRecords.get(md as never);
+	assert.ok(mdRecord, "recorded");
+	const origins = buildMarkdownOrigins(deps, mdRecord);
+	// Select every non-blank row but NOT the blank separator rows.
+	const selectedRows: number[] = [];
+	for (let r = 0; r < lines.length; r++) {
+		if (stripTerminalSequences(lines[r]!).trim() !== "") selectedRows.push(r);
+	}
+	const selectedLines = selectedRows.map((r) => lines[r]!);
+	// Start mid-line on the heading (col 2, past "##") — a drag that begins
+	// inside the first line. The whole-component shortcut must NOT fire; the
+	// per-call path runs and must still preserve blank-line separators.
+	const resolution = {
+		bounds: {
+			start: { row: selectedRows[0]!, col: 2 },
+			end: { row: selectedRows[selectedRows.length - 1]!, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+		},
+		sourceLines: lines,
+		contentWidth: mdRecord.contentWidth,
+		mapping: {
+			entries: selectedRows.map((r) => {
+				const g = origins.origins[r]!;
+				return g >= 0 ? { record: mdRecord, group: g, text: origins.groups[g] ?? "" } : undefined;
+			}),
+			lines: selectedLines,
+			markdown: selectedRows.map((r) => ({ record: mdRecord, localRow: r })),
+		},
+	} as unknown as ResolvedSelection;
+	const result = emitRaw(deps, resolution);
+	assert.ok(result !== undefined);
+	assert.ok(
+		result!.includes("## 标题一\n\n第一段正文。"),
+		`heading separated from paragraph by a blank line:\n${JSON.stringify(result)}`,
+	);
+	assert.ok(
+		result!.includes("第一段正文。\n\n| a | b |"),
+		`paragraph separated from table by a blank line:\n${JSON.stringify(result)}`,
+	);
+	} finally {
+		cleanupInstall();
+	}
+});
+
+test("e2e: raw copy keeps fenced code blocks verbatim (indentation, fences, inline code)", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+		const source = [
+			"改造前：",
+			"",
+			"```ts",
+			"	const a = {",
+			"		b: 1,",
+			"	};",
+			"```",
+			"",
+			"以及 `inline code` 与 **bold**。",
+		].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const width = 46;
+		const lines = md.render(width);
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "recorded");
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+		const selectedRows = lines.map((_, i) => i);
+		const selectedLines = selectedRows.map((r) => lines[r]!);
+		const resolution = {
+			bounds: {
+				start: { row: 0, col: 2 }, // mid-line start: forces the per-call path
+				end: { row: lines.length - 1, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+			},
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: selectedRows.map((r) => {
+					const g = origins.origins[r]!;
+					return g >= 0 ? { record: mdRecord, group: g, text: origins.groups[g] ?? "" } : undefined;
+				}),
+				lines: selectedLines,
+				markdown: selectedRows.map((r) => ({ record: mdRecord, localRow: r })),
+			},
+		} as unknown as ResolvedSelection;
+		const result = emitRaw(deps, resolution);
+		assert.ok(result !== undefined);
+		assert.ok(result!.includes("```ts"), "opening fence preserved");
+		assert.ok(result!.includes("```\n"), "closing fence preserved");
+		// pi-tui normalizes tabs to 3 spaces BEFORE lexing, so per-call raws carry
+		// the normalized form; only whole-message coverage returns this.text verbatim.
+		assert.ok(result!.includes("   b: 1,"), "code indentation preserved (tabs normalized to 3 spaces by the renderer)");
+		assert.ok(result!.includes("`inline code`"), "inline code backticks preserved");
+		assert.ok(result!.includes("**bold**"), "bold markers preserved");
+	} finally {
+		cleanupInstall();
+	}
+});
+
+test("raw copy tab policy: keep tabs, expand to 4, whole-message path", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+		const source = ["前文：", "", "```ts", "\tconst a = {", "\t\tb: 1,", "\t};", "```"].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const width = 40;
+		const lines = md.render(width);
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "recorded");
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+		const codeCallIdx = mdRecord.topCalls.findIndex((c) => c.token.type === "code");
+		const codeCall = origins.callRows[codeCallIdx]!;
+		const rows: number[] = [];
+		for (let r = codeCall.start; r < codeCall.end; r++) rows.push(r);
+		const selectedLines = rows.map((r) => lines[r]!);
+		const resolution = {
+			bounds: {
+				start: { row: rows[0]!, col: 0 },
+				end: { row: rows[rows.length - 1]!, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+			},
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: rows.map((r) => {
+					const g = origins.origins[r]!;
+					return g >= 0 ? { record: mdRecord, group: g, text: origins.groups[g] ?? "" } : undefined;
+				}),
+				lines: selectedLines,
+				markdown: rows.map((r) => ({ record: mdRecord, localRow: r })),
+			},
+		} as unknown as ResolvedSelection;
+
+		// default (3): renderer-normalized three spaces
+		setSelectionTabWidth(3);
+		const asRendered = emitRaw(deps, resolution);
+		assert.ok(asRendered!.includes("   b: 1,"), "3-space form by default");
+
+		// keep literal tabs
+		setSelectionTabWidth("tab");
+		const withTabs = emitRaw(deps, resolution);
+		assert.ok(withTabs!.includes("\tb: 1,"), "literal tab preserved");
+		assert.ok(withTabs!.includes("```ts"), "fences intact");
+
+		// expand to 4
+		setSelectionTabWidth(4);
+		const with4 = emitRaw(deps, resolution);
+		assert.ok(with4!.includes("    b: 1,"), "4-space expansion");
+
+		setSelectionTabWidth(3); // restore global state
+	} finally {
+		cleanupInstall();
+	}
+});
+
+test("normalizeSelectionConfig + panel input: tabWidth accepts every integer 2-8 or tab", () => {
+	assert.equal(normalizeSelectionConfig({}).tabWidth, 3);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 4 }).tabWidth, 4);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 5 }).tabWidth, 5);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 6 }).tabWidth, 6);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 7 }).tabWidth, 7);
+	assert.equal(normalizeSelectionConfig({ tabWidth: "tab" }).tabWidth, "tab");
+	// out of range / junk → default
+	assert.equal(normalizeSelectionConfig({ tabWidth: 1 }).tabWidth, 3);
+	assert.equal(normalizeSelectionConfig({ tabWidth: 9 }).tabWidth, 3);
+	assert.equal(normalizeSelectionConfig({ tabWidth: "bogus" }).tabWidth, 3);
+	// panel input parsing: every integer 2-8, "tab", whitespace tolerated
+	for (const value of [2, 3, 4, 5, 6, 7, 8]) {
+		const config = setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), String(value));
+		assert.equal(config?.selection.tabWidth, value, `input ${value}`);
+	}
+	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), " tab ")?.selection.tabWidth, "tab");
+	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), "1"), undefined);
+	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), "9"), undefined);
+	assert.equal(setSelectionTabWidthInput(structuredClone(DEFAULT_CONFIG), "x"), undefined);
+});
+
+test("partial code selection disambiguates tab vs space lines with tabWidth set", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+		// two lines that RENDER identically (tab normalizes to 3 spaces)
+		const source = ["```txt", "\tKEY A", "   KEY A", "```"].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const width = 30;
+		const lines = md.render(width);
+		const mdRecord = __testing.markdownRecords.get(md as never)!;
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+		const codeCallIdx = mdRecord.topCalls.findIndex((c) => c.token.type === "code");
+		const codeCall = origins.callRows[codeCallIdx]!;
+		// rows: fence, KEY A, KEY A, fence — select ONLY the display row of the
+		// SECOND (space-indented) line
+		const spaceRow = codeCall.start + 2;
+		const selectedLines = [lines[spaceRow]!];
+		const resolution = {
+			bounds: { start: { row: spaceRow, col: 0 }, end: { row: spaceRow, col: visibleWidth(selectedLines[0]!), boundary: false } },
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: [{ record: mdRecord, group: origins.origins[spaceRow]!, text: "" }],
+				lines: selectedLines,
+				markdown: [{ record: mdRecord, localRow: spaceRow }],
+			},
+		} as unknown as ResolvedSelection;
+		setSelectionTabWidth(4);
+		const out = emitRaw(deps, resolution);
+		// the space-indented line must NOT inherit the tab line's original form
+		assert.ok(out!.includes("   KEY A"), `space line stays 3-space under tabWidth=4:\n${JSON.stringify(out)}`);
+		assert.ok(!out!.includes("    KEY A"), "must not expand to 4 (that would be the tab line's form)");
+		setSelectionTabWidth(3);
+	} finally {
+		cleanupInstall();
+	}
 });

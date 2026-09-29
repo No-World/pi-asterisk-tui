@@ -67,6 +67,9 @@ export interface SelectionDeps {
 
 let copyMode: SelectionCopyMode = "unwrapped";
 let trimPadding = true;
+/** Tab presentation for raw copies: 3 matches the renderer's normalization;
+ * 2/4/8 re-expand tabs to that width; "tab" keeps literal tab characters. */
+let tabWidth: number | "tab" = 3;
 
 /** Current copy mode (index.ts feeds this from asterisk-tui.json). */
 export function setSelectionCopyMode(mode: SelectionCopyMode): void {
@@ -78,6 +81,11 @@ export function setSelectionCopyMode(mode: SelectionCopyMode): void {
  * this from asterisk-tui.json). */
 export function setSelectionTrimPadding(enabled: boolean): void {
 	trimPadding = enabled;
+}
+
+/** Tab width policy for raw copies (index.ts feeds this from asterisk-tui.json). */
+export function setSelectionTabWidth(width: number | "tab"): void {
+	tabWidth = width;
 }
 
 // ---------------------------------------------------------------------------
@@ -565,55 +573,154 @@ interface WalkHit {
 /** Per-copy-invocation walk cache: the document is frozen while the
  * synchronous copy runs, so component renders and transparency checks are
  * computed once per component instead of once per selected row. */
-export interface WalkMemo {
-	renders: Map<object, string[]>;
-	walks: Map<object, { spans: Array<{ component: unknown; start: number; lines: string[] }>; total: number }>;
+export interface WalkSpan {
+	component: unknown;
+	start: number;
+	lines: string[];
+	/** Width the child renders at (Box children render at width − 2·paddingX). */
+	width: number;
+}
+
+interface WalkMemo {
+	/** Per (component, width) render cache — Box children render at a
+	 * different width than their parent, so width is part of the key. */
+	renders: Map<object, Map<number, string[]>>;
+	walks: Map<object, { spans: WalkSpan[]; total: number }>;
+	/** Monotonic alignment cursor per segment child (document order). */
+	cursors: Map<object, number>;
 }
 
 function createWalkMemo(): WalkMemo {
-	return { renders: new Map(), walks: new Map() };
+	return { renders: new Map(), walks: new Map(), cursors: new Map() };
 }
 
 function memoRender(memo: WalkMemo, component: unknown, width: number): string[] | undefined {
-	const existing = memo.renders.get(component as object);
-	if (existing) return existing;
 	if (typeof component !== "object" || component === null) return undefined;
+	const key = component as object;
+	let byWidth = memo.renders.get(key);
+	if (!byWidth) {
+		byWidth = new Map();
+		memo.renders.set(key, byWidth);
+	}
+	const existing = byWidth.get(width);
+	if (existing) return existing;
 	try {
 		const lines = (component as { render?: (width: number) => string[] }).render?.(width) ?? [];
 		if (!Array.isArray(lines)) return undefined;
-		memo.renders.set(component as object, lines);
+		byWidth.set(width, lines);
 		return lines;
 	} catch {
 		return undefined;
 	}
 }
 
+const eqRows = (deps: SelectionDeps, a: string[], b: string[]): boolean => {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		if (!stripEq(deps, a[i], b[i])) return false;
+	}
+	return true;
+};
+
 /** Cached transparency walk for one container: child spans + own-render
- * verification, computed once per copy invocation. */
-function memoWalk(deps: SelectionDeps, memo: WalkMemo, component: object, width: number): { spans: Array<{ component: unknown; start: number; lines: string[] }>; total: number } | undefined {
+ * verification, computed once per copy invocation. Understands plain
+ * Containers (children at the same width), Boxes (children at
+ * width − 2·paddingX with paddingY blank rows and side padding), and
+ * single-child passthrough wrappers (e.g. MouseRegion). */
+function memoWalk(deps: SelectionDeps, memo: WalkMemo, component: object, width: number): { spans: WalkSpan[]; total: number } | undefined {
 	const cached = memo.walks.get(component);
 	if (cached) return cached;
 	const children = (component as { children?: unknown[] }).children;
 	if (!Array.isArray(children) || children.length === 0) return undefined;
 	const own = memoRender(memo, component, width);
 	if (!own) return undefined;
-	const spans: Array<{ component: unknown; start: number; lines: string[] }> = [];
-	let total = 0;
-	for (const child of children) {
-		const lines = memoRender(memo, child, width);
-		if (!lines) return undefined;
-		spans.push({ component: child, start: total, lines });
-		total += lines.length;
-	}
-	if (total !== own.length) return undefined;
-	const flat: string[] = [];
-	for (const span of spans) flat.push(...span.lines);
-	for (let i = 0; i < own.length; i++) {
-		if (!stripEq(deps, own[i], flat[i])) return undefined;
-	}
-	const result = { spans, total };
-	memo.walks.set(component, result);
+	const result = buildWalkSpans(deps, memo, component, children, own, width);
+	if (result) memo.walks.set(component, result);
 	return result;
+}
+
+function buildWalkSpans(
+	deps: SelectionDeps,
+	memo: WalkMemo,
+	_component: object,
+	children: unknown[],
+	own: string[],
+	width: number,
+): { spans: WalkSpan[]; total: number } | undefined {
+	const paddingX = pickPaddingX(_component);
+	// Box first when the shape says so — probing other models at the parent
+	// width would render Box children at the wrong width and bust their caches.
+	if (paddingX !== undefined) {
+		const spans = buildBoxSpans(deps, memo, children, own, width, paddingX, pickPaddingY(_component));
+		if (spans) return spans;
+	}
+	// Single-child passthrough wrapper (renders its child verbatim).
+	if (children.length === 1) {
+		const lines = memoRender(memo, children[0], width);
+		if (lines && eqRows(deps, own, lines)) {
+			return { spans: [{ component: children[0], start: 0, lines, width }], total: lines.length };
+		}
+	}
+	// Plain Container (children concatenated at the same width).
+	{
+		const spans: WalkSpan[] = [];
+		let total = 0;
+		let ok = true;
+		for (const child of children) {
+			const lines = memoRender(memo, child, width);
+			if (!lines) {
+				ok = false;
+				break;
+			}
+			spans.push({ component: child, start: total, lines, width });
+			total += lines.length;
+		}
+		if (ok && total === own.length) {
+			const flat: string[] = [];
+			for (const span of spans) flat.push(...span.lines);
+			if (eqRows(deps, own, flat)) return { spans, total };
+		}
+	}
+	return undefined;
+}
+
+/** Box spans: children at contentWidth, side padding per line, paddingY blank
+ * rows above and below (bg styling vanishes under eqRows). */
+function buildBoxSpans(
+	deps: SelectionDeps,
+	memo: WalkMemo,
+	children: unknown[],
+	own: string[],
+	width: number,
+	paddingX: number,
+	paddingY: number,
+): { spans: WalkSpan[]; total: number } | undefined {
+	const contentWidth = Math.max(1, width - paddingX * 2);
+	const leftPad = " ".repeat(paddingX);
+	const spans: WalkSpan[] = [];
+	const padded: string[] = [];
+	for (let i = 0; i < paddingY; i++) padded.push("");
+	for (const child of children) {
+		const lines = memoRender(memo, child, contentWidth);
+		if (!lines) return undefined;
+		spans.push({ component: child, start: padded.length, lines, width: contentWidth });
+		for (const line of lines) padded.push(leftPad + line);
+	}
+	for (let i = 0; i < paddingY; i++) padded.push("");
+	if (padded.length === own.length && eqRows(deps, own, padded)) {
+		return { spans, total: padded.length };
+	}
+	return undefined;
+}
+
+function pickPaddingX(component: object): number | undefined {
+	const value = (component as { paddingX?: unknown }).paddingX;
+	return typeof value === "number" && value >= 0 ? value : undefined;
+}
+
+function pickPaddingY(component: object): number {
+	const value = (component as { paddingY?: unknown }).paddingY;
+	return typeof value === "number" && value >= 0 ? value : 0;
 }
 
 /**
@@ -640,7 +747,7 @@ export function findLeafAtLine(
 	if (!walk || localLine >= walk.total) return undefined;
 	for (const span of walk.spans) {
 		if (localLine < span.start + span.lines.length) {
-			return findLeafAtLine(deps, span.component, width, localLine - span.start, memo, depth + 1);
+			return findLeafAtLine(deps, span.component, span.width, localLine - span.start, memo, depth + 1);
 		}
 	}
 	return undefined;
@@ -672,39 +779,32 @@ function findScrollViewBox(box: LayoutBoxLike | undefined, scrollView: unknown):
  * aligned pair is verified against the actual document row — synthesized
  * run-label lines never match and stay opaque.
  */
-function alignChildRow(
+export function alignChildRow(
 	deps: SelectionDeps,
+	memo: WalkMemo,
 	sourceLine: string,
 	segment: { start: number; end: number; child: unknown },
 	row: number,
 	childLines: string[] | undefined,
 ): number | undefined {
 	if (!childLines || childLines.length === 0) return undefined;
-	const offset = row - segment.start;
-	if (offset < 0) return undefined;
-	const candidates: number[] = [];
-	if (segment.end - segment.start === childLines.length) {
-		if (offset < childLines.length) candidates.push(offset);
-	} else {
-		// Slow path: replay the blank-dedup walk across the segment.
-		let local = 0;
-		let seen = 0;
-		let prevBlank = false;
-		while (local < childLines.length) {
-			const childLine = childLines[local]!;
-			const blank = isBlankish(childLine);
-			if (blank && prevBlank) {
-				local += 1;
-				continue;
+	const naive = row - segment.start;
+	if (naive < 0) return undefined;
+	// Rows are processed in document order; keep a monotonic cursor per child.
+	// turn-collapse's walk may drop or insert blank rows inside a segment
+	// (duplicate-blank dedup, separator padding), so the naive offset drifts —
+	// search outward from the expected position and let the row-value
+	// verification pick the true match.
+	const expected = Math.min(memo.cursors.get(segment.child as object) ?? naive, childLines.length - 1);
+	for (let delta = 0; delta <= 8; delta++) {
+		const candidates = delta === 0 ? [expected] : [expected + delta, expected - delta];
+		for (const local of candidates) {
+			if (local < 0 || local >= childLines.length) continue;
+			if (stripEq(deps, sourceLine, childLines[local])) {
+				memo.cursors.set(segment.child as object, local + 1);
+				return local;
 			}
-			if (segment.start + seen === row) candidates.push(local);
-			seen += 1;
-			prevBlank = blank;
-			local += 1;
 		}
-	}
-	for (const local of candidates) {
-		if (stripEq(deps, sourceLine, childLines[local])) return local;
 	}
 	return undefined;
 }
@@ -748,6 +848,7 @@ export function resolveSelectionRows(
 	const entries: RowMapping["entries"] = [];
 	const markdown: RowMapping["markdown"] = [];
 	const lines: string[] = [];
+	const stageMiss = { segment: 0, align: 0, leaf: 0, group: 0 };
 	for (let row = bounds.start.row; row <= bounds.end.row; row++) {
 		const line = sourceLines[row] ?? "";
 		lines.push(line);
@@ -757,9 +858,11 @@ export function resolveSelectionRows(
 		const segment = childSegmentAt(containerLine);
 		if (segment) {
 			const childLines = memoRender(memo, segment.child, contentWidth);
-			const local = alignChildRow(deps, line, segment, containerLine, childLines);
+			const local = alignChildRow(deps, memo, line, segment, containerLine, childLines);
+			if (local === undefined) stageMiss.align += 1;
 			if (local !== undefined) {
 				const hit = findLeafAtLine(deps, segment.child, contentWidth, local, memo);
+				if (!hit) stageMiss.leaf += 1;
 				if (hit && hit.localRow >= 0) {
 					if ("topCalls" in hit.record) {
 						const record = hit.record as MarkdownRecord;
@@ -767,6 +870,8 @@ export function resolveSelectionRows(
 						const group = origins.origins[hit.localRow];
 						if (group !== undefined && group >= 0) {
 							entry = { record, group, text: origins.groups[group] ?? "" };
+						} else {
+							stageMiss.group += 1;
 						}
 						md = { record, localRow: hit.localRow };
 					} else {
@@ -780,9 +885,14 @@ export function resolveSelectionRows(
 				}
 			}
 		}
+		if (!segment) stageMiss.segment += 1;
 		entries.push(entry);
 		markdown.push(md);
 	}
+	debug(
+		`copy: resolved rows=${lines.length} unmapped=${markdown.filter((m) => !m).length}` +
+			` (segment:${stageMiss.segment} align:${stageMiss.align} leaf:${stageMiss.leaf} group:${stageMiss.group})`,
+	);
 	return { bounds, sourceLines, contentWidth, mapping: { entries, lines, markdown } };
 }
 
@@ -1007,7 +1117,7 @@ function sliceInlineRaw(
 	contentWidth: number,
 	startCut: { fragmentIndex: number; col: number; contentColStart: number } | undefined,
 	endCut: { fragmentIndex: number; col: number; contentColStart: number } | undefined,
-): string | undefined {
+): { text: string; offsetInRaw: number } | undefined {
 	void contentWidth;
 	const segs = alignInline(deps, raw, rendered);
 	if (!segs) return undefined;
@@ -1040,16 +1150,19 @@ function sliceInlineRaw(
 		const markerText = raw.slice(markerAfter.rawStart, markerAfter.rawEnd);
 		if (raw.slice(rawStart, rawEnd).includes(markerText)) rawEnd = markerAfter.rawEnd;
 	}
-	return balanceRawSlice(raw.slice(rawStart, rawEnd));
+	return { text: balanceRawSlice(raw.slice(rawStart, rawEnd)), offsetInRaw: rawStart };
 }
+
+/** The selection margin is one column on each side (trailing already falls
+ * to trimEnd). Cut at column 0 drops exactly this many leading columns —
+ * content indentation beyond it is preserved. */
+const SLICE_MARGIN_COLS = 1;
 
 function stockSlice(deps: SelectionDeps, line: string, startCol: number, endCol: number): string {
 	const width = deps.visibleWidth(line);
-	const start = Math.max(0, Math.min(startCol, width));
+	const start = startCol === 0 ? Math.max(0, Math.min(SLICE_MARGIN_COLS, width)) : Math.max(0, Math.min(startCol, width));
 	const end = Math.max(start, Math.min(endCol, width));
-	const stripped = deps.strip(deps.sliceByColumn(line, start, Math.max(0, end - start), true));
-	// Cuts at column 0 include the left margin — drop it (content only).
-	return (start === 0 ? stripped.replace(/^\s+/, "") : stripped).trimEnd();
+	return deps.strip(deps.sliceByColumn(line, start, Math.max(0, end - start), true)).trimEnd();
 }
 
 /** Exclusive end column of the selection on row `idx` (clamped to the row width). */
@@ -1075,6 +1188,19 @@ function rowFullyCovered(deps: SelectionDeps, bounds: { start: SelectionPoint; e
  */
 export function emitUnwrapped(deps: SelectionDeps, resolution: ResolvedSelection): string | undefined {
 	return emitRows(deps, resolution, 0, resolution.mapping.entries.length);
+}
+
+/** Row-by-row emission over mapping rows [from, to) — every row copies as
+ * displayed (margin-aware), no logical grouping. Used by plain+trimPadding. */
+function emitRowsPerRow(deps: SelectionDeps, resolution: ResolvedSelection, from: number, to: number): string | undefined {
+	const { bounds, mapping } = resolution;
+	const lines = mapping.lines;
+	const parts: string[] = [];
+	for (let idx = from; idx < to; idx++) {
+		parts.push(stockSlice(deps, lines[idx] ?? "", idx === 0 ? bounds.start.col : 0, rowEndCol(deps, bounds, idx, lines)));
+	}
+	const text = parts.join("\n");
+	return text.length === 0 ? undefined : text;
 }
 
 /** Unwrapped emission over mapping rows [from, to). */
@@ -1113,6 +1239,82 @@ function emitRows(deps: SelectionDeps, resolution: ResolvedSelection, from: numb
 }
 
 /**
+ * pi-tui normalizes tabs to three spaces BEFORE lexing, so per-call raws
+ * carry the normalized form. The component's original text is a
+ * deterministic expansion of that — this walks both in lockstep and slices
+ * the original span for a normalized substring (undefined when it does not
+ * appear verbatim).
+ */
+function unnormalizeRaw(original: string, raw: string, at: number): string | undefined {
+	// normalized index → original index (each tab expands to three columns)
+	let normalizedIndex = 0;
+	let originalIndex = 0;
+	while (normalizedIndex < at && originalIndex < original.length) {
+		normalizedIndex += original[originalIndex] === "\t" ? 3 : 1;
+		originalIndex += 1;
+	}
+	if (normalizedIndex < at) return undefined;
+	const startOrig = originalIndex;
+	while (normalizedIndex < at + raw.length && originalIndex < original.length) {
+		normalizedIndex += original[originalIndex] === "\t" ? 3 : 1;
+		originalIndex += 1;
+	}
+	return original.slice(startOrig, originalIndex);
+}
+
+/** Presents a raw slice per the tab policy: literal tabs kept, or re-expanded
+ * to the configured width (3 matches what the renderer shows). Falls back to
+ * the normalized slice when the original cannot be recovered. */
+function applyTabPolicy(record: MarkdownRecord, raw: string, exactOffset?: number, span?: { start: number; end: number }): string {
+	if (typeof record.text !== "string") return raw;
+	const reconstruction = record.text.replace(/\t/g, "   ");
+	let at: number | undefined;
+	if (exactOffset !== undefined && reconstruction.startsWith(raw, exactOffset)) {
+		at = exactOffset;
+	} else if (span) {
+		// bounded search inside the owning call's span — never a foreign hit
+		const found = reconstruction.indexOf(raw, span.start);
+		if (found >= 0 && found + raw.length <= span.end) at = found;
+	} else {
+		const found = reconstruction.indexOf(raw);
+		if (found >= 0) at = found;
+	}
+	if (at === undefined) return raw;
+	const original = unnormalizeRaw(record.text, raw, at);
+	if (original === undefined) return raw;
+	if (tabWidth === "tab") return original;
+	return original.replace(/\t/g, " ".repeat(tabWidth));
+}
+
+/**
+ * Cumulative normalized-text offsets of each top-level call's raw. The calls'
+ * raws concatenate to the normalized source (marked block tokens cover it);
+ * a mismatch anywhere marks the offsets untrustworthy (undefined entries).
+ */
+function callRawOffsets(record: MarkdownRecord, origins: MdOriginInfo): Array<number | undefined> {
+	const offsets: Array<number | undefined> = [];
+	if (typeof record.text !== "string") return origins.callRows.map(() => undefined);
+	const reconstruction = record.text.replace(/\t/g, "   ");
+	let cursor = 0;
+	let trusted = true;
+	for (const callRow of origins.callRows) {
+		const raw = callRow.raw;
+		if (!trusted || typeof raw !== "string") {
+			offsets.push(undefined);
+			continue;
+		}
+		if (!reconstruction.startsWith(raw, cursor)) {
+			trusted = false;
+			offsets.push(undefined);
+			continue;
+		}
+		offsets.push(cursor);
+		cursor += raw.length;
+	}
+	return offsets;
+}
+
+/**
  * Raw mode, segment-granular: the selection is partitioned into runs of
  * consecutive rows. Markdown runs emit raw source (whole-component →
  * component text; block boundaries sliced: inline regex alignment for
@@ -1140,6 +1342,7 @@ export function emitRaw(deps: SelectionDeps, resolution: ResolvedSelection): str
 		let end = idx + 1;
 		while (end < rows && mapping.markdown[end]?.record === record) end += 1;
 		const raw = emitRawRun(deps, resolution, idx, end);
+		debug(`copy: run [${idx},${end}) → ${raw !== undefined ? "raw" : "unwrapped"}`);
 		parts.push(raw ?? emitRows(deps, resolution, idx, end) ?? "");
 		idx = end;
 	}
@@ -1177,9 +1380,20 @@ function emitRawRun(
 		spanStart <= nonBlankRows[0]! &&
 		spanEnd >= nonBlankRows[nonBlankRows.length - 1]!;
 	if (coversWhole) {
-		return typeof record.text === "string" ? record.text : undefined;
+		if (typeof record.text !== "string") return undefined;
+		return tabWidth === "tab" || tabWidth === 3 ? record.text : record.text.replace(/\t/g, " ".repeat(tabWidth));
 	}
 	const raws: string[] = [];
+	// Blank-only calls (space tokens) between two emitted calls carry the
+	// source's blank-line separation — without them adjacent blocks would
+	// concatenate with no blank line. Leading/trailing blanks stay dropped.
+	const offsets = callRawOffsets(record, origins);
+	let separators: string[] = [];
+	let emittedAny = false;
+	const flushSeparators = (): void => {
+		raws.push(...separators);
+		separators = [];
+	};
 	for (let callIndex = 0; callIndex < origins.callRows.length; callIndex++) {
 		const callRow = origins.callRows[callIndex]!;
 		if (callRow.start > spanEnd || callRow.end <= spanStart) continue;
@@ -1190,14 +1404,20 @@ function emitRawRun(
 			hasNonBlank = true;
 			if (!selectedLocal.has(r)) allCovered = false;
 		}
-		if (!hasNonBlank) continue; // pure spacing call — skippable
+		if (!hasNonBlank) {
+			// pure spacing call — separator material only when interior
+			if (emittedAny && typeof callRow.raw === "string") separators.push(applyTabPolicy(record, callRow.raw, offsets[callIndex]));
+			continue;
+		}
 		const cutInCall =
 			(startCut !== undefined && startCut.row >= callRow.start && startCut.row < callRow.end) ||
 			(endCut !== undefined && endCut.row >= callRow.start && endCut.row < callRow.end);
 		const fullyCovered = !cutInCall && allCovered && callRow.start >= spanStart && callRow.end <= spanEnd + 1;
 		if (fullyCovered) {
 			if (typeof callRow.raw !== "string") return undefined;
-			raws.push(callRow.raw);
+			flushSeparators();
+			emittedAny = true;
+			raws.push(applyTabPolicy(record, callRow.raw, offsets[callIndex]));
 			continue;
 		}
 		const call = record.topCalls[callIndex];
@@ -1206,13 +1426,25 @@ function emitRawRun(
 		const callEndCut = endCut && endCut.row >= callRow.start && endCut.row < callRow.end ? endCut : undefined;
 		const sliced = sliceCallRaw(deps, record, call, callRow, selectedLocal, origins, callStartCut, callEndCut);
 		if (sliced !== undefined) {
-			raws.push(sliced);
+			flushSeparators();
+			emittedAny = true;
+			const callOffset = offsets[callIndex];
+			raws.push(
+				applyTabPolicy(
+					record,
+					sliced.text,
+					callOffset !== undefined && sliced.offsetInRaw !== undefined ? callOffset + sliced.offsetInRaw : undefined,
+					callOffset !== undefined ? { start: callOffset, end: callOffset + callRow.raw!.length } : undefined,
+				),
+			);
 			continue;
 		}
 		if (typeof callRow.raw !== "string") return undefined;
-		raws.push(callRow.raw);
+		flushSeparators();
+		emittedAny = true;
+		raws.push(applyTabPolicy(record, callRow.raw, offsets[callIndex]));
 	}
-	if (raws.length === 0) return undefined;
+	if (!emittedAny) return undefined;
 	return raws.join("");
 }
 
@@ -1276,18 +1508,24 @@ function sliceCallRaw(
 	origins: MdOriginInfo,
 	startCut: SelectionCut | undefined,
 	endCut: SelectionCut | undefined,
-): string | undefined {
+): { text: string; offsetInRaw?: number } | undefined {
 	if (typeof callRow.raw !== "string") return undefined;
 	const tokenType = typeof call.token.type === "string" ? call.token.type : "";
 	switch (tokenType) {
 		case "code":
 			return sliceCodeRaw(call, callRow, selectedLocal, origins);
-		case "table":
-			return sliceTableRaw(deps, call, callRow, selectedLocal, origins);
-		case "list":
-			return sliceListRaw(call, callRow, selectedLocal, origins);
-		case "blockquote":
-			return sliceQuoteRaw(deps, record, call, callRow, selectedLocal, origins, startCut, endCut);
+		case "table": {
+			const sliced = sliceTableRaw(deps, call, callRow, selectedLocal, origins);
+			return sliced === undefined ? undefined : { text: sliced };
+		}
+		case "list": {
+			const sliced = sliceListRaw(call, callRow, selectedLocal, origins);
+			return sliced === undefined ? undefined : { text: sliced };
+		}
+		case "blockquote": {
+			const sliced = sliceQuoteRaw(deps, record, call, callRow, selectedLocal, origins, startCut, endCut);
+			return sliced === undefined ? undefined : { text: sliced };
+		}
 		case "latexBlock":
 		case "heading":
 			return undefined; // rendered ≠ raw lines / prefix handling → snap whole
@@ -1305,7 +1543,7 @@ function sliceParagraphLikeRaw(
 	origins: MdOriginInfo,
 	startCut: SelectionCut | undefined,
 	endCut: SelectionCut | undefined,
-): string | undefined {
+): { text: string; offsetInRaw?: number } | undefined {
 	const output = call.outputs[0];
 	if (typeof output !== "string" || typeof callRow.raw !== "string") return undefined;
 	const rendered = deps.strip(output).trimEnd();
@@ -1322,13 +1560,14 @@ function sliceParagraphLikeRaw(
 	return sliceInlineRaw(deps, raw, rendered, fragments, record.contentWidth, s, e);
 }
 
+
 /** Code blocks: covered code lines map 1:1 to interior raw lines (no fences). */
 function sliceCodeRaw(
 	call: TokenCallRecord,
 	callRow: { start: number; end: number; raw: string | undefined },
 	selectedLocal: Set<number>,
 	origins: MdOriginInfo,
-): string | undefined {
+): { text: string; offsetInRaw?: number } | undefined {
 	if (typeof callRow.raw !== "string") return undefined;
 	const groups = callGroupsInOrder(origins, callRow);
 	// outputs: [fence, ...codeLines, fence, spacing?]
@@ -1351,13 +1590,23 @@ function sliceCodeRaw(
 	if (rawLines.length < 2) return undefined;
 	const interior = rawLines.slice(1, -1);
 	if (interior.length !== codeLineCount) return undefined;
+	const pickedIdx = [...coveredOutputs].sort((a, b) => a - b).map((outputIndex) => outputIndex - 1);
 	const picked: string[] = [];
-	for (const outputIndex of [...coveredOutputs].sort((a, b) => a - b)) {
-		const line = interior[outputIndex - 1];
+	for (const interiorIndex of pickedIdx) {
+		const line = interior[interiorIndex];
 		if (line === undefined) return undefined;
 		picked.push(line);
 	}
-	return picked.join("\n");
+	// Contiguous picked lines are an exact substring of the raw — carry the
+	// character offset so tab unnormalization never guesses by search.
+	let offsetInRaw: number | undefined;
+	const contiguous = pickedIdx.every((v, i) => i === 0 || v === pickedIdx[i - 1]! + 1);
+	if (contiguous && pickedIdx.length > 0) {
+		let at = 0;
+		for (let i = 0; i < pickedIdx[0]! + 1; i++) at += rawLines[i]!.length + 1;
+		offsetInRaw = at;
+	}
+	return { text: picked.join("\n"), offsetInRaw };
 }
 
 const TABLE_SEPARATOR = /^\s*\|?[\s:|-]*-+[\s:|-]*\|?\s*$/;
@@ -1492,7 +1741,7 @@ function sliceQuoteRaw(
 			parts.push(prefixQuote(raw.replace(/\n$/, "")));
 			continue;
 		}
-		parts.push(prefixQuote(sliced));
+		parts.push(prefixQuote(sliced.text));
 	}
 	return parts.join("\n");
 }
@@ -1603,36 +1852,33 @@ interface PiTuiModule {
 }
 
 let cachedDeps: SelectionDeps | undefined;
+/** Module resolved at install time (require in pi runtime, injected in tests). */
+let resolvedModule: PiTuiModule | undefined;
 
 function getDeps(): SelectionDeps | undefined {
 	if (cachedDeps) return cachedDeps;
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const piTui = require("@earendil-works/pi-tui") as PiTuiModule;
-		if (
-			typeof piTui.wrapTextWithAnsi !== "function" ||
-			typeof piTui.visibleWidth !== "function" ||
-			typeof piTui.sliceByColumn !== "function" ||
-			typeof piTui.stripTerminalSequences !== "function"
-		) {
-			return undefined;
-		}
-		cachedDeps = {
-			wrapTextWithAnsi: piTui.wrapTextWithAnsi,
-			visibleWidth: piTui.visibleWidth,
-			sliceByColumn: piTui.sliceByColumn,
-			strip: piTui.stripTerminalSequences,
-			renderLatex: typeof piTui.renderLatex === "function" ? piTui.renderLatex : undefined,
-			hyperlinks:
-				typeof piTui.getCapabilities === "function"
-				? () => piTui.getCapabilities?.().hyperlinks === true
-				: undefined,
-		};
-		return cachedDeps;
-	} catch (error) {
-		debug(`deps: require failed: ${error instanceof Error ? error.message : String(error)}`);
+	const piTui = resolvedModule;
+	if (!piTui) return undefined;
+	if (
+		typeof piTui.wrapTextWithAnsi !== "function" ||
+		typeof piTui.visibleWidth !== "function" ||
+		typeof piTui.sliceByColumn !== "function" ||
+		typeof piTui.stripTerminalSequences !== "function"
+	) {
 		return undefined;
 	}
+	cachedDeps = {
+		wrapTextWithAnsi: piTui.wrapTextWithAnsi,
+		visibleWidth: piTui.visibleWidth,
+		sliceByColumn: piTui.sliceByColumn,
+		strip: piTui.stripTerminalSequences,
+		renderLatex: typeof piTui.renderLatex === "function" ? piTui.renderLatex : undefined,
+		hyperlinks:
+			typeof piTui.getCapabilities === "function"
+				? () => piTui.getCapabilities?.().hyperlinks === true
+				: undefined,
+	};
+	return cachedDeps;
 }
 
 interface AltScreenLike {
@@ -1757,15 +2003,21 @@ function wrapAltScreen(proto: object | null | undefined): () => void {
 			const deps = getDeps();
 			if (!deps) return stock();
 			const resolution = resolveSelectionRows(deps, this);
-			if (!resolution) return stock();
+			if (!resolution) {
+				debug(`copy: no resolution (mode=${copyMode})`);
+				return stock();
+			}
 			if (copyMode === "raw") {
 				const raw = emitRaw(deps, resolution);
 				if (raw !== undefined && raw.length > 0) return raw;
+			const unmapped = resolution.mapping.markdown.filter((entry) => !entry).length;
+				debug(`copy: raw fell back (rows=${resolution.mapping.entries.length}, unmapped=${unmapped})`);
 			}
 			if (copyMode === "plain") {
-				// Plain + trimPadding: stock visual-row copy minus the margin
-				// spaces — entries blanked so every row copies as displayed.
-				resolution.mapping.entries = resolution.mapping.entries.map(() => undefined);
+				// Plain + trimPadding: stock visual-row copy minus the structural
+				// margin (content indentation preserved).
+				const text = emitRowsPerRow(deps, resolution, 0, resolution.mapping.entries.length);
+				return text === undefined ? stock() : text;
 			}
 			const text = emitUnwrapped(deps, resolution);
 			return text === undefined ? stock() : text;
@@ -1804,16 +2056,29 @@ export const __testing = {
 
 /**
  * Installs selection-copy for the whole process (same module-instance
- * discipline as thinking-click.ts). Silently no-ops on unknown shapes.
+ * discipline as thinking-click.ts). The pi-tui module is resolved via
+ * require in the pi runtime; tests inject the ESM namespace directly.
+ * Silently no-ops on unknown shapes.
  */
-export function installSelectionCopy(): () => void {
+export function installSelectionCopy(piTui?: PiTuiModule): () => void {
 	try {
 		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const piTui = require("@earendil-works/pi-tui") as PiTuiModule;
+		let module: PiTuiModule | undefined = piTui;
+		if (!module) {
+			try {
+				// eslint-disable-next-line @typescript-eslint/no-require-imports
+				module = require("@earendil-works/pi-tui") as PiTuiModule;
+			} catch (error) {
+				debug(`install: require failed: ${error instanceof Error ? error.message : String(error)}`);
+				return () => {};
+			}
+		}
+		if (!module) return () => {};
+		resolvedModule = module;
 		const cleanups = [
-			wrapMarkdown(piTui.Markdown?.prototype),
-			wrapText(piTui.Text?.prototype),
-			wrapAltScreen(piTui.TuiAltScreen?.prototype),
+			wrapMarkdown(module.Markdown?.prototype),
+			wrapText(module.Text?.prototype),
+			wrapAltScreen(module.TuiAltScreen?.prototype),
 		];
 		return () => {
 			for (const cleanup of cleanups) cleanup();

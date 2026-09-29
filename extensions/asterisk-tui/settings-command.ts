@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SelectionCopyMode, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -37,6 +37,7 @@ const COPY = {
 			wheelScrollLines: "Mouse wheel speed",
 			cursorStyle: "Cursor style",
 			selectionCopy: "Selection copy",
+			selectionTabWidth: "Tab width (raw copy)",
 			selectionTrimPadding: "Trim selection margins",
 			iconMode: "Icon mode",
 			cwd: "CWD",
@@ -99,7 +100,10 @@ const COPY = {
 			wheelLines: (count: number) => `${count} ${count === 1 ? "line" : "lines"} / notch`,
 			wheelPrompt: (count: number) => `Wheel scroll lines per notch, 1-10 (current: ${count}). Enter: apply · Esc: cancel`,
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
-			selectionCopyModes: { plain: "Visual content", unwrapped: "Logical content (default)", raw: "Source content" },
+			selectionCopyModes: { plain: "Visual content", unwrapped: "Logical content", raw: "Source content" },
+			tabWidth: (n: number) => (n === 3 ? "3 (as rendered)" : `${n} spaces`),
+			tabWidthTab: "Keep tabs",
+			tabWidthPrompt: "Tab width for source-content copies, 2-8 or tab (current: 3). Enter: apply · Esc: cancel",
 			trimPaddingHint: "Highlight and visual copy skip padded margins",
 			footerStyles: { hud: "HUD", classic: "Classic" },
 			stylePresets: { hud: "HUD", classic: "Classic", custom: "Custom" },
@@ -124,6 +128,7 @@ const COPY = {
 			wheelScrollLines: "鼠标滚轮速度",
 			cursorStyle: "光标样式",
 			selectionCopy: "选区复制",
+			selectionTabWidth: "Tab 宽度（原始内容）",
 			selectionTrimPadding: "选区边距裁剪",
 			iconMode: "图标模式",
 			cwd: "当前目录",
@@ -186,7 +191,10 @@ const COPY = {
 			wheelLines: (count: number) => `每格 ${count} 行`,
 			wheelPrompt: (count: number) => `滚轮每格滚动行数（当前 ${count}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
-			selectionCopyModes: { plain: "按视觉内容复制", unwrapped: "按逻辑内容复制（默认）", raw: "按原始内容复制" },
+			selectionCopyModes: { plain: "按视觉内容复制", unwrapped: "按逻辑内容复制", raw: "按原始内容复制" },
+			tabWidth: (n: number) => (n === 3 ? "3（与渲染一致）" : `${n} 空格`),
+			tabWidthTab: "保留制表符",
+			tabWidthPrompt: "原始内容复制的 Tab 宽度，2-8 或 tab（当前 3）。输入后 Enter 应用 · Esc 取消",
 			trimPaddingHint: "高亮与视觉内容复制不覆盖补齐空白（前后不多出空格）",
 			footerStyles: { hud: "HUD 风格", classic: "经典风格" },
 			stylePresets: { hud: "HUD 风格", classic: "经典风格", custom: "自定义" },
@@ -277,6 +285,13 @@ export function toggleSelectionTrimPadding(config: OpenTuiConfig): OpenTuiConfig
 	return { ...config, selection: { ...config.selection, trimPadding: !config.selection.trimPadding } };
 }
 
+/** Applies panel input (2–8 or "tab") as the raw-copy tab width. */
+export function setSelectionTabWidthInput(config: OpenTuiConfig, raw: string): OpenTuiConfig | undefined {
+	const parsed = parseSelectionTabWidth(raw);
+	if (parsed === undefined) return undefined;
+	return { ...config, selection: { ...config.selection, tabWidth: parsed } };
+}
+
 function setWheelScrollLines(config: OpenTuiConfig, raw: string): OpenTuiConfig | undefined {
 	if (!/^\d+$/.test(raw)) return undefined;
 	const parsed = Number(raw);
@@ -345,6 +360,14 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			currentValue: copy.values.wheelLines(config.fullscreen.wheelScrollLines),
 		},
 		{ id: "selectionCopy", label: copy.labels.selectionCopy, currentValue: copy.values.selectionCopyModes[config.selection.copy] },
+		{
+			id: "selectionTabWidth",
+			label: copy.labels.selectionTabWidth,
+			currentValue:
+				config.selection.tabWidth === "tab"
+					? copy.values.tabWidthTab
+					: copy.values.tabWidth(config.selection.tabWidth),
+		},
 		{
 			id: "selectionTrimPadding",
 			label: copy.labels.selectionTrimPadding,
@@ -597,7 +620,7 @@ class SettingsUi implements SettingsUiHandle {
 	private applySetting(itemId: string): void {
 		this.selectedItemByTab[this.tab] = itemId;
 		const numericItem =
-			(this.tab === "features" && itemId === "wheelScrollLines") ||
+			(this.tab === "features" && (itemId === "wheelScrollLines" || itemId === "selectionTabWidth")) ||
 			(this.tab === "segments" && (itemId === "toolsMax" || itemId === "filesMax"));
 		if (numericItem) {
 			this.openNumberInput(itemId);
@@ -615,6 +638,8 @@ class SettingsUi implements SettingsUiHandle {
 			let next: OpenTuiConfig | undefined;
 			if (itemId === "wheelScrollLines") {
 				next = setWheelScrollLines(this.config, value);
+			} else if (itemId === "selectionTabWidth") {
+				next = setSelectionTabWidthInput(this.config, value);
 			} else {
 				next = setHudNumber(this.config, itemId as "toolsMax" | "filesMax", value);
 			}
@@ -695,6 +720,8 @@ class SettingsUi implements SettingsUiHandle {
 			const prompt =
 				editingId === "wheelScrollLines"
 					? copy.values.wheelPrompt(this.config.fullscreen.wheelScrollLines)
+					: editingId === "selectionTabWidth"
+					? copy.values.tabWidthPrompt
 					: editingId === "toolsMax"
 						? copy.values.countPrompt(labels.hudToolsMax ?? editingId, this.config.hud.toolsMax)
 						: copy.values.countPrompt(labels.hudFilesMax ?? editingId, this.config.hud.filesMax);
