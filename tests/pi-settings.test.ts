@@ -6,7 +6,7 @@ import test from "node:test";
 import { ensureHideThinkingDefault, piSettingsPath } from "../extensions/asterisk-tui/pi-settings.ts";
 
 function withAgentDir(fn: (dir: string) => void): void {
-	const dir = mkdtempSync(join(tmpdir(), "open-tui-pi-settings-"));
+	const dir = mkdtempSync(join(tmpdir(), "asterisk-tui-pi-settings-"));
 	try {
 		fn(dir);
 	} finally {

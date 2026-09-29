@@ -566,7 +566,7 @@ test("working output tokens survive turn boundaries within an agent run", () => 
 	assert.equal(tracker.getRunOutputTokens(), 0);
 });
 
-test("open-tui notifies once after a complete agent run", () => {
+test("asterisk-tui notifies once after a complete agent run", () => {
 	const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => void>>();
 	const notifications: string[] = [];
 	const pi = {

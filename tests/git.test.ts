@@ -16,7 +16,7 @@ function git(cwd: string, ...args: string[]): void {
 }
 
 function makeRepo(): string {
-	const dir = mkdtempSync(join(tmpdir(), "open-tui-git-"));
+	const dir = mkdtempSync(join(tmpdir(), "asterisk-tui-git-"));
 	git(dir, "init", "-b", "main");
 	writeFileSync(join(dir, "a.txt"), "hello\n");
 	git(dir, "add", "a.txt");
@@ -40,7 +40,7 @@ test("readGitStatus parses branch and worktree counts", async () => {
 });
 
 test("readGitStatus survives a fatally broken repo (bad gitdir file)", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "open-tui-git-"));
+	const dir = mkdtempSync(join(tmpdir(), "asterisk-tui-git-"));
 	try {
 		writeFileSync(join(dir, ".git"), `gitdir: ${join(dir, "nonexistent")}`);
 		const status = await readGitStatus(dir);

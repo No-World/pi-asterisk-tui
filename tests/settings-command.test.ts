@@ -395,7 +395,7 @@ test("keeps localized settings and values within narrow widths", async () => {
 });
 
 test("falls back to English for an invalid settings language", () => {
-	const agentDir = mkdtempSync(join(tmpdir(), "pi-open-tui-"));
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-asterisk-tui-"));
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;

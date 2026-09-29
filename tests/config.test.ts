@@ -6,7 +6,7 @@ import test from "node:test";
 import { DEFAULT_TURN_COLLAPSE, DEFAULT_HUD_CONFIG, effectiveThoughtTreatment, loadConfig, normalizeHudConfig, normalizeTurnCollapse } from "../extensions/asterisk-tui/config.ts";
 
 test("loadConfig adopts settings from a legacy open-tui.json on first run", () => {
-	const agentDir = mkdtempSync(join(tmpdir(), "open-tui-config-"));
+	const agentDir = mkdtempSync(join(tmpdir(), "asterisk-tui-config-"));
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -90,7 +90,7 @@ test("hud.tokens tri-state migrates legacy booleans and rejects invalid values",
 });
 
 test("loadConfig migrates a stored legacy hud.tokens boolean and keeps the hud preset", () => {
-	const agentDir = mkdtempSync(join(tmpdir(), "open-tui-config-"));
+	const agentDir = mkdtempSync(join(tmpdir(), "asterisk-tui-config-"));
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -119,7 +119,7 @@ test("loadConfig migrates a stored legacy hud.tokens boolean and keeps the hud p
 });
 
 test("loadConfig migrates a stored legacy boolean via deepMerge", () => {
-	const agentDir = mkdtempSync(join(tmpdir(), "open-tui-config-"));
+	const agentDir = mkdtempSync(join(tmpdir(), "asterisk-tui-config-"));
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;

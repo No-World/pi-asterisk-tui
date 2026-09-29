@@ -37,7 +37,7 @@ test("defaults and normalizes fullscreen mouse wheel speed", () => {
 });
 
 test("loads old configs and normalizes persisted fullscreen values", () => {
-	const agentDir = mkdtempSync(join(tmpdir(), "pi-open-tui-fullscreen-"));
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-asterisk-tui-fullscreen-"));
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	try {
 		process.env.PI_CODING_AGENT_DIR = agentDir;

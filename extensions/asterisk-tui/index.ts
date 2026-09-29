@@ -99,10 +99,10 @@ export default function (pi: ExtensionAPI) {
 				const action = next === "expanded"
 					? (zh ? "已全部展开" : "expanded all compressed lines")
 					: (zh ? "已收起压缩行" : "collapsed compressed lines");
-				ctx.ui?.setStatus?.("open-tui.expandAll", `✻ ${action}`);
+				ctx.ui?.setStatus?.("asterisk-tui.expandAll", `✻ ${action}`);
 				if (expandAllStatusTimer !== undefined) clearTimeout(expandAllStatusTimer);
 				expandAllStatusTimer = setTimeout(() => {
-					lastCtx?.ui?.setStatus?.("open-tui.expandAll", undefined);
+					lastCtx?.ui?.setStatus?.("asterisk-tui.expandAll", undefined);
 					expandAllStatusTimer = undefined;
 				}, 2000);
 			},
