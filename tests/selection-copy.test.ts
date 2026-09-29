@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Markdown, sliceByColumn, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Box, Container, Markdown, sliceByColumn, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import * as piTui from "@earendil-works/pi-tui";
+import { alignChildRow as alignChildRowImpl, findLeafAtLine, resolveSelectionRows } from "../extensions/asterisk-tui/selection-copy.ts";
+import { attachForTest, renderCollapsedForTest, setCollapseOptions, uninstallTurnCollapse } from "../extensions/asterisk-tui/turn-collapse.ts";
+const selectionCopyInternals = { alignChildRow: alignChildRowImpl, findLeafAtLine };
 import { DEFAULT_CONFIG, normalizeSelectionConfig, type OpenTuiConfig } from "../extensions/asterisk-tui/config.ts";
 import { cycleSelectionCopy, toggleSelectionTrimPadding } from "../extensions/asterisk-tui/settings-command.ts";
 import {
@@ -422,5 +426,162 @@ test("integration: raw copy of a fully selected real-rendered table yields the p
 		assert.ok(result!.includes("| 视觉内容 | 逐显示行无边距空格 |"), "data row source");
 	} finally {
 		cleanup();
+	}
+});
+
+// ---------------------------------------------------------------------------
+// Alignment drift + Box descent (user-message scenarios)
+// ---------------------------------------------------------------------------
+
+test("alignment survives blank-row drops inside a segment (monotonic cursor)", () => {
+	// Child renders 5 lines: [blank, A, B, C, blank]; the document dropped the
+	// leading blank (duplicate-blank dedup) and the trailing blank.
+	const childLines = ["", " A", " B", " C", ""];
+	const document = [" A", " B", " C"];
+	const segment = { start: 10, end: 13, child: {} };
+	const memo = { renders: new Map(), walks: new Map(), cursors: new Map() } as never;
+	for (let i = 0; i < document.length; i++) {
+		const local = (selectionCopyInternals as never as {
+			alignChildRow: (deps: SelectionDeps, memo: never, line: string, seg: typeof segment, row: number, lines: string[]) => number | undefined;
+		}).alignChildRow(deps, memo, document[i]!, segment, segment.start + i, childLines);
+		assert.equal(local, i + 1, `row ${i} aligns past the dropped blank`);
+	}
+});
+
+test("alignment drift beyond the search window degrades to opaque", () => {
+	const childLines = Array.from({ length: 20 }, (_, i) => ` line-${i}`);
+	const segment = { start: 0, end: 1, child: {} };
+	const memo = { renders: new Map(), walks: new Map(), cursors: new Map() } as never;
+	const local = (selectionCopyInternals as never as {
+		alignChildRow: (deps: SelectionDeps, memo: never, line: string, seg: typeof segment, row: number, lines: string[]) => number | undefined;
+	}).alignChildRow(deps, memo, " line-19", segment, 0, childLines);
+	assert.equal(local, undefined);
+});
+
+test("integration: raw copy descends Box-wrapped markdown (user message shape)", () => {
+	const { Box, Container, Markdown } = piTui;
+	const cleanup = installSelectionCopy(piTui as never);
+	try {
+		const source = [
+			"| 类别 | 旧 | 新 |",
+			"|------|------|------|",
+			"| 环境变量 | OPEN_TUI_DEBUG | ASTERISK_TUI_DEBUG |",
+		].join("\n");
+		const md = new Markdown(source, 0, 0, identityTheme as never, undefined, undefined);
+		// UserMessageComponent shape: Container → Box(padding 1, bg) → Markdown
+		const box = new Box(1, 1, (t: string) => `\x1b[48;2;52;53;65m${t}\x1b[0m`);
+		box.addChild(md);
+		const outer = new Container();
+		outer.addChild(box);
+		const width = 60;
+		const lines = outer.render(width);
+		assert.ok(lines.length > 3, "box renders padding + table");
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "markdown recorded");
+		const find = selectionCopyInternals.findLeafAtLine as typeof findLeafAtLine;
+		// find the first table row (after top padding + border + header)
+		const headerIndex = lines.findIndex((line) => stripTerminalSequences(line).includes("类别"));
+		assert.ok(headerIndex > 0, "header row found");
+		const hit = find(deps, outer, width, headerIndex);
+		assert.ok(hit, "leaf found through the Box");
+		assert.equal(hit!.record, mdRecord);
+		assert.ok(hit!.localRow >= 0);
+	} finally {
+		cleanup();
+	}
+});
+
+// ---------------------------------------------------------------------------
+// E2E: real pi-tui components + real turn-collapse walk + real selection-copy
+// pipeline (the layer where the wild blank-drop and Box bugs lived)
+// ---------------------------------------------------------------------------
+
+test("e2e: raw copy of a table inside a user message (Box-wrapped, OSC133, blank-dedup walk)", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	const resetCollapseE2E = () =>
+		setCollapseOptions({ mode: "group-all", style: "compact", thought: "default", tools: {}, retryErrors: true, liveThinking: true, liveTools: true });
+	resetCollapseE2E();
+	try {
+		const userTable = [
+			"| 类别 | 旧 | 新 |",
+			"|------|------|------|",
+			"| 环境变量 | OPEN_TUI_DEBUG | ASTERISK_TUI_DEBUG |",
+			"| 运行时身份键 | open-tui.* | asterisk-tui.* |",
+		].join("\n");
+		const assistantText = "这是一段足够长的中文文本用来验证软换行拼回单一逻辑行不引入多余空格并且还会继续变长以触发至少一次折行";
+		// UserMessageComponent shape: text/rebuild + Container → Box(1,1,bg) → Markdown
+		const userMd = new Markdown(userTable, 0, 0, identityTheme as never, undefined, undefined);
+		const userBox = new Box(1, 1, (t: string) => `\x1b[48;2;52;53;65m${t}\x1b[0m`);
+		userBox.addChild(userMd);
+		const userInner = new Container();
+		userInner.addChild(userBox);
+		const userMessage = {
+			text: userTable,
+			rebuild() {},
+			children: userInner.children,
+			render: (width: number) => {
+				const lines = userInner.render(width);
+				if (lines.length > 0) {
+					lines[0] = `\x1b]133;A\x07${lines[0]}`;
+					lines[lines.length - 1] = `\x1b]133;B\x07\x1b]133;C\x07${lines[lines.length - 1]}`;
+				}
+				return lines;
+			},
+		};
+		// AssistantMessageComponent shape: Container → contentContainer → Markdown
+		const assistantMd = new Markdown(assistantText, 1, 0, identityTheme as never, undefined, undefined);
+		const assistantContent = new Container();
+		assistantContent.addChild(assistantMd);
+		const assistantMessage = {
+			hideThinkingBlock: true,
+			setHideThinkingBlock() {},
+			children: assistantContent.children,
+			render: (width: number) => {
+				const lines = assistantContent.render(width);
+				if (lines.length > 0) {
+					lines[0] = `\x1b]133;A\x07${lines[0]}`;
+					lines[lines.length - 1] = `\x1b]133;B\x07\x1b]133;C\x07${lines[lines.length - 1]}`;
+				}
+				return lines;
+			},
+		};
+		const chat = {
+			children: [userMessage, assistantMessage],
+			render: (w: number) => renderCollapsedForTest(chat, w),
+		};
+		attachForTest(chat);
+		const width = 40;
+		const lines = chat.render(width); // the real patched pipeline
+		// sanity: the walked document contains the user table and assistant text
+		assert.ok(lines.some((l) => stripTerminalSequences(l).includes("│ 类别")), "user table rendered in walk output");
+
+		const scrollView = { scrollTop: 0 };
+		const view = {
+			getSelectionBounds: () => ({
+				start: { row: 0, col: 0, scrollView },
+				end: { row: lines.length - 1, col: visibleWidth(lines[lines.length - 1] ?? ""), boundary: false },
+			}),
+			currentLayout: {
+				root: {
+					scrollView,
+					scrollContentLines: lines,
+					children: [{ component: chat, rect: { x: 0, y: 0, width, height: lines.length } }],
+				},
+			},
+		};
+		const resolution = resolveSelectionRows(deps, view);
+		assert.ok(resolution, "resolution built through the real walk");
+		const raw = emitRaw(deps, resolution);
+		assert.ok(raw !== undefined, "raw emission");
+		// user-message markdown contributes its pipe source
+		assert.ok(raw!.includes("| 环境变量 | OPEN_TUI_DEBUG | ASTERISK_TUI_DEBUG |"), `pipe source in:\n${raw}`);
+		// assistant text contributes unwrapped logical line
+		assert.ok(raw!.split("\n").some((l) => l.includes("这是一段足够长的中文文本")), "assistant logical line present");
+		// unwrapped over the same selection: assistant paragraph joins to one line
+		const unwrapped = emitUnwrapped(deps, resolution);
+		assert.ok(unwrapped!.split("\n").some((l) => l.replace(/\s/g, "") === assistantText), "assistant paragraph joined as one line");
+	} finally {
+		uninstallTurnCollapse();
+		cleanupInstall();
 	}
 });

@@ -565,55 +565,154 @@ interface WalkHit {
 /** Per-copy-invocation walk cache: the document is frozen while the
  * synchronous copy runs, so component renders and transparency checks are
  * computed once per component instead of once per selected row. */
-export interface WalkMemo {
-	renders: Map<object, string[]>;
-	walks: Map<object, { spans: Array<{ component: unknown; start: number; lines: string[] }>; total: number }>;
+export interface WalkSpan {
+	component: unknown;
+	start: number;
+	lines: string[];
+	/** Width the child renders at (Box children render at width − 2·paddingX). */
+	width: number;
+}
+
+interface WalkMemo {
+	/** Per (component, width) render cache — Box children render at a
+	 * different width than their parent, so width is part of the key. */
+	renders: Map<object, Map<number, string[]>>;
+	walks: Map<object, { spans: WalkSpan[]; total: number }>;
+	/** Monotonic alignment cursor per segment child (document order). */
+	cursors: Map<object, number>;
 }
 
 function createWalkMemo(): WalkMemo {
-	return { renders: new Map(), walks: new Map() };
+	return { renders: new Map(), walks: new Map(), cursors: new Map() };
 }
 
 function memoRender(memo: WalkMemo, component: unknown, width: number): string[] | undefined {
-	const existing = memo.renders.get(component as object);
-	if (existing) return existing;
 	if (typeof component !== "object" || component === null) return undefined;
+	const key = component as object;
+	let byWidth = memo.renders.get(key);
+	if (!byWidth) {
+		byWidth = new Map();
+		memo.renders.set(key, byWidth);
+	}
+	const existing = byWidth.get(width);
+	if (existing) return existing;
 	try {
 		const lines = (component as { render?: (width: number) => string[] }).render?.(width) ?? [];
 		if (!Array.isArray(lines)) return undefined;
-		memo.renders.set(component as object, lines);
+		byWidth.set(width, lines);
 		return lines;
 	} catch {
 		return undefined;
 	}
 }
 
+const eqRows = (deps: SelectionDeps, a: string[], b: string[]): boolean => {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		if (!stripEq(deps, a[i], b[i])) return false;
+	}
+	return true;
+};
+
 /** Cached transparency walk for one container: child spans + own-render
- * verification, computed once per copy invocation. */
-function memoWalk(deps: SelectionDeps, memo: WalkMemo, component: object, width: number): { spans: Array<{ component: unknown; start: number; lines: string[] }>; total: number } | undefined {
+ * verification, computed once per copy invocation. Understands plain
+ * Containers (children at the same width), Boxes (children at
+ * width − 2·paddingX with paddingY blank rows and side padding), and
+ * single-child passthrough wrappers (e.g. MouseRegion). */
+function memoWalk(deps: SelectionDeps, memo: WalkMemo, component: object, width: number): { spans: WalkSpan[]; total: number } | undefined {
 	const cached = memo.walks.get(component);
 	if (cached) return cached;
 	const children = (component as { children?: unknown[] }).children;
 	if (!Array.isArray(children) || children.length === 0) return undefined;
 	const own = memoRender(memo, component, width);
 	if (!own) return undefined;
-	const spans: Array<{ component: unknown; start: number; lines: string[] }> = [];
-	let total = 0;
-	for (const child of children) {
-		const lines = memoRender(memo, child, width);
-		if (!lines) return undefined;
-		spans.push({ component: child, start: total, lines });
-		total += lines.length;
-	}
-	if (total !== own.length) return undefined;
-	const flat: string[] = [];
-	for (const span of spans) flat.push(...span.lines);
-	for (let i = 0; i < own.length; i++) {
-		if (!stripEq(deps, own[i], flat[i])) return undefined;
-	}
-	const result = { spans, total };
-	memo.walks.set(component, result);
+	const result = buildWalkSpans(deps, memo, component, children, own, width);
+	if (result) memo.walks.set(component, result);
 	return result;
+}
+
+function buildWalkSpans(
+	deps: SelectionDeps,
+	memo: WalkMemo,
+	_component: object,
+	children: unknown[],
+	own: string[],
+	width: number,
+): { spans: WalkSpan[]; total: number } | undefined {
+	const paddingX = pickPaddingX(_component);
+	// Box first when the shape says so — probing other models at the parent
+	// width would render Box children at the wrong width and bust their caches.
+	if (paddingX !== undefined) {
+		const spans = buildBoxSpans(deps, memo, children, own, width, paddingX, pickPaddingY(_component));
+		if (spans) return spans;
+	}
+	// Single-child passthrough wrapper (renders its child verbatim).
+	if (children.length === 1) {
+		const lines = memoRender(memo, children[0], width);
+		if (lines && eqRows(deps, own, lines)) {
+			return { spans: [{ component: children[0], start: 0, lines, width }], total: lines.length };
+		}
+	}
+	// Plain Container (children concatenated at the same width).
+	{
+		const spans: WalkSpan[] = [];
+		let total = 0;
+		let ok = true;
+		for (const child of children) {
+			const lines = memoRender(memo, child, width);
+			if (!lines) {
+				ok = false;
+				break;
+			}
+			spans.push({ component: child, start: total, lines, width });
+			total += lines.length;
+		}
+		if (ok && total === own.length) {
+			const flat: string[] = [];
+			for (const span of spans) flat.push(...span.lines);
+			if (eqRows(deps, own, flat)) return { spans, total };
+		}
+	}
+	return undefined;
+}
+
+/** Box spans: children at contentWidth, side padding per line, paddingY blank
+ * rows above and below (bg styling vanishes under eqRows). */
+function buildBoxSpans(
+	deps: SelectionDeps,
+	memo: WalkMemo,
+	children: unknown[],
+	own: string[],
+	width: number,
+	paddingX: number,
+	paddingY: number,
+): { spans: WalkSpan[]; total: number } | undefined {
+	const contentWidth = Math.max(1, width - paddingX * 2);
+	const leftPad = " ".repeat(paddingX);
+	const spans: WalkSpan[] = [];
+	const padded: string[] = [];
+	for (let i = 0; i < paddingY; i++) padded.push("");
+	for (const child of children) {
+		const lines = memoRender(memo, child, contentWidth);
+		if (!lines) return undefined;
+		spans.push({ component: child, start: padded.length, lines, width: contentWidth });
+		for (const line of lines) padded.push(leftPad + line);
+	}
+	for (let i = 0; i < paddingY; i++) padded.push("");
+	if (padded.length === own.length && eqRows(deps, own, padded)) {
+		return { spans, total: padded.length };
+	}
+	return undefined;
+}
+
+function pickPaddingX(component: object): number | undefined {
+	const value = (component as { paddingX?: unknown }).paddingX;
+	return typeof value === "number" && value >= 0 ? value : undefined;
+}
+
+function pickPaddingY(component: object): number {
+	const value = (component as { paddingY?: unknown }).paddingY;
+	return typeof value === "number" && value >= 0 ? value : 0;
 }
 
 /**
@@ -640,7 +739,7 @@ export function findLeafAtLine(
 	if (!walk || localLine >= walk.total) return undefined;
 	for (const span of walk.spans) {
 		if (localLine < span.start + span.lines.length) {
-			return findLeafAtLine(deps, span.component, width, localLine - span.start, memo, depth + 1);
+			return findLeafAtLine(deps, span.component, span.width, localLine - span.start, memo, depth + 1);
 		}
 	}
 	return undefined;
@@ -672,39 +771,32 @@ function findScrollViewBox(box: LayoutBoxLike | undefined, scrollView: unknown):
  * aligned pair is verified against the actual document row — synthesized
  * run-label lines never match and stay opaque.
  */
-function alignChildRow(
+export function alignChildRow(
 	deps: SelectionDeps,
+	memo: WalkMemo,
 	sourceLine: string,
 	segment: { start: number; end: number; child: unknown },
 	row: number,
 	childLines: string[] | undefined,
 ): number | undefined {
 	if (!childLines || childLines.length === 0) return undefined;
-	const offset = row - segment.start;
-	if (offset < 0) return undefined;
-	const candidates: number[] = [];
-	if (segment.end - segment.start === childLines.length) {
-		if (offset < childLines.length) candidates.push(offset);
-	} else {
-		// Slow path: replay the blank-dedup walk across the segment.
-		let local = 0;
-		let seen = 0;
-		let prevBlank = false;
-		while (local < childLines.length) {
-			const childLine = childLines[local]!;
-			const blank = isBlankish(childLine);
-			if (blank && prevBlank) {
-				local += 1;
-				continue;
+	const naive = row - segment.start;
+	if (naive < 0) return undefined;
+	// Rows are processed in document order; keep a monotonic cursor per child.
+	// turn-collapse's walk may drop or insert blank rows inside a segment
+	// (duplicate-blank dedup, separator padding), so the naive offset drifts —
+	// search outward from the expected position and let the row-value
+	// verification pick the true match.
+	const expected = Math.min(memo.cursors.get(segment.child as object) ?? naive, childLines.length - 1);
+	for (let delta = 0; delta <= 8; delta++) {
+		const candidates = delta === 0 ? [expected] : [expected + delta, expected - delta];
+		for (const local of candidates) {
+			if (local < 0 || local >= childLines.length) continue;
+			if (stripEq(deps, sourceLine, childLines[local])) {
+				memo.cursors.set(segment.child as object, local + 1);
+				return local;
 			}
-			if (segment.start + seen === row) candidates.push(local);
-			seen += 1;
-			prevBlank = blank;
-			local += 1;
 		}
-	}
-	for (const local of candidates) {
-		if (stripEq(deps, sourceLine, childLines[local])) return local;
 	}
 	return undefined;
 }
@@ -758,7 +850,7 @@ export function resolveSelectionRows(
 		const segment = childSegmentAt(containerLine);
 		if (segment) {
 			const childLines = memoRender(memo, segment.child, contentWidth);
-			const local = alignChildRow(deps, line, segment, containerLine, childLines);
+			const local = alignChildRow(deps, memo, line, segment, containerLine, childLines);
 			if (local === undefined) stageMiss.align += 1;
 			if (local !== undefined) {
 				const hit = findLeafAtLine(deps, segment.child, contentWidth, local, memo);
