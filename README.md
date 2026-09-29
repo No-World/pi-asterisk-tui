@@ -123,6 +123,14 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
   borders. Narrow frames degrade to a glyph-only rung, then to a plain border;
   the scroll hint (`↑ 3 more`) keeps its centered slot. The footer's own working
   segment is unchanged.
+- **Inline footer** (`inlineFooter`, default off, classic style only): moves the classic
+  footer's two main rows into the editor frame borders — top carries the location
+  segments (cwd · host · session · git) left and the model block right; bottom carries
+  the done summary left and the stats row (compact context · tokens · cost) right.
+  Extension status rows stay below the editor. The right block survives shrinking
+  widths first, mirroring the plain footer's alignRight priorities; the working
+  indicator stays in the top border (no duplication with the bottom cell). Saves
+  two rows of vertical space on small terminals. Inert under `footerStyle: "hud"`.
 - **Selection copy (fullscreen)** in three modes (`/*tui` panel or `selection.copy`,
   default `unwrapped`): `plain` copies visual content (pi stock, row by row);
   `unwrapped` copies logical content — soft-wrapped rows join back into their logical
@@ -180,7 +188,8 @@ Notable keys:
 | `telemetry.*` | on | working-indicator and post-turn telemetry fields |
 | `footerSegments.*` | mixed | classic footer segment toggles |
 | `footerSegments.hostname` | `false` | opt-in short host name segment (first label of the machine's host name) — for telling SSH targets apart at a glance; same toggle exists as `hud.hostname` |
-| `footerSegments.capitalizeProviderName` | `true` | uppercase the provider name's first letter; `false` keeps the raw provider id casing (proxy-style ids like `cc-switch-zhipu-glm`) || `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`) |
+| `footerSegments.capitalizeProviderName` | `true` | uppercase the provider name's first letter; `false` keeps the raw provider id casing (proxy-style ids like `cc-switch-zhipu-glm`) |
+| `inlineFooter` | `false` | classic footer rows render inside the editor frame borders instead of dedicated rows; inert under `footerStyle: "hud"` || `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
 | `selection.copy` | `"unwrapped"` | selection copy: `plain` (visual content) / `unwrapped` (logical content, default) / `raw` (source content); depends on pi-tui internals, may silently fall back to stock after a pi upgrade |
 | `selection.trimPadding` | `true` | trim selection margins: highlight skips padded blanks; visual-content copies carry no margin spaces |

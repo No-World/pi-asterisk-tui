@@ -23,6 +23,20 @@ export interface WorkingStatusIndicator {
 	renderSpinnerInBorder(width: number): string;
 }
 
+/** One border line of inline footer content: left/right cells around the fill. */
+export interface InlineFooterLine {
+	left: string;
+	right: string;
+}
+
+/** Inline footer provider: draws the classic footer's two main rows into the
+ * editor's top/bottom borders instead of dedicated rows. Returns undefined
+ * for a border to keep its plain rounded form. */
+export interface InlineBorderContent {
+	enabled(): boolean;
+	render(kind: "top" | "bottom", width: number): InlineFooterLine | undefined;
+}
+
 function fillLine(content: string, width: number): string {
 	const truncated = truncateToWidth(content, Math.max(0, width), "");
 	const pad = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
@@ -104,12 +118,58 @@ function roundedBorder(
 	return paint(`${corners[0]}${"─".repeat(Math.max(0, width - 2))}${corners[1]}`);
 }
 
+function trimTrailingSpaces(text: string): string {
+	return text.replace(/\s+$/g, "");
+}
+
+function inlineBorder(
+	width: number,
+	kind: "top" | "bottom",
+	paint: (s: string) => string,
+	renderLine: (width: number) => InlineFooterLine | undefined,
+	sourceLine?: string,
+	indicator?: WorkingStatusIndicator,
+): string {
+	if (width < 2) return paint(truncateToWidth(kind === "top" ? "╭╮" : "╰╯", width, ""));
+
+	const corners = kind === "top" ? (["╭", "╮"] as const) : (["╰", "╯"] as const);
+	const contentWidth = width - 2;
+	const plain = sourceLine ? stripAnsi(sourceLine) : "";
+	const scrollMatch = plain.match(/([↑↓]\s+\d+\s+more)/);
+	const right = scrollMatch ? paint(` ${scrollMatch[1]} `) : "";
+	let left = paint("─");
+
+	if (kind === "top" && indicator) {
+		const statusBudget = Math.max(1, contentWidth - visibleWidth(right) - 7);
+		let status = indicator.renderInBorder(statusBudget);
+		if (visibleWidth(status) > statusBudget) status = indicator.renderSpinnerInBorder(statusBudget);
+		const leftBudget = Math.max(0, contentWidth - visibleWidth(right) - 1);
+		status = truncateToWidth(status, Math.max(0, leftBudget - 4), "");
+		if (visibleWidth(status) > 0) left = `${paint("── ")}${paint(status)}${paint(" ")}`;
+	}
+
+	const lineBudget = Math.max(0, contentWidth - visibleWidth(left) - visibleWidth(right) - 6);
+	const line = renderLine(lineBudget);
+	if (!line) return roundedBorder(width, kind, paint, sourceLine, indicator);
+	const leftContent = trimTrailingSpaces(line.left);
+	const rightContent = trimTrailingSpaces(line.right);
+	if (visibleWidth(leftContent) === 0 && visibleWidth(rightContent) === 0) {
+		return roundedBorder(width, kind, paint, sourceLine, indicator);
+	}
+
+	const leftCell = leftContent ? ` ${leftContent} ` : "";
+	const rightCell = rightContent ? ` ${rightContent} ` : "";
+	const fill = Math.max(1, contentWidth - visibleWidth(left) - visibleWidth(leftCell) - visibleWidth(rightCell) - visibleWidth(right) - 1);
+	return `${paint(corners[0])}${left}${leftCell}${paint("─".repeat(fill))}${rightCell}${right}${paint("─")}${paint(corners[1])}`;
+}
+
 export class OpenTuiEditor extends CustomEditor {
 	private readonly getRail: () => string;
 	private readonly getBorder: (s: string) => string;
 	private cursorStyle: CursorStyle;
 	private previewHardwareCursor = false;
 	private workingStatusIndicator: WorkingStatusIndicator | undefined;
+	private inlineBorderContent: InlineBorderContent | undefined;
 
 	constructor(
 		tui: TUI,
@@ -152,6 +212,11 @@ export class OpenTuiEditor extends CustomEditor {
 		this.tui.requestRender();
 	}
 
+	setInlineBorderContent(content: InlineBorderContent | undefined): void {
+		this.inlineBorderContent = content;
+		this.tui.requestRender();
+	}
+
 	private renderBase(width: number): string[] {
 		const renderedLines = super.render(width);
 		if (this.cursorStyle === "block") return renderedLines;
@@ -184,7 +249,12 @@ export class OpenTuiEditor extends CustomEditor {
 		const bottomIdx = findBottomBorderIndex(baseLines);
 
 		const result: string[] = [];
-		result.push(roundedBorder(width, "top", borderPaint, baseLines[0], this.workingStatusIndicator));
+		const inline = this.inlineBorderContent?.enabled() ? this.inlineBorderContent : undefined;
+		result.push(
+			inline
+				? inlineBorder(width, "top", borderPaint, (budget) => inline.render("top", budget), baseLines[0], this.workingStatusIndicator)
+				: roundedBorder(width, "top", borderPaint, baseLines[0], this.workingStatusIndicator),
+		);
 
 		for (let i = 1; i < bottomIdx; i++) {
 			const line = baseLines[i] ?? "";
@@ -195,7 +265,11 @@ export class OpenTuiEditor extends CustomEditor {
 			}
 		}
 
-		result.push(roundedBorder(width, "bottom", borderPaint, baseLines[bottomIdx]));
+		result.push(
+			inline
+				? inlineBorder(width, "bottom", borderPaint, (budget) => inline.render("bottom", budget), baseLines[bottomIdx])
+				: roundedBorder(width, "bottom", borderPaint, baseLines[bottomIdx]),
+		);
 
 		for (let i = bottomIdx + 1; i < baseLines.length; i++) {
 			result.push(baseLines[i]!);
@@ -217,6 +291,7 @@ export function installEditor(
 	let currentCursorStyle = cursorStyle;
 	let currentWheelScrollLines = wheelScrollLines;
 	let workingStatusIndicator: WorkingStatusIndicator | undefined;
+	let inlineBorderContent: InlineBorderContent | undefined;
 
 	ctx.ui.setEditorComponent((tui, editorTheme, keybindings) => {
 		activeTui = tui;
@@ -224,6 +299,7 @@ export function installEditor(
 		previousHardwareCursor = tui.getShowHardwareCursor();
 		activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle);
 		activeEditor.setWorkingStatusIndicator(workingStatusIndicator);
+		activeEditor.setInlineBorderContent(inlineBorderContent);
 		return activeEditor;
 	});
 	return {
@@ -238,6 +314,10 @@ export function installEditor(
 		setWorkingStatusIndicator(indicator: WorkingStatusIndicator | undefined): void {
 			workingStatusIndicator = indicator;
 			activeEditor?.setWorkingStatusIndicator(indicator);
+		},
+		setInlineBorderContent(content: InlineBorderContent | undefined): void {
+			inlineBorderContent = content;
+			activeEditor?.setInlineBorderContent(content);
 		},
 		cleanup(): void {
 			ctx.ui.setEditorComponent(undefined);

@@ -101,6 +101,12 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 - **上边框工作状态**（`╭── ◐ 12s ────╮`）：agent 运行期间，编辑器边框自带耗时
   与工作图标——随边框着色（与思考级别 / bash 模式变色同源）。窄边框先退化为仅图标，
   再退化为纯边框；滚动提示（`↑ 3 more`）保持居中槽位。底栏自身的工作段不变。
+- **内嵌底栏**（`inlineFooter`，默认关，仅 classic 风格）：把 classic 底栏的两行主内容
+  画进编辑器边框——上边框左侧是位置段（cwd · 主机 · 会话 · git）、右侧是模型块；下边框
+  左侧是轮末摘要、右侧是统计行（紧凑上下文 · token · 费用）。扩展状态行仍留在编辑器
+  下方。宽度收缩时右侧块优先存活（与 plain 底栏的 alignRight 优先级一致）；工作指示
+  只住上边框（不与下边框单元格重复）。小屏终端省下两行垂直空间。`footerStyle: "hud"`
+  下此开关无效。
 - **选区复制（全屏）三级模式**（`/*tui` 面板或 `selection.copy` 配置，默认
   `unwrapped`）：`plain` 按视觉内容复制（pi 原生，逐显示行）；`unwrapped` 按逻辑
   内容复制——软换行拼回逻辑行（段落、列表项、引用、表格换行单元格全部还原）；
@@ -151,6 +157,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `footerSegments.*` | 混合 | classic 底栏段落开关 |
 | `footerSegments.hostname` | `false` | 可选主机名段（取主机名的首个标签）——多机 SSH 时一眼区分所在主机；HUD 侧同款开关为 `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | 首字母大写 provider 名；`false` 保留原始 id 大小写（适配 `cc-switch-zhipu-glm` 这类代理 id） |
+| `inlineFooter` | `false` | classic 底栏两行主内容改画进编辑器边框；`footerStyle: "hud"` 下无效 |
 | `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`） |
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
 | `selection.copy` | `"unwrapped"` | 选区复制：`plain`（视觉内容）/ `unwrapped`（逻辑内容，默认）/ `raw`（原始内容）；依赖 pi-tui 内部结构，pi 升级后可能静默回退原生 |

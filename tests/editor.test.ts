@@ -251,3 +251,38 @@ test("drops the working status when the indicator goes empty", () => {
 	working = false;
 	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /^╭─+╮$/);
 });
+
+test("renders inline footer lines in the editor frame", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setInlineBorderContent({
+		enabled: () => true,
+		render: (kind) =>
+			kind === "top"
+				? { left: "cwd", right: "model" }
+				: { left: "done", right: "stats" },
+	});
+
+	const lines = editor.render(40).map(stripAnsi);
+	assert.match(lines[0] ?? "", /^╭─ cwd ─+ model ─╮$/);
+	assert.match(lines.at(-1) ?? "", /^╰─ done ─+ stats ─╯$/);
+	assert.equal(visibleWidth(lines[0] ?? ""), 40);
+	assert.equal(visibleWidth(lines.at(-1) ?? ""), 40);
+});
+
+test("falls back to plain borders when inline content is empty", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setInlineBorderContent({
+		enabled: () => true,
+		render: () => ({ left: "", right: "" }),
+	});
+
+	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /^╭─+╮$/);
+});

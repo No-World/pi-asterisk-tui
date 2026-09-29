@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OpenTuiConfig, HudConfig, SettingsLanguage } from "./config.ts";
+import type { FooterHandle } from "./footer.ts";
 import type { GitStatus } from "./git.ts";
 import {
 	alignRight,
@@ -417,7 +418,7 @@ export function installHudFooter(
 	getConfig: () => OpenTuiConfig,
 	getModelMeta: () => ModelMeta,
 	hooks: FooterHooks,
-): () => void {
+): FooterHandle {
 	ctx.ui.setFooter((tui, theme, footerData) => {
 		hooks.setRequestRender(() => tui.requestRender());
 		const requestRender = () => tui.requestRender();
@@ -784,7 +785,14 @@ export function installHudFooter(
 		};
 	});
 
-	return () => {
-		ctx.ui.setFooter(undefined);
+	return {
+		cleanup() {
+			ctx.ui.setFooter(undefined);
+		},
+		// The HUD's four-line layout cannot inline into editor borders.
+		inline: {
+			enabled: () => false,
+			render: () => undefined,
+		},
 	};
 }

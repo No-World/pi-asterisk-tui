@@ -12,7 +12,7 @@ import {
 	uninstallTurnCollapse,
 } from "./turn-collapse.ts";
 import { installEditor, type WorkingStatusIndicator } from "./editor.ts";
-import { installFooter } from "./footer.ts";
+import { installFooter, type FooterHandle } from "./footer.ts";
 import { installHeader } from "./header.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
@@ -67,7 +67,7 @@ export default function (pi: ExtensionAPI) {
 	let requestFooterRender: (() => void) | undefined;
 	let workingTimer: ReturnType<typeof setInterval> | undefined;
 	let cleanupHeader: (() => void) | undefined;
-	let cleanupFooter: (() => void) | undefined;
+	let footerHandle: FooterHandle | undefined;
 	let cleanupThinkingClick: (() => void) | undefined;
 	let cleanupSelectionCopy: (() => void) | undefined;
 	let cleanupTurnCollapse: (() => void) | undefined;
@@ -114,7 +114,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (!active) {
 			cleanupHeader = installHeader(pi, ctx);
-			cleanupFooter = installFooter(
+			footerHandle = installFooter(
 				ctx,
 				() => state,
 				() => config,
@@ -148,6 +148,8 @@ export default function (pi: ExtensionAPI) {
 					return truncateToWidth(glyphs.working, Math.max(0, width), "");
 				},
 			});
+			// Inline footer: classic rows drawn into the editor borders.
+			editor.setInlineBorderContent(footerHandle?.inline);
 			// Re-enabled mid-session: the collapse/click patches install here too
 			// (session_start only covers fresh sessions).
 			if (!cleanupThinkingClick) cleanupThinkingClick = installThinkingClickExpand();
@@ -168,13 +170,13 @@ export default function (pi: ExtensionAPI) {
 		uninstallTurnCollapse();
 		if (active) {
 			cleanupHeader?.();
-			cleanupFooter?.();
+			footerHandle?.cleanup();
 			cleanupThinkingClick?.();
 			cleanupSelectionCopy?.();
 			cleanupTurnCollapse?.();
 			editor?.cleanup();
 			cleanupHeader = undefined;
-			cleanupFooter = undefined;
+			footerHandle = undefined;
 			cleanupThinkingClick = undefined;
 			cleanupSelectionCopy = undefined;
 			cleanupTurnCollapse = undefined;

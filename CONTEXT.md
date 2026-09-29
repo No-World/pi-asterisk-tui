@@ -74,6 +74,10 @@ _Avoid_: Classic 底栏
 starship 风格单行页脚 + 单轮摘要（`footerStyle: "classic"`）。
 _Avoid_: HUD 底栏
 
+**内嵌底栏**：
+`inlineFooter` 开启时 classic 底栏的两行主内容画进编辑器上下边框（位置段+模型块 / 轮末摘要+统计行），只省行数不换内容；扩展状态行仍留编辑器下方。
+_Avoid_: HUD 底栏（四行布局无法内嵌，开关对 hud 无效）、边框工作状态（那是编辑器自己的运行指示，不是底栏内容）
+
 **底栏预设**：
 `footerStyle` 的取值（hud / classic / custom）——设置面板里按名保存的组合。
 

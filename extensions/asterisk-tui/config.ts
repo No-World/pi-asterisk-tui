@@ -320,6 +320,9 @@ export interface OpenTuiConfig {
 	};
 	footerStyle: FooterStyle;
 	footerSegments: FooterSegments;
+	/** Classic footer rows render inside the editor frame borders instead of
+	 * dedicated rows (vertical-space saver). Inert under footerStyle "hud". */
+	inlineFooter: boolean;
 	hud: HudConfig;
 	/** Selection copy behavior (fullscreen TUI); see selection-copy.ts. */
 	selection: SelectionConfig;
@@ -355,6 +358,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		extensionStatuses: true,
 		capitalizeProviderName: true,
 	},
+	inlineFooter: false,
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
 	telemetry: {
