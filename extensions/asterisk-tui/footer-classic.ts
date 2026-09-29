@@ -1,4 +1,5 @@
 import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { hostname as osHostname } from "node:os";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { OpenTuiConfig } from "./config.ts";
 import type { IconGlyphs } from "./icons.ts";
@@ -16,6 +17,7 @@ import {
 	formatInputBreakdown,
 	providerColor,
 	sanitizeStatus,
+	shortHostname,
 	stressColor,
 	truncateBranch,
 	truncatePath,
@@ -253,7 +255,16 @@ export function installClassicFooter(
 						},
 					});
 				}
-				if (segments.sessionName) {
+				if (segments.hostname) {
+				const shortHost = shortHostname(osHostname());
+				if (shortHost) {
+					leftParts.push({
+						text: `${theme.fg("dim", glyphs.hostname)} ${theme.fg("accent", shortHost)}`,
+						priority: 1,
+					});
+				}
+			}
+			if (segments.sessionName) {
 					const sessionName = ctx.sessionManager.getSessionName();
 					if (sessionName) {
 						leftParts.push({

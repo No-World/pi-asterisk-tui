@@ -68,6 +68,13 @@ export function finiteOrZero(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+/** Short host name for the opt-in footer segment: the first label of the
+ * machine's host name (e.g. `mba` from `mba.example.com`). Empty when the
+ * host name is empty — callers skip the segment entirely. */
+export function shortHostname(hostname: string): string {
+	return hostname.split(".")[0] ?? "";
+}
+
 export function fmtTokens(n: number): string {
 	if (n < 1000) return n.toString();
 	if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;

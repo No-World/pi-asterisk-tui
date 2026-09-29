@@ -196,6 +196,8 @@ export interface HudConfig {
 	gitBranch: boolean;
 	gitDiffTotals: boolean;
 	sessionName: boolean;
+	/** Opt-in short host name on the status line (first label of os.hostname()). */
+	hostname: boolean;
 	time: boolean;
 	cost: boolean;
 	contextBar: boolean;
@@ -231,6 +233,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	gitBranch: true,
 	gitDiffTotals: true,
 	sessionName: true,
+	hostname: false,
 	time: true,
 	cost: true,
 	contextBar: true,
@@ -272,6 +275,8 @@ export function normalizeHudConfig(hud: HudConfig): HudConfig {
 
 export interface FooterSegments {
 	cwd: boolean;
+	/** Opt-in short host name segment (first label of os.hostname()). */
+	hostname: boolean;
 	sessionName: boolean;
 	gitBranch: boolean;
 	gitStatus: boolean;
@@ -338,6 +343,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	stylePreset: "hud",
 	footerSegments: {
 		cwd: true,
+		hostname: false,
 		sessionName: false,
 		gitBranch: true,
 		gitStatus: true,
