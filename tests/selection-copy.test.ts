@@ -643,3 +643,55 @@ test("raw emission keeps blank-line separation between blocks (space tokens)", (
 		cleanupInstall();
 	}
 });
+
+test("e2e: raw copy keeps fenced code blocks verbatim (indentation, fences, inline code)", () => {
+	const cleanupInstall = installSelectionCopy(piTui as never);
+	try {
+		const source = [
+			"改造前：",
+			"",
+			"```ts",
+			"	const a = {",
+			"		b: 1,",
+			"	};",
+			"```",
+			"",
+			"以及 `inline code` 与 **bold**。",
+		].join("\n");
+		const md = new Markdown(source, 1, 0, identityTheme as never, undefined, undefined);
+		const width = 46;
+		const lines = md.render(width);
+		const mdRecord = __testing.markdownRecords.get(md as never);
+		assert.ok(mdRecord, "recorded");
+		const origins = buildMarkdownOrigins(deps, mdRecord);
+		const selectedRows = lines.map((_, i) => i);
+		const selectedLines = selectedRows.map((r) => lines[r]!);
+		const resolution = {
+			bounds: {
+				start: { row: 0, col: 2 }, // mid-line start: forces the per-call path
+				end: { row: lines.length - 1, col: visibleWidth(selectedLines[selectedLines.length - 1]!), boundary: false },
+			},
+			sourceLines: lines,
+			contentWidth: mdRecord.contentWidth,
+			mapping: {
+				entries: selectedRows.map((r) => {
+					const g = origins.origins[r]!;
+					return g >= 0 ? { record: mdRecord, group: g, text: origins.groups[g] ?? "" } : undefined;
+				}),
+				lines: selectedLines,
+				markdown: selectedRows.map((r) => ({ record: mdRecord, localRow: r })),
+			},
+		} as unknown as ResolvedSelection;
+		const result = emitRaw(deps, resolution);
+		assert.ok(result !== undefined);
+		assert.ok(result!.includes("```ts"), "opening fence preserved");
+		assert.ok(result!.includes("```\n"), "closing fence preserved");
+		// pi-tui normalizes tabs to 3 spaces BEFORE lexing, so per-call raws carry
+		// the normalized form; only whole-message coverage returns this.text verbatim.
+		assert.ok(result!.includes("   b: 1,"), "code indentation preserved (tabs normalized to 3 spaces by the renderer)");
+		assert.ok(result!.includes("`inline code`"), "inline code backticks preserved");
+		assert.ok(result!.includes("**bold**"), "bold markers preserved");
+	} finally {
+		cleanupInstall();
+	}
+});
