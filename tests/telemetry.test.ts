@@ -580,17 +580,28 @@ test("working output tokens survive turn boundaries within an agent run", () => 
 test("asterisk-tui notifies once after a complete agent run", () => {
 	const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => void>>();
 	const notifications: string[] = [];
+	const persisted: Array<{ customType: string; data: unknown }> = [];
+	const renderers = new Map<string, (entry: any, options: any, theme: any) => unknown>();
 	const pi = {
 		on(event: string, handler: (event: any, ctx: ExtensionContext) => void) {
 			handlers.set(event, [...(handlers.get(event) ?? []), handler]);
 		},
 		registerCommand() {},
+		registerEntryRenderer(customType: string, renderer: never) {
+			renderers.set(customType, renderer as unknown as (entry: any, options: any, theme: any) => unknown);
+		},
 		getThinkingLevel: () => "off",
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		hasUI: true,
 		mode: "tui",
 		ui: { theme, notify: (message: string) => notifications.push(message) },
+		sessionManager: {
+			appendCustomEntry: (customType: string, data: unknown) => {
+				persisted.push({ customType, data });
+				return "tel-1";
+			},
+		},
 	} as unknown as ExtensionContext;
 	const emit = (event: string, payload: unknown) => {
 		for (const handler of handlers.get(event) ?? []) handler(payload, ctx);
@@ -607,8 +618,20 @@ test("asterisk-tui notifies once after a complete agent run", () => {
 
 	assert.equal(notifications.length, 0);
 	emit("agent_settled", { type: "agent_settled" });
-	assert.equal(notifications.length, 1);
-	assert.match(notifications[0]!, /TPS .*TTFT/);
+	// persist on (default): the entry replaces the transient notify — it renders
+	// as a transcript line via the registered entry renderer instead
+	assert.equal(notifications.length, 0);
+	assert.equal(persisted.length, 1);
+	assert.equal(persisted[0]!.customType, "asterisk.telemetry");
+	const renderer = renderers.get("asterisk.telemetry");
+	assert.ok(renderer, "entry renderer registered");
+	const component = renderer({ type: "custom", customType: "asterisk.telemetry", data: persisted[0]!.data }, { expanded: false }, theme) as
+		{ render(width: number): string[] } | undefined;
+	assert.ok(component, "renderer returns a component for valid data");
+	assert.match(component!.render(120).join("\n"), /TPS .*TTFT/);
+	// garbage payloads render nothing (the transcript skips the entry silently)
+	const bad = renderer({ type: "custom", customType: "asterisk.telemetry", data: { ttftMs: "x" } }, { expanded: false }, theme);
+	assert.equal(bad, undefined);
 });
 
 test("turn summary tracks thinking time and tool counts across a run", () => {

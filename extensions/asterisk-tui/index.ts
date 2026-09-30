@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { type OpenTuiConfig, type CollapseMode, BUILTIN_TOOLS, DEFAULT_CONFIG, ensureConfigExists, loadConfig, normalizeTurnCollapse, saveConfig, thoughtExpanded, type ToolOverride } from "./config.ts";
 import { ensureHideThinkingDefault, readHideThinkingBlock, writeHideThinkingBlock } from "./pi-settings.ts";
 import {
@@ -20,7 +21,7 @@ import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
 import { installSelectionCopy, setSelectionCopyMode, setSelectionTabWidth, setSelectionTrimPadding } from "./selection-copy.ts";
 import { installThinkingClickExpand } from "./thinking-click.ts";
-import { formatTurnTelemetry, loadLastTelemetryEntry, persistTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
+import { formatTurnTelemetry, loadLastTelemetryEntry, persistTurnTelemetry, TELEMETRY_ENTRY_TYPE, TurnTelemetryTracker } from "./telemetry.ts";
 import {
 	createInitialState,
 	getModelMeta,
@@ -102,6 +103,21 @@ export default function (pi: ExtensionAPI) {
 					expandAllStatusTimer = undefined;
 				}, 2000);
 			},
+		});
+	}
+
+	// Transcript-native telemetry: the persisted custom entry renders in place
+	// (live via entry_appended, on resume via transcript restore), replacing the
+	// transient status notify whenever persistence is on. Registering happens
+	// once per extension load; the renderer reads the live config so icon/
+	// language changes apply to restored lines on the next render.
+	if (typeof pi.registerEntryRenderer === "function") {
+		pi.registerEntryRenderer(TELEMETRY_ENTRY_TYPE, (entry, _options, theme) => {
+			if (!config.enabled || !config.telemetry.enabled || !config.telemetry.persist) return undefined;
+			const telemetry = loadLastTelemetryEntry([entry]);
+			if (!telemetry) return undefined;
+			const message = formatTurnTelemetry(telemetry, theme, config.telemetry, config.icons.mode);
+			return message ? new Text(message, 1, 0) : undefined;
 		});
 	}
 
@@ -373,17 +389,6 @@ export default function (pi: ExtensionAPI) {
 		setThinkingLabel(ctx, "✻ Thought…");
 
 		refreshInteractiveState(ctx, true);
-
-		// Resume replay: the live telemetry notify is transcript-transient, so
-		// re-render the persisted line of the last run (fresh sessions have no
-		// entry and skip this silently).
-		if (config.enabled && config.telemetry.enabled && config.telemetry.persist && isTuiContext(ctx)) {
-			const persisted = loadLastTelemetryEntry(ctx.sessionManager.getBranch());
-			if (persisted) {
-				const message = formatTurnTelemetry(persisted, ctx.ui.theme, config.telemetry, config.icons.mode);
-				if (message) ctx.ui.notify(message, "info");
-			}
-		}
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
@@ -448,16 +453,17 @@ export default function (pi: ExtensionAPI) {
 		state.lastTurnSummary = turnTelemetry.getLastTurnSummary();
 		requestFooterRender?.();
 		if (telemetry && config.enabled && config.telemetry.enabled) {
-			// Persist for resume replay: custom entries never join LLM context and
-			// are pruned together with their run when the user rewinds past them.
 			if (config.telemetry.persist) {
+				// The entry itself renders as a transcript line (entry renderer above),
+				// in place for both live runs and resume — no notify duplication.
 				persistTurnTelemetry(ctx.sessionManager, telemetry);
+			} else if (isTuiContext(ctx)) {
+				// transient fallback: without the entry there is nothing to restore,
+				// so keep the one-shot status line for the live session only
+				const message = formatTurnTelemetry(telemetry, ctx.ui.theme, config.telemetry, config.icons.mode);
+				if (message) ctx.ui.notify(message, "info");
 			}
-			if (isTuiContext(ctx)) {
-					const message = formatTurnTelemetry(telemetry, ctx.ui.theme, config.telemetry, config.icons.mode);
-					if (message) ctx.ui.notify(message, "info");
-			}
-			}
+		}
 	});
 
 	pi.on("model_select", (_event, ctx) => {

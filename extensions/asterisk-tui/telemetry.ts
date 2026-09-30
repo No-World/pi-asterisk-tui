@@ -496,7 +496,8 @@ export function loadLastTelemetryEntry(entries: Iterable<unknown>): TurnTelemetr
  *  cast, isolated here. If a future pi hands restricted proxies instead, the
  *  optional call degrades to a no-op and only persistence is lost; the live
  *  notify path never touches this. */
-export function persistTurnTelemetry(sessionManager: object, telemetry: TurnTelemetry): void {
+export function persistTurnTelemetry(sessionManager: object | undefined, telemetry: TurnTelemetry): void {
+	if (!sessionManager || typeof sessionManager !== "object") return;
 	const sm = sessionManager as {
 		appendCustomEntry?: (customType: string, data?: unknown) => string;
 	};

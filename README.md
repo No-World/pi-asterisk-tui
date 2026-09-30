@@ -86,9 +86,11 @@ compresses is the **compression mode** (`/*tui` → Collapse):
 - **Turn telemetry** after each run: TPS, TTFT, duration, stall count/time, input/output
   token breakdown with cache-read and cache-write, cache hit rate, and list-price $/M rate.
 - **Persistence**: each run's telemetry is stored as a session custom entry (extension-owned,
-  never sent to the model) and re-shown once when the session is resumed, re-formatted with
+  never sent to the model) and rendered as a transcript line in place — the same line at the
+  same position whether the run just finished or the session was resumed, re-formatted with
   the current icon/language settings; rewinding past a run prunes its entry. `telemetry.persist`
-  toggles it (on by default).
+  toggles it (on by default); when off, the old transient one-shot status line is shown for the
+  live session only.
 - **Tools/summaries side spend**: token usage attached to tool results (the tool's own
   LLM calls, e.g. subagents) and to compaction/branch summaries is real session cost, but
   not main-context accounting — mirroring pi's own `Tools/summaries` bucket it is tracked
@@ -207,7 +209,7 @@ Notable keys:
 | `turnCollapse.tools` | `{}` | per-tool `default` / `single` / `group-same` / `expand`; `*` wildcard |
 | `icons.mode` | `"auto"` | nerd / ascii / auto icon set; auto = nerd in interactive UTF-8 TTYs (ADR-0006), one-time hint on first nerd resolution |
 | `cursorStyle` | `"block"` | editor cursor style |
-| `telemetry.*` | on | working-indicator and post-turn telemetry fields; `telemetry.persist` (on) re-shows the last run's line on session resume |
+| `telemetry.*` | on | working-indicator and post-turn telemetry fields; `telemetry.persist` (on) stores each run as a session entry rendered as a transcript line (survives resume) |
 | `footerSegments.*` | mixed | classic footer segment toggles |
 | `footerSegments.hostname` | `false` | opt-in short host name segment (first label of the machine's host name) — for telling SSH targets apart at a glance; same toggle exists as `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | uppercase the provider name's first letter; `false` keeps the raw provider id casing (proxy-style ids like `cc-switch-zhipu-glm`) |
