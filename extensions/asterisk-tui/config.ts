@@ -310,7 +310,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	extensionStatuses: true,
 	environment: true,
 	memory: false,
-	compactions: false,
+	compactions: true,
 	dailyCost: false,
 	piVersion: false,
 	outputSpeed: true,

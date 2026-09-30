@@ -86,7 +86,7 @@ claude-hud 风格四行面板（同时内置 starship 风格 classic 预设）�
    ahead/behind、逐文件增删统计 `[+71 -5]`、会话名、累计工作时长、费用、今日费用、
    实时输出速度（tok/s；仅在该条消息流式传输满 1 秒后才更新——瞬发式爆发的响应
    无法测速，保留上一条可信速度）。
-2. **上下文行**——用量进度条、百分比与 token 数、缓存命中率。Token 统计有三种呈现（`hud.tokens`）：本地化完整标签 `verbose`、语言无关的紧凑速记 `compact`（图标+数值，如 `77M (U 855k + R 77M) │ 266k │ 98.9%`）、或 `off`。统计段（时长、费用、今日费用、输出速度、token、缓存命中）的呈现由 `hud.statStyle` 控制：`icon`（纯图标）/ `icon+text`（图标+文字，默认）/ `text`（纯文字）；图标与遥测行、classic 底栏共用同一 glyph 集，`icons.mode: "ascii"` 下有符号回退。
+2. **上下文行**——用量进度条、百分比与 token 数、缓存命中率，以及压缩次数后缀（`hud.compactions`，默认开，发生过压缩才显示）：`·  压缩 2`。Token 统计有三种呈现（`hud.tokens`）：本地化完整标签 `verbose`、语言无关的紧凑速记 `compact`（图标+数值，如 `77M (U 855k + R 77M) │ 266k │ 98.9%`）、或 `off`。统计段（时长、费用、今日费用、输出速度、token、缓存命中）的呈现由 `hud.statStyle` 控制：`icon`（纯图标）/ `icon+text`（图标+文字，默认）/ `text`（纯文字）；图标与遥测行、classic 底栏共用同一 glyph 集，`icons.mode: "ascii"` 下有符号回退。
 3. **工具行**——按工具的调用计数（✓ 标记）、运行中的工具标签。
 4. **环境行**——MCP 服务器计数（仅当实际安装了 pi-mcp-adapter 时统计）、内存占用、
    压缩次数、pi 版本。

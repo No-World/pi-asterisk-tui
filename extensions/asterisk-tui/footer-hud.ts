@@ -55,6 +55,7 @@ const THINKING_ICONS: Record<string, string> = {
 // like every other surface (telemetry line, classic footer).
 interface HudStrings {
 	contextLabel: string;
+	compactionLabel: string;
 	costLabel: string;
 	todayLabel: string;
 	timeLabel: string;
@@ -63,7 +64,6 @@ interface HudStrings {
 	inputLabel: string;
 	outputLabel: string;
 	hitLabel: string;
-	compactionLabel: string;
 	memoryLabel: string;
 	extensionsLabel: string;
 	packagesLabel: string;
@@ -74,6 +74,7 @@ interface HudStrings {
 const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 	en: {
 		contextLabel: "ctx ",
+		compactionLabel: "compact ",
 		costLabel: "cost ",
 		todayLabel: "today ",
 		timeLabel: "time ",
@@ -82,7 +83,6 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 		inputLabel: "in ",
 		outputLabel: "out ",
 		hitLabel: "hit ",
-		compactionLabel: "compact ",
 		memoryLabel: "mem ",
 		extensionsLabel: " ext",
 		packagesLabel: " pkgs",
@@ -90,6 +90,7 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 	},
 	zh: {
 		contextLabel: "上下文 ",
+		compactionLabel: "压缩 ",
 		costLabel: "费用 ",
 		todayLabel: "今日 ",
 		timeLabel: "时长 ",
@@ -98,7 +99,6 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 		inputLabel: "输入 ",
 		outputLabel: "输出 ",
 		hitLabel: "缓存命中 ",
-		compactionLabel: "压实 ",
 		memoryLabel: "内存 ",
 		extensionsLabel: " 扩展",
 		packagesLabel: " 包",
@@ -410,7 +410,7 @@ export function statSegment(
 	return `${glyph} ${label}${value}`;
 }
 
-function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig, strings: HudStrings): string {
+function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig, strings: HudStrings, glyphs: IconGlyphs, compactions: number): string {
 	const usage = ctx.getContextUsage();
 	const ctxWin = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
 	if (ctxWin <= 0) return "";
@@ -424,6 +424,10 @@ function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig, s
 	if (hud.contextPercent) bar += theme.fg("muted", ` ${Math.floor(pct)}%`);
 	if (hud.contextTokens) {
 		bar += theme.fg("dim", ` (${fmtTokens(tokens)}/${fmtTokens(ctxWin)})`);
+	}
+	// compaction suffix: opt-in, appears once the session has compacted
+	if (hud.compactions && compactions > 0) {
+		bar += theme.fg("dim", ` · ${glyphs.compaction} ${strings.compactionLabel}${compactions}`);
 	}
 	return bar;
 }
@@ -670,7 +674,7 @@ export function installHudFooter(
 
 				// ---- line 2: context bar … cache-hit │ tokens ----
 				let line2 = "";
-				if (hud.contextBar) line2 = renderContextBar(theme, ctx, hud, strings);
+				if (hud.contextBar) line2 = renderContextBar(theme, ctx, hud, strings, glyphs, compactions);
 				const right2: string[] = [];
 				if (hud.tokens === "compact") {
 					// language-independent shorthand; compact is inherently icon-style,
@@ -733,9 +737,6 @@ export function installHudFooter(
 						}
 					}
 				}
-				if (hud.compactions && compactions > 0) {
-				right2.push(theme.fg("muted", `${strings.compactionLabel}${compactions}`));
-			}
 				if (hud.piVersion && piVer) right2.push(theme.fg("muted", piVer));
 				if (right2.length) {
 					line2 = alignRight(line2, right2.join(sep), width, theme);

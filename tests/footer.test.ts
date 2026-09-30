@@ -1581,3 +1581,58 @@ test("classic footer model name follows the effort color", () => {
 		(component as unknown as { dispose?: () => void }).dispose?.();
 	}
 });
+
+test("hud context bar carries the compaction suffix once compacted", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const entries: unknown[] = [
+		{ type: "compaction", id: "c1", timestamp: new Date().toISOString(), summary: "s", firstKeptEntryId: null, tokensBefore: 1 },
+	];
+	const ctx = {
+		model: { provider: "p", contextWindow: 1_000_000 },
+		ui: { setFooter(factory: typeof footerFactory) { footerFactory = factory; } },
+		sessionManager: {
+			getCwd: () => "/w/p", getEntries: () => entries, getBranch: () => entries, getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 420_000, contextWindow: 1_000_000, percent: 42 }),
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const handle = installHudFooter(
+		ctx,
+		() => ({
+			git: { ...emptyGitStatus(), branch: "main" },
+			sessionStartEpoch: Date.now(),
+			workingSince: undefined,
+			lastDoneIn: undefined,
+			lastTurnSummary: undefined,
+			outputTps: null,
+		}),
+		() => config,
+		() => ({ provider: "P", model: "m", effort: "off" }),
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	const hudTheme = { ...theme, underline: (text: string) => text } as Theme;
+	let component: Component | undefined;
+	try {
+		assert.ok(footerFactory);
+		const footerData = {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		} as unknown as ReadonlyFooterDataProvider;
+		component = footerFactory({ requestRender() {} } as TUI, hudTheme, footerData) as Component;
+
+		// off: hidden even with a compaction in the branch (on is the default)
+		config.hud.compactions = false;
+		invalidateUsageCache();
+		let lines = component.render(120).join("\n");
+		assert.ok(!lines.includes("z compact"), `suffix leaked while off\n${lines}`);
+
+		config.hud.compactions = true;
+		invalidateUsageCache();
+		lines = component.render(120).join("\n");
+		assert.ok(lines.includes("(420k/1.0M) · z compact 1"), `suffix missing\n${lines}`);
+	} finally {
+		handle.cleanup();
+		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
+	}
+});
