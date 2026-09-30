@@ -292,7 +292,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	sessionName: true,
 	hostname: false,
 	time: true,
-	cost: "cost",
+	cost: "cost+rate",
 	contextBar: true,
 	contextPercent: true,
 	contextTokens: true,
@@ -610,7 +610,7 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		// legacy boolean cost toggles fold into the tri-state; telemetry kept
 		// showing spend+rate, the footers showed spend only
 		config.telemetry.cost = normalizeCostMode(config.telemetry.cost, "cost+rate");
-		config.hud.cost = normalizeCostMode(config.hud.cost, "cost");
+		config.hud.cost = normalizeCostMode(config.hud.cost, "cost+rate");
 		config.footerSegments.cost = normalizeCostMode(config.footerSegments.cost, "cost");
 		config.selection = normalizeSelectionConfig(config.selection);
 		if (!["hud", "classic", "custom"].includes(config.stylePreset)) {
