@@ -78,6 +78,15 @@ test("effectiveThoughtTreatment resolves default per mode and keeps overrides ab
 	assert.equal(effectiveThoughtTreatment("native", "expand"), "expand");
 });
 
+test("hud.statStyle rejects invalid values and defaults to icon+text", () => {
+	const invalid = normalizeHudConfig({ ...structuredClone(DEFAULT_HUD_CONFIG), statStyle: "bogus" as "icon" });
+	assert.equal(invalid.statStyle, "icon+text");
+	const kept = normalizeHudConfig({ ...structuredClone(DEFAULT_HUD_CONFIG), statStyle: "icon" });
+	assert.equal(kept.statStyle, "icon");
+	const legacy = normalizeHudConfig({ ...structuredClone(DEFAULT_HUD_CONFIG), statStyle: undefined as unknown as "icon" });
+	assert.equal(legacy.statStyle, "icon+text");
+});
+
 test("hud.tokens tri-state migrates legacy booleans and rejects invalid values", () => {
 	const legacyTrue = normalizeHudConfig({ ...structuredClone(DEFAULT_HUD_CONFIG), tokens: true as unknown as "verbose" });
 	assert.equal(legacyTrue.tokens, "verbose");

@@ -186,6 +186,12 @@ export function normalizeTurnCollapse(value: unknown): TurnCollapseConfig {
 export type TokenDisplayMode = "off" | "verbose" | "compact";
 export const TOKEN_DISPLAY_MODES: readonly TokenDisplayMode[] = ["off", "verbose", "compact"];
 
+/** HUD stat-segment presentation: glyph only, glyph + text label, or text only.
+ *  Applies to the time/cost/daily-cost/speed/token/cache-hit segments; the
+ *  compact token shorthand is inherently icon-style and ignores it. */
+export type HudStatStyle = "icon" | "icon+text" | "text";
+export const HUD_STAT_STYLES: readonly HudStatStyle[] = ["icon", "icon+text", "text"];
+
 /** Fine-grained HUD-style footer options (one per visible detail). */
 export interface HudConfig {
 	model: boolean;
@@ -205,6 +211,8 @@ export interface HudConfig {
 	contextTokens: boolean;
 
 	tokens: TokenDisplayMode;
+	/** Icon/label presentation for the stat segments (time, cost, speed, tokens…). */
+	statStyle: HudStatStyle;
 	tokenBreakdown: boolean;
 	cacheHit: boolean;
 	tools: boolean;
@@ -241,6 +249,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	contextTokens: true,
 
 	tokens: "verbose",
+	statStyle: "icon+text",
 	tokenBreakdown: true,
 	cacheHit: true,
 	tools: true,
@@ -270,7 +279,12 @@ export function normalizeHudConfig(hud: HudConfig): HudConfig {
 				: rawTokens === false
 					? "off"
 					: DEFAULT_HUD_CONFIG.tokens;
-	return { ...hud, tokens, toolsMax: clamp(hud.toolsMax), filesMax: clamp(hud.filesMax) };
+	const rawStatStyle: unknown = hud.statStyle;
+	const statStyle: HudStatStyle =
+		typeof rawStatStyle === "string" && HUD_STAT_STYLES.includes(rawStatStyle as HudStatStyle)
+			? (rawStatStyle as HudStatStyle)
+			: DEFAULT_HUD_CONFIG.statStyle;
+	return { ...hud, tokens, statStyle, toolsMax: clamp(hud.toolsMax), filesMax: clamp(hud.filesMax) };
 }
 
 export interface FooterSegments {

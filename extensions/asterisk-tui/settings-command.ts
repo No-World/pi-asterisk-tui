@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SelectionCopyMode, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -80,6 +80,7 @@ const COPY = {
 			hudContextTokens: "Context · tokens",
 			hudRuntime: "Runtime",
 			hudTokens: "Tokens",
+			hudStatStyle: "Stat style",
 			hudTokenBreakdown: "Tokens · cache read",
 			hudCacheHit: "Tokens · cache hit rate",
 			hudTools: "Tool usage",
@@ -112,7 +113,8 @@ const COPY = {
 			trimPaddingHint: "Highlight and visual copy skip padded margins",
 			footerStyles: { hud: "HUD", classic: "Classic" },
 			stylePresets: { hud: "HUD", classic: "Classic", custom: "Custom" },
-			tokenModes: { off: "Off", verbose: "Full (↑in 77M ·cache 77M …)", compact: "Compact (↑ 77M (U 855k + R 77M) …)" },
+			tokenModes: { off: "Off", verbose: "Full (labels + cache detail)", compact: "Compact (icon shorthand)" },
+			statStyles: { icon: "Icons only", "icon+text": "Icons + text", text: "Text only" },
 			collapseModes: { native: "Native", single: "One per tool", "group-same": "Group same type", "group-all": "Group all" },
 			collapseStyles: { compact: "Compact", classic: "Classic" },
 			toolOverrides: { default: "Default", single: "One line", "group-same": "Group same type", expand: "Native box" },
@@ -176,6 +178,7 @@ const COPY = {
 			hudContextTokens: "上下文 · Token 数",
 			hudRuntime: "运行时",
 			hudTokens: "Token 统计",
+			hudStatStyle: "统计样式",
 			hudTokenBreakdown: "Token · 缓存读",
 			hudCacheHit: "Token · 缓存命中率",
 			hudTools: "工具调用",
@@ -208,7 +211,8 @@ const COPY = {
 			trimPaddingHint: "高亮与视觉内容复制不覆盖补齐空白（前后不多出空格）",
 			footerStyles: { hud: "HUD 风格", classic: "经典风格" },
 			stylePresets: { hud: "HUD 风格", classic: "经典风格", custom: "自定义" },
-			tokenModes: { off: "关闭", verbose: "完整（↑输入 77M ·缓存 77M …）", compact: "紧凑（↑ 77M (U 855k + R 77M) …）" },
+			tokenModes: { off: "关闭", verbose: "完整（文字标签＋缓存明细）", compact: "紧凑（图标速记，语言无关）" },
+			statStyles: { icon: "纯图标", "icon+text": "图标+文字", text: "纯文字" },
 			collapseModes: { native: "原生", single: "每工具单行", "group-same": "同类归纳", "group-all": "整段归纳" },
 			collapseStyles: { compact: "紧凑", classic: "经典" },
 			toolOverrides: { default: "默认", single: "单行", "group-same": "同类归纳", expand: "原生" },
@@ -259,6 +263,13 @@ function cycleTokenMode(config: OpenTuiConfig): OpenTuiConfig {
 	const idx = TOKEN_DISPLAY_MODES.indexOf(config.hud.tokens);
 	const next = TOKEN_DISPLAY_MODES[(idx + 1) % TOKEN_DISPLAY_MODES.length]!;
 	return { ...config, hud: { ...config.hud, tokens: next } };
+}
+
+/** Cycles the HUD stat-segment style: icon → icon+text → text → icon. */
+function cycleStatStyle(config: OpenTuiConfig): OpenTuiConfig {
+	const idx = HUD_STAT_STYLES.indexOf(config.hud.statStyle);
+	const next = HUD_STAT_STYLES[(idx + 1) % HUD_STAT_STYLES.length]!;
+	return { ...config, hud: { ...config.hud, statStyle: next } };
 }
 
 function cycleIconMode(config: OpenTuiConfig): OpenTuiConfig {
@@ -470,12 +481,18 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 		label: labels[label],
 		currentValue: flag(hud[key] as boolean),
 	}));
-	// token-stats presentation sits where it always did: right before the breakdown toggle
+	// token-stats presentation sits where it always did: right before the breakdown toggle;
+	// the stat style (icon / icon+text / text) follows immediately after
 	const breakdownIdx = toggleItems.findIndex((item) => item.id === "tokenBreakdown");
 	toggleItems.splice(breakdownIdx, 0, {
 		id: "tokens",
 		label: labels.hudTokens,
 		currentValue: copy.values.tokenModes[hud.tokens],
+	});
+	toggleItems.splice(breakdownIdx + 1, 0, {
+		id: "statStyle",
+		label: labels.hudStatStyle,
+		currentValue: copy.values.statStyles[hud.statStyle],
 	});
 	return [
 		styleItem,
@@ -573,6 +590,8 @@ function handleSettingChange(
 			next = { ...config, borderWorkingStatus: !config.borderWorkingStatus };
 		} else if (config.footerStyle === "hud" && itemId === "tokens") {
 			next = cycleTokenMode(config); // tri-state, not a boolean toggle
+		} else if (config.footerStyle === "hud" && itemId === "statStyle") {
+			next = cycleStatStyle(config); // tri-state, not a boolean toggle
 		} else if (config.footerStyle === "hud" && itemId in config.hud) {
 			next = toggleHud(config, itemId as keyof HudConfig);
 		} else {

@@ -309,6 +309,30 @@ test("cycles the HUD token-stats presentation off → verbose → compact", asyn
 	assert.equal(settings.getConfig().stylePreset, "hud");
 });
 
+test("cycles the HUD stat style icon+text → text → icon", async () => {
+	const settings = await openSettings();
+
+	// Footer tab is three Tab presses from General; the stat-style item sits
+	// right after Tokens (slot 17).
+	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
+	for (let i = 0; i < 17; i++) settings.component.handleInput("\x1b[B");
+	assert.match(selectedLine(settings.component), /Stat style/);
+
+	settings.component.handleInput("\r"); // icon+text → text
+	assert.equal(settings.getConfig().hud.statStyle, "text");
+	assert.match(selectedLine(settings.component), /Text only/);
+	settings.component.handleInput("\r"); // text → icon
+	assert.equal(settings.getConfig().hud.statStyle, "icon");
+	assert.match(selectedLine(settings.component), /Icons only/);
+	settings.component.handleInput("\r"); // icon → icon+text
+	assert.equal(settings.getConfig().hud.statStyle, "icon+text");
+	// any non-default style derivation still lands on the HUD preset here
+	// because icon+text IS the default
+	assert.equal(settings.getConfig().stylePreset, "hud");
+});
+
 test("classic footer keeps its Tokens item a boolean toggle", async () => {
 	const config = structuredClone(DEFAULT_CONFIG);
 	config.footerStyle = "classic";
@@ -494,8 +518,8 @@ test("border working status toggles from the segments tab in both styles", async
 		settings.component.handleInput("\t");
 		settings.component.handleInput("\t");
 		// Classic: item sits after capitalizeProviderName (slot 12).
-		// HUD: item sits after the toggle list, before toolsMax.
-		const downs = footerStyle === "classic" ? 12 : 29;
+		// HUD: item sits after the toggle list (tokens + statStyle included), before toolsMax.
+		const downs = footerStyle === "classic" ? 12 : 30;
 		for (let i = 0; i < downs; i++) settings.component.handleInput("\x1b[B");
 		assert.match(
 			selectedLine(settings.component),
