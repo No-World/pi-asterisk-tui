@@ -1621,7 +1621,8 @@ test("hud context bar carries the compaction suffix once compacted", () => {
 		} as unknown as ReadonlyFooterDataProvider;
 		component = footerFactory({ requestRender() {} } as TUI, hudTheme, footerData) as Component;
 
-		// default: hidden even with a compaction in the branch
+		// off: hidden even with a compaction in the branch (on is the default)
+		config.hud.compactions = false;
 		invalidateUsageCache();
 		let lines = component.render(120).join("\n");
 		assert.ok(!lines.includes("z 1"), `suffix leaked while off\n${lines}`);
