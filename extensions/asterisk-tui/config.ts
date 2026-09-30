@@ -91,6 +91,8 @@ export interface WorkingLineConfig {
 	input: WorkingInputMode;
 	output: boolean;
 	cacheHit: boolean;
+	/** Run-cumulative cost of completed messages. */
+	cost: boolean;
 	/** Per-message output speed (the footer shows the run-average speed). */
 	speed: boolean;
 	tools: boolean;
@@ -103,7 +105,8 @@ export interface WorkingBorderConfig {
 	speed: boolean;
 	output: boolean;
 	input: WorkingInputMode;
-	cacheHit: boolean;	tools: boolean;
+	cacheHit: boolean;
+	cost: boolean;	tools: boolean;
 }
 
 /** Transcript compression mode: how finished non-body activity renders. */
@@ -421,8 +424,8 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		capitalizeProviderName: true,
 	},
 	workingStatus: "both",
-	workingLine: { elapsed: true, input: "cache", output: true, cacheHit: true, speed: true, tools: true },
-	workingBorder: { elapsed: true, speed: true, output: false, input: "off", cacheHit: false, tools: true },
+	workingLine: { elapsed: true, input: "cache", output: true, cacheHit: true, cost: true, speed: true, tools: true },
+	workingBorder: { elapsed: true, speed: true, output: false, input: "off", cacheHit: false, cost: false, tools: true },
 	inlineFooter: false,
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),

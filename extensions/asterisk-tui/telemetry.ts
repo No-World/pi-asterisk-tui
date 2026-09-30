@@ -121,6 +121,8 @@ export class TurnTelemetryTracker {
 	private agentRunInputTokens = 0;
 	/** Cache-read tokens of completed messages in the current run. */
 	private agentRunCacheReadTokens = 0;
+	/** Cost (USD) of completed messages in the current run. */
+	private agentRunCostUsd = 0;
 	/** Streaming windows of completed messages; excludes tool time. */
 	private agentRunGenerationMs = 0;
 	/** Wall time spent inside tool executions this run (TTFT counts, tools don't). */
@@ -183,6 +185,11 @@ export class TurnTelemetryTracker {
 
 	getRunCacheReadTokens(): number {
 		return this.agentRunCacheReadTokens;
+	}
+
+	/** Run-cumulative cost of completed messages, in USD. */
+	getRunCostUsd(): number {
+		return this.agentRunCostUsd;
 	}
 
 	/** Completed streaming windows plus the in-flight one; excludes tool time. */
@@ -260,6 +267,7 @@ export class TurnTelemetryTracker {
 				this.agentRunGenerationMs = 0;
 				// stale speeds from the previous run must not leak into the new one
 				this.lastMessageTps = null;
+				this.agentRunCostUsd = 0;
 				this.toolBusyAccumMs = 0;
 				this.activeToolStarts = [];
 					this.agentSummaries = [];
@@ -413,6 +421,7 @@ export class TurnTelemetryTracker {
 			finiteOrZero(message.usage?.cacheWrite) +
 			finiteOrZero(message.usage?.cacheRead);
 		this.agentRunCacheReadTokens += finiteOrZero(message.usage?.cacheRead);
+		this.agentRunCostUsd += finiteOrZero(message.usage?.cost?.total);
 		turn.messages.push(message);
 	}
 
@@ -691,6 +700,7 @@ export interface WorkingContentSource {
 	runCacheReadTokens: number;
 	runOutputTokens: number;
 	runCacheHitRate: number | null;
+	runCostUsd: number;
 	toolCount: number;
 }
 
@@ -699,7 +709,7 @@ export interface WorkingContentSource {
 function workingSegments(
 	source: WorkingContentSource,
 	glyphs: IconGlyphs,
-	opts: { elapsed: boolean; speed: boolean; input: WorkingInputMode; output: boolean; cacheHit: boolean; tools: boolean },
+	opts: { elapsed: boolean; speed: boolean; input: WorkingInputMode; output: boolean; cacheHit: boolean; cost: boolean; tools: boolean },
 ): string[] {
 	const parts: string[] = [];
 	if (opts.elapsed) parts.push(`${glyphs.working} ${source.elapsedText}`);
@@ -713,6 +723,7 @@ function workingSegments(
 	}
 	if (opts.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
 	if (opts.cacheHit && source.runCacheHitRate !== null) parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
+	if (opts.cost && source.runCostUsd > 0) parts.push(`${glyphs.cost} $${source.runCostUsd.toFixed(2)}`);
 	if (opts.tools && source.toolCount > 0) parts.push(`${glyphs.tools} ${source.toolCount}`);
 	return parts;
 }

@@ -144,6 +144,7 @@ export default function (pi: ExtensionAPI) {
 		runCacheReadTokens: turnTelemetry.getRunCacheReadTokens(),
 		runOutputTokens: turnTelemetry.getRunOutputTokens(),
 		runCacheHitRate: turnTelemetry.getRunCacheHitRate(),
+		runCostUsd: turnTelemetry.getRunCostUsd(),
 		toolCount: turnTelemetry.getLiveToolCalls(),
 	});
 
