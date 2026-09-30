@@ -752,7 +752,7 @@ test("working line and border compose from config toggles", () => {
 	const glyphs = resolveGlyphs("ascii");
 	const source = {
 		elapsedText: "2m 3s",
-		perMessageTps: 12.5 as number | null,
+		runTps: 12.5 as number | null,
 		runInputTokens: 3_400_000,
 		runOutputTokens: 5_300,
 		runCacheHitRate: 96.4 as number | null,
@@ -778,40 +778,43 @@ test("working line and border compose from config toggles", () => {
 	assert.equal(
 		formatWorkingBorderText(
 			{ elapsed: false, speed: true, output: false, input: false, cacheHit: false, tools: false },
-			{ ...source, perMessageTps: null },
+			{ ...source, runTps: null },
 			glyphs,
 		),
 		"o 2m 3s",
 	);
 });
 
-test("live per-message speed and session-average speed track their own scopes", () => {
+test("run wall-clock speed and session-average speed track their own scopes", () => {
 	let now = 0;
 	const tracker = new TurnTelemetryTracker(() => now);
-	tracker.handle({ type: "agent_start" });
+	tracker.handle({ type: "agent_start" }); // submitted at t=0
 
-	// in-flight message: no speed before the first output / a credible window
-	const message = makeMessage(0, 50); // usage output 0; estimate drives the live counter
+	// no speed before any token exists or before a 1s window
+	const message = makeMessage(0, 50);
 	startTurn(tracker, message);
 	now = 500;
-	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(60), partial: message }));
-	assert.equal(tracker.getLiveMessageTps(), null);
-	assert.equal(tracker.getSessionTps(), null);
-	now = 1_600;
-	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(60), partial: message }));
-	assert.ok(tracker.getLiveMessageTps()! > 0, "live speed once the window is credible");
-	assert.ok(tracker.getSessionTps()! > 0, "session speed includes the live window");
+	assert.equal(tracker.getRunWallTps(), null);
 
-	// message completes with exact usage; the run settles
+	// first streamed output at t=0.1s (opens the session streaming window)
+	now = 100;
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(40), partial: message }));
+
+	// 100 exact tokens by t=2.1s: wall speed = 100/2.1 (includes TTFT)
 	const done = makeMessage(100, 50);
 	now = 2_100;
 	tracker.handle({ type: "message_end", message: done });
-	assert.equal(tracker.getOutputTps(), 100 / 1.6); // last message: 100 tokens / 1.6s
-	tracker.handle({ type: "agent_settled" });
+	assert.equal(tracker.getRunWallTps(), 47.6);
 
-	// a new run clears the stale per-message speed but keeps session totals
+	// a tool runs until t=4.2s: the wall average decays, tokens unchanged
+	now = 4_200;
+	assert.equal(tracker.getRunWallTps(), 23.8);
+
+	// session average uses streaming windows only, so it stays higher
+	assert.ok(tracker.getSessionTps()! > tracker.getRunWallTps()!);
+	tracker.handle({ type: "agent_settled" });
 	tracker.handle({ type: "agent_start" });
-	assert.equal(tracker.getOutputTps(), null);
+	assert.equal(tracker.getRunWallTps(), null); // fresh run: no tokens yet
 	assert.ok(tracker.getSessionTps()! > 0, "session average survives run boundaries");
 });
 
@@ -819,7 +822,7 @@ test("working surfaces hide zero token segments", () => {
 	const glyphs = resolveGlyphs("ascii");
 	const source = {
 		elapsedText: "5s",
-		perMessageTps: null as number | null,
+		runTps: null as number | null,
 		runInputTokens: 0,
 		runOutputTokens: 0,
 		runCacheHitRate: null as number | null,

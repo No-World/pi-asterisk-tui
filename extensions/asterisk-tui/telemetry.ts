@@ -193,15 +193,16 @@ export class TurnTelemetryTracker {
 			: null;
 	}
 
-	/** Live speed of the in-flight message (estimated tokens over its
-	 *  streaming window); null before the first credible window. */
-	getLiveMessageTps(): number | null {
-		const current = this.turn?.currentMessage;
-		if (!current || current.firstOutputMs === null) return null;
-		const out = Math.max(current.liveUsageOutput, Math.floor(current.streamedEstimate));
-		const ms = this.now() - current.firstOutputMs;
-		if (out <= 0 || ms < MIN_MESSAGE_TPS_WINDOW_MS) return null;
-		return round(out / (ms / 1000), 1);
+	/** Run-average speed from submission to the current frame: run tokens
+	 *  over wall-clock elapsed (includes TTFT and tool time) — the same
+	 *  elapsed shown beside it on the working surfaces, so tokens/elapsed
+	 *  reconciles by eye. */
+	getRunWallTps(): number | null {
+		if (this.agentStartMs === null) return null;
+		const seconds = (this.now() - this.agentStartMs) / 1000;
+		const tokens = this.getRunOutputTokens();
+		if (tokens <= 0 || seconds < 1) return null;
+		return round(tokens / seconds, 1);
 	}
 
 	/** Session-average output speed: every message this session over its
@@ -623,8 +624,8 @@ export function formatTurnTelemetry(
 /** Live values the working-status surfaces render from. */
 export interface WorkingContentSource {
 	elapsedText: string;
-	/** Most recent per-message speed; null until a credible window exists. */
-	perMessageTps: number | null;
+	/** Run speed from submission to now; null until tokens exist. */
+	runTps: number | null;
 	runInputTokens: number;
 	runOutputTokens: number;
 	runCacheHitRate: number | null;
@@ -639,8 +640,8 @@ export function formatWorkingLineMessage(
 	glyphs: IconGlyphs,
 ): string {
 	const parts: string[] = [source.elapsedText];
-	if (content.speed && source.perMessageTps !== null) {
-		parts.push(`${glyphs.speed} ${source.perMessageTps.toFixed(1)} tok/s`);
+	if (content.speed && source.runTps !== null) {
+		parts.push(`${glyphs.speed} ${source.runTps.toFixed(1)} tok/s`);
 	}
 	if (content.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
 	if (content.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
@@ -662,8 +663,8 @@ export function formatWorkingBorderText(
 ): string {
 	const parts: string[] = [];
 	if (content.elapsed) parts.push(source.elapsedText);
-	if (content.speed && source.perMessageTps !== null) {
-		parts.push(`${source.perMessageTps.toFixed(1)} tok/s`);
+	if (content.speed && source.runTps !== null) {
+		parts.push(`${source.runTps.toFixed(1)} tok/s`);
 	}
 	if (content.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
 	if (content.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);

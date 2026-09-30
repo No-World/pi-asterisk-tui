@@ -136,7 +136,7 @@ export default function (pi: ExtensionAPI) {
 	// per-message speed, the footer's speed segment stays run-average.
 	const workingSource = (): WorkingContentSource => ({
 		elapsedText: formatDuration(Date.now() - (state.workingSince ?? Date.now())),
-		perMessageTps: turnTelemetry.getLiveMessageTps() ?? turnTelemetry.getOutputTps(),
+		runTps: turnTelemetry.getRunWallTps(),
 		runInputTokens: turnTelemetry.getRunInputTokens(),
 		runOutputTokens: turnTelemetry.getRunOutputTokens(),
 		runCacheHitRate: turnTelemetry.getRunCacheHitRate(),
