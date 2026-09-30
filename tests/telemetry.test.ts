@@ -897,3 +897,21 @@ test("sumSessionTelemetry seeds the session speed across restarts", () => {
 	tracker.handle({ type: "message_end", message: { ...message, usage: { ...message.usage, output: 30 } } });
 	assert.equal(tracker.getSessionTps(), 36); // 180 tokens / 5s
 });
+
+test("input and cache-read light up at message start (anthropic message_start usage)", () => {
+	const tracker = new TurnTelemetryTracker(() => 0);
+	tracker.handle({ type: "agent_start" });
+	const message = makeMessage(0, 0, 0, 0);
+	// anthropic message_start carries input/cacheRead before any output
+	tracker.handle({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
+	tracker.handle({
+		type: "message_start",
+		message: { ...message, usage: { ...message.usage, input: 42_000, cacheRead: 3_600_000 } },
+	});
+	assert.equal(tracker.getRunInputTokens(), 42_000 + 3_600_000);
+	assert.equal(tracker.getRunCacheReadTokens(), 3_600_000);
+	assert.equal(tracker.getRunCacheHitRate(), 98.8);
+	// usage growing mid-stream keeps the max
+	tracker.handle(update({ ...message, usage: { ...message.usage, input: 50_000, cacheRead: 3_700_000 } }));
+	assert.equal(tracker.getRunInputTokens(), 50_000 + 3_700_000);
+});

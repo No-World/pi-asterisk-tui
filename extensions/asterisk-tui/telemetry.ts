@@ -45,6 +45,10 @@ interface MessageTiming {
 	inStall: boolean;
 	/** Largest output-token count reported by provider usage while streaming this message. */
 	liveUsageOutput: number;
+	/** Largest input+cacheWrite / cacheRead reported while streaming (anthropic
+	 *  message_start carries them, so the working segments light up immediately). */
+	liveUsageInput: number;
+	liveUsageCacheRead: number;
 	/** Delta-based token estimate for providers without mid-stream usage (anthropic protocol). */
 	streamedEstimate: number;
 	/** perf-clock start of the message; anchors thinking-duration measurement. */
@@ -178,13 +182,19 @@ export class TurnTelemetryTracker {
 			: 0;
 		return this.agentRunOutputTokens + inFlight;
 	}
-	/** Input+cacheWrite+cacheRead of completed messages in the current run. */
+	/** Input+cacheWrite+cacheRead of the current run: completed messages plus
+	 *  the in-flight one's provider-reported usage (message_start on the
+	 *  anthropic protocol carries input/cacheRead, so the segments appear at
+	 *  message start instead of waiting for its end). */
 	getRunInputTokens(): number {
-		return this.agentRunInputTokens;
+		const current = this.turn?.currentMessage;
+		const live = current ? current.liveUsageInput + current.liveUsageCacheRead : 0;
+		return this.agentRunInputTokens + live;
 	}
 
 	getRunCacheReadTokens(): number {
-		return this.agentRunCacheReadTokens;
+		const current = this.turn?.currentMessage;
+		return this.agentRunCacheReadTokens + (current?.liveUsageCacheRead ?? 0);
 	}
 
 	/** Run-cumulative cost of completed messages, in USD. */
@@ -199,11 +209,11 @@ export class TurnTelemetryTracker {
 		return this.agentRunGenerationMs + live;
 	}
 
-	/** Run cache hit rate over completed messages; null without cache tokens. */
+	/** Run cache hit rate (completed + in-flight usage); null without cache tokens. */
 	getRunCacheHitRate(): number | null {
-		return this.agentRunCacheReadTokens > 0 && this.agentRunInputTokens > 0
-			? round((this.agentRunCacheReadTokens / this.agentRunInputTokens) * 100, 1)
-			: null;
+		const input = this.getRunInputTokens();
+		const cacheRead = this.getRunCacheReadTokens();
+		return cacheRead > 0 && input > 0 ? round((cacheRead / input) * 100, 1) : null;
 	}
 
 	/** Wall time currently attributable to tool executions: finished windows
@@ -328,6 +338,8 @@ export class TurnTelemetryTracker {
 			firstOutputMs: null,
 			inStall: false,
 			liveUsageOutput: finiteOrZero(message.usage?.output),
+			liveUsageInput: finiteOrZero(message.usage?.input) + finiteOrZero(message.usage?.cacheWrite),
+			liveUsageCacheRead: finiteOrZero(message.usage?.cacheRead),
 			streamedEstimate: 0,
 			startMs: now,
 			sawThinking: false,
@@ -346,6 +358,14 @@ export class TurnTelemetryTracker {
 		const reportedOutput = finiteOrZero(message.usage?.output);
 		if (reportedOutput > current.liveUsageOutput) {
 			current.liveUsageOutput = reportedOutput;
+		}
+		const reportedInput = finiteOrZero(message.usage?.input) + finiteOrZero(message.usage?.cacheWrite);
+		if (reportedInput > current.liveUsageInput) {
+			current.liveUsageInput = reportedInput;
+		}
+		const reportedCacheRead = finiteOrZero(message.usage?.cacheRead);
+		if (reportedCacheRead > current.liveUsageCacheRead) {
+			current.liveUsageCacheRead = reportedCacheRead;
 		}
 
 		const streamEvent = event.assistantMessageEvent;
