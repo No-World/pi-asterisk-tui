@@ -19,6 +19,8 @@ export interface IconGlyphs {
 	speed: string;
 	latency: string;
 	stall: string;
+	/** Compress — compaction count on the HUD context bar. */
+	compaction: string;
 	/** Wrench — working-display tool count. */
 	tools: string;
 	extensions: string;
@@ -56,6 +58,7 @@ const NERD_GLYPHS: IconGlyphs = {
 	latency: "",
 	stall: "",
 	tools: "\u{f0ad}", // U+F0AD nf-fa-wrench
+	compaction: "\u{f066}", // U+F066 nf-fa-compress
 	extensions: "",
 	ahead: "↑",
 	behind: "↓",
@@ -91,6 +94,7 @@ const ASCII_GLYPHS: IconGlyphs = {
 	latency: "~",
 	stall: "!",
 	tools: "t",
+	compaction: "z",
 	extensions: "&",
 	ahead: "^",
 	behind: "v",

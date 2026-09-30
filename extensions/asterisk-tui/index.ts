@@ -38,7 +38,7 @@ import {
 	invalidateUsageCache,
 	type FooterState,
 } from "./state.ts";
-import { formatDuration, fmtTokens, truncateToWidth } from "./utils.ts";
+import { formatDuration, truncateToWidth } from "./utils.ts";
 import { resolveGlyphs } from "./icons.ts";
 
 function isInteractiveLaunch(): boolean {
