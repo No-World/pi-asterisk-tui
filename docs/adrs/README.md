@@ -50,4 +50,5 @@ Date: YYYY-MM-DD
 | [0005](./0005-selection-copy-modes.md) | 选区复制：换行感知与三级模式（plain / unwrapped / raw，默认 unwrapped） | 2026-09-28 | Accepted |
 | [0006](./0006-optimistic-auto-icon-detection.md) | 图标 auto 检测乐观策略 + 一次性豆腐块提示（ADR-0006） | 2026-09-29 | Accepted |
 | [0007](./0007-release-gated-npm-publish.md) | 发布闸门前移：GitHub Release 发布触发 npm publish，tag 推送只建草稿 | 2026-09-30 | Accepted |
-| [0009](./0009-pi-099-native-adaptation.md) | pi 0.99 适配：滚轮让位原生 + 原生 MCP 并集计数，双代并存（`piVersionAtLeast` 收口；编号 0008 已被并行分支占用） | 2026-10-01 | Accepted |
+| [0008](./0008-native-border-status-hooks.md) | 边框状态迁移 pi 原生钩子：render 期门翻转保 workingStatus 三态，删阶梯复到品与刮行 | 2026-10-01 | Accepted |
+| [0009](./0009-pi-099-native-adaptation.md) | pi 0.99 适配：滚轮让位原生 + 原生 MCP 并集计数，双代并存（`piVersionAtLeast` 收口） | 2026-10-01 | Accepted |
