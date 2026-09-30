@@ -15,6 +15,7 @@ import {
 	formatWorkingBorderText,
 	formatWorkingLineMessage,
 	loadLastTelemetryEntry,
+	sumSessionTelemetry,
 	TELEMETRY_ENTRY_TYPE,
 	TurnTelemetryTracker,
 } from "../extensions/asterisk-tui/telemetry.ts";
@@ -866,4 +867,29 @@ test("working surfaces hide zero token segments", () => {
 		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: true, cacheHit: true, tools: true }, source, glyphs),
 		"o 5s",
 	);
+});
+
+test("sumSessionTelemetry seeds the session speed across restarts", () => {
+	const run = (out: number, gen: number) => ({
+		type: "custom",
+		customType: "asterisk.telemetry",
+		data: { tps: 1, ttftMs: 100, totalMs: 1000, inputTokens: 10, outputTokens: out, cacheReadTokens: 0, stallMs: 0, stallCount: 0, rateUsdPerMTokens: 1, generationMs: gen, totalTokens: out + 10, cacheHitRate: null, costUsd: 0.01, measurementMs: gen },
+	});
+	const totals = sumSessionTelemetry([run(100, 2_000), { type: "custom", customType: "pi.share" }, run(50, 3_000), run(NaN, 1)]);
+	assert.ok(totals);
+	assert.equal(totals.outputTokens, 150);
+	assert.equal(totals.generationMs, 5_000);
+	assert.equal(sumSessionTelemetry([]), null);
+
+	// seeded tracker reports the historical session average immediately
+	const tracker = new TurnTelemetryTracker(() => 0);
+	tracker.seedSessionTotals(totals.outputTokens, totals.generationMs);
+	assert.equal(tracker.getSessionTps(), 30);
+	// and keeps accumulating on top after a live run
+	tracker.handle({ type: "agent_start" });
+	const message = makeMessage(30, 5);
+	startTurn(tracker, message);
+	tracker.handle(update(message));
+	tracker.handle({ type: "message_end", message: { ...message, usage: { ...message.usage, output: 30 } } });
+	assert.equal(tracker.getSessionTps(), 36); // 180 tokens / 5s
 });

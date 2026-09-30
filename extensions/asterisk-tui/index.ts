@@ -27,6 +27,7 @@ import {
 	formatWorkingLineMessage,
 	loadLastTelemetryEntry,
 	persistTurnTelemetry,
+	sumSessionTelemetry,
 	TELEMETRY_ENTRY_TYPE,
 	TurnTelemetryTracker,
 	type WorkingContentSource,
@@ -430,6 +431,16 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
+		// Resume: seed the session-average speed from persisted run telemetry
+		// so the footer's speed segment survives restarts (all other footer
+		// stats already recompute from the session file).
+		if (config.enabled && config.telemetry.enabled && config.telemetry.persist) {
+			const totals = sumSessionTelemetry(ctx.sessionManager.getBranch());
+			if (totals) {
+				turnTelemetry.seedSessionTotals(totals.outputTokens, totals.generationMs);
+				state.outputTps = turnTelemetry.getSessionTps();
+			}
+		}
 		applyUi(ctx);
 		setThinkingLabel(ctx, "✻ Thought…");
 

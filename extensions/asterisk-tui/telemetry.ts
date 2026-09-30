@@ -220,6 +220,13 @@ export class TurnTelemetryTracker {
 		return round(tokens / (ms / 1000), 1);
 	}
 
+	/** Seeds the session totals from persisted run telemetry on resume, so the
+	 *  session-average speed is continuous across restarts. */
+	seedSessionTotals(outputTokens: number, generationMs: number): void {
+		this.sessionOutputTokens = outputTokens;
+		this.sessionGenerationMs = generationMs;
+	}
+
 	/** Session-average output speed: every message this session over its
 	 *  summed streaming windows, including the in-flight one. The HUD footer's
 	 *  speed segment shows this; the working surfaces are per-message. */
@@ -587,6 +594,27 @@ export function loadLastTelemetryEntry(entries: Iterable<unknown>): TurnTelemetr
 		last = data as unknown as TurnTelemetry;
 	}
 	return last;
+}
+
+/** Sums output tokens and streaming windows over every persisted telemetry
+ *  entry on a branch — the resume seed for the session-average speed. */
+export function sumSessionTelemetry(entries: Iterable<unknown>): { outputTokens: number; generationMs: number } | null {
+	let outputTokens = 0;
+	let generationMs = 0;
+	let seen = false;
+	for (const raw of entries) {
+		const entry = raw as { type?: unknown; customType?: unknown; data?: unknown } | null;
+		if (!entry || entry.type !== "custom" || entry.customType !== TELEMETRY_ENTRY_TYPE) continue;
+		const data = entry.data as Record<string, unknown> | undefined;
+		if (
+			!data || !isFiniteNumber(data.outputTokens) || !isFiniteNumber(data.generationMs) ||
+			!isFiniteNumber(data.ttftMs) || !isFiniteNumber(data.totalMs)
+		) continue;
+		outputTokens += data.outputTokens;
+		generationMs += data.generationMs;
+		seen = true;
+	}
+	return seen ? { outputTokens, generationMs } : null;
 }
 
 /** Append one run's telemetry to the session file. Prefers the official
