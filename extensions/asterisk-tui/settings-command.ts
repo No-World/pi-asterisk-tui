@@ -574,21 +574,18 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 		label: labels.hudCost,
 		currentValue: copy.values.costModes[hud.cost],
 	});
-	// token-stats presentation sits where it always did: right before the breakdown toggle;
-	// the stat style (icon / icon+text / text) follows immediately after
+	// token-stats presentation sits where it always did: right before the breakdown toggle
 	const breakdownIdx = toggleItems.findIndex((item) => item.id === "tokenBreakdown");
 	toggleItems.splice(breakdownIdx, 0, {
 		id: "tokens",
 		label: labels.hudTokens,
 		currentValue: copy.values.tokenModes[hud.tokens],
 	});
-	toggleItems.splice(breakdownIdx + 1, 0, {
-		id: "statStyle",
-		label: labels.hudStatStyle,
-		currentValue: copy.values.statStyles[hud.statStyle],
-	});
 	return [
 		styleItem,
+		// the stat style shapes every HUD segment, so it leads the list —
+		// one Enter away from the footer-style switcher
+		{ id: "statStyle", label: labels.hudStatStyle, currentValue: copy.values.statStyles[hud.statStyle] },
 		...toggleItems,
 		{ id: "toolsMax", label: labels.hudToolsMax, currentValue: copy.values.count(hud.toolsMax) },
 		{ id: "filesMax", label: labels.hudFilesMax, currentValue: copy.values.count(hud.filesMax) },

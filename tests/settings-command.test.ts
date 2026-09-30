@@ -294,7 +294,7 @@ test("cycles the HUD token-stats presentation off → verbose → compact", asyn
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
-	for (let i = 0; i < 16; i++) settings.component.handleInput("\x1b[B");
+	for (let i = 0; i < 17; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Tokens/);
 
 	settings.component.handleInput("\r"); // verbose → compact
@@ -313,12 +313,12 @@ test("cycles the HUD token-stats presentation off → verbose → compact", asyn
 test("cycles the HUD stat style icon+text → text → icon", async () => {
 	const settings = await openSettings();
 
-	// Footer tab is three Tab presses from General; the stat-style item sits
-	// right after Tokens (slot 17).
+	// Footer tab is three Tab presses from General; the stat-style item leads
+	// the list, right under the footer-style switcher (slot 1).
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
-	for (let i = 0; i < 17; i++) settings.component.handleInput("\x1b[B");
+	for (let i = 0; i < 1; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Stat style/);
 
 	settings.component.handleInput("\r"); // icon+text → text
