@@ -464,6 +464,50 @@ function formatTurnDuration(ms: number): string {
 	return ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : formatDuration(ms);
 }
 
+/** Session-file custom entry type carrying one run's telemetry. Custom entries
+ *  are extension-owned transcript data: never sent to the LLM, not rendered by
+ *  the stock TUI, and pruned with their branch on rewind. */
+export const TELEMETRY_ENTRY_TYPE = "asterisk.telemetry";
+
+const isFiniteNumber = (value: unknown): value is number =>
+	typeof value === "number" && Number.isFinite(value);
+
+/** Most recent persisted telemetry on a session branch, defensively validated;
+ *  foreign custom entries and malformed payloads are skipped silently. */
+export function loadLastTelemetryEntry(entries: Iterable<unknown>): TurnTelemetry | undefined {
+	let last: TurnTelemetry | undefined;
+	for (const raw of entries) {
+		const entry = raw as { type?: unknown; customType?: unknown; data?: unknown } | null;
+		if (!entry || entry.type !== "custom" || entry.customType !== TELEMETRY_ENTRY_TYPE) continue;
+		const data = entry.data as Record<string, unknown> | undefined;
+		if (
+			!data || !isFiniteNumber(data.ttftMs) || !isFiniteNumber(data.totalMs) ||
+			!isFiniteNumber(data.outputTokens) || !isFiniteNumber(data.stallCount) || !isFiniteNumber(data.costUsd)
+		) continue;
+		last = data as unknown as TurnTelemetry;
+	}
+	return last;
+}
+
+/** Append one run's telemetry to the session file. Extension event contexts
+ *  hand out ReadonlySessionManager, whose Pick omits the append family even
+ *  though appendCustomEntry's own docstring says "for extensions" (upstream
+ *  oversight, still true in 0.87) — so this reaches through with a runtime
+ *  cast, isolated here. If a future pi hands restricted proxies instead, the
+ *  optional call degrades to a no-op and only persistence is lost; the live
+ *  notify path never touches this. */
+export function persistTurnTelemetry(sessionManager: object | undefined, telemetry: TurnTelemetry): void {
+	if (!sessionManager || typeof sessionManager !== "object") return;
+	const sm = sessionManager as {
+		appendCustomEntry?: (customType: string, data?: unknown) => string;
+	};
+	try {
+		sm.appendCustomEntry?.(TELEMETRY_ENTRY_TYPE, telemetry);
+	} catch {
+		// best-effort: non-persisted sessions reject the append
+	}
+}
+
 export function formatTurnTelemetry(
 	telemetry: TurnTelemetry,
 	theme: Theme,

@@ -365,6 +365,11 @@ test("configures telemetry from its own tab", async () => {
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().telemetry.tps, false);
+	// Persistence rides at the end of the telemetry tab (after the field toggles)
+	for (let i = 0; i < 6; i++) settings.component.handleInput("\x1b[B");
+	assert.match(selectedLine(settings.component), /Persistence/);
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().telemetry.persist, false);
 });
 
 test("supports localized settings and keyboard shortcuts", async () => {

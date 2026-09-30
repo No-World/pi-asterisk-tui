@@ -98,6 +98,7 @@ const COPY = {
 			tokenCounts: "Token counts",
 			stallDetails: "Stall details",
 			costRate: "Cost rate",
+			telemetryPersist: "Persistence",
 		},
 		values: {
 			on: "On",
@@ -196,6 +197,7 @@ const COPY = {
 			tokenCounts: "Token 数量",
 			stallDetails: "停顿详情",
 			costRate: "费用速率",
+			telemetryPersist: "持久化",
 		},
 		values: {
 			on: "开启",
@@ -514,6 +516,7 @@ function buildTelemetryItems(config: OpenTuiConfig, copy: SettingsCopy): Setting
 		{ id: "tokens", label: copy.labels.tokenCounts, currentValue: flag(telemetry.tokens) },
 		{ id: "stalls", label: copy.labels.stallDetails, currentValue: flag(telemetry.stalls) },
 		{ id: "cost", label: copy.labels.costRate, currentValue: flag(telemetry.cost) },
+		{ id: "persist", label: copy.labels.telemetryPersist, currentValue: flag(telemetry.persist) },
 	];
 }
 
