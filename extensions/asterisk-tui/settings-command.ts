@@ -305,13 +305,20 @@ function cycleTokenMode(config: OpenTuiConfig): OpenTuiConfig {
 
 /** Cycles the HUD stat-segment style: icon → icon+text → text → icon. */
 /** Cycles a cost display: off → cost → cost+rate → off. */
-function cycleCostMode(config: OpenTuiConfig, target: "telemetry" | "hud" | "segments"): OpenTuiConfig {
-	const current = target === "telemetry" ? config.telemetry.cost : target === "hud" ? config.hud.cost : config.footerSegments.cost;
+function cycleCostMode(
+	config: OpenTuiConfig,
+	target: "telemetry" | "hud" | "segments" | "workingLine" | "workingBorder",
+): OpenTuiConfig {
+	const current = target === "telemetry" ? config.telemetry.cost
+		: target === "hud" ? config.hud.cost
+		: target === "segments" ? config.footerSegments.cost
+		: config[target].cost;
 	const idx = COST_DISPLAY_MODES.indexOf(current);
 	const next = COST_DISPLAY_MODES[(idx + 1) % COST_DISPLAY_MODES.length]!;
 	if (target === "telemetry") return { ...config, telemetry: { ...config.telemetry, cost: next } };
 	if (target === "hud") return { ...config, hud: { ...config.hud, cost: next } };
-	return { ...config, footerSegments: { ...config.footerSegments, cost: next } };
+	if (target === "segments") return { ...config, footerSegments: { ...config.footerSegments, cost: next } };
+	return { ...config, [target]: { ...config[target], cost: next } };
 }
 
 /** Cycles the working-status mode: line → border → both → line. */
@@ -336,7 +343,7 @@ function buildWorkingItems(config: OpenTuiConfig, copy: SettingsCopy): SettingIt
 			{ id: "line.output", label: copy.labels.workingLineOutput, currentValue: flag(line.output) },
 			{ id: "line.cacheHit", label: copy.labels.workingLineCacheHit, currentValue: flag(line.cacheHit) },
 			{ id: "line.tools", label: copy.labels.workingLineTools, currentValue: flag(line.tools) },
-			{ id: "line.cost", label: copy.labels.workingLineCost, currentValue: flag(line.cost) },
+			{ id: "line.cost", label: copy.labels.workingLineCost, currentValue: copy.values.costModes[line.cost] },
 		);
 	}
 	if (config.workingStatus !== "line") {
@@ -348,7 +355,7 @@ function buildWorkingItems(config: OpenTuiConfig, copy: SettingsCopy): SettingIt
 			{ id: "border.output", label: copy.labels.workingBorderOutput, currentValue: flag(border.output) },
 			{ id: "border.cacheHit", label: copy.labels.workingBorderCacheHit, currentValue: flag(border.cacheHit) },
 			{ id: "border.tools", label: copy.labels.workingBorderTools, currentValue: flag(border.tools) },
-			{ id: "border.cost", label: copy.labels.workingBorderCost, currentValue: flag(border.cost) },
+			{ id: "border.cost", label: copy.labels.workingBorderCost, currentValue: copy.values.costModes[border.cost] },
 		);
 	}
 	return items;
@@ -709,6 +716,9 @@ function handleSettingChange(
 			const idx = WORKING_INPUT_MODES.indexOf(current);
 			const next = WORKING_INPUT_MODES[(idx + 1) % WORKING_INPUT_MODES.length]!;
 			return { ...config, [group]: { ...config[group], input: next } };
+		}
+		if (itemId === "line.cost" || itemId === "border.cost") {
+			return cycleCostMode(config, itemId === "line.cost" ? "workingLine" : "workingBorder");
 		}
 		if (itemId.startsWith("line.")) {
 			const key = itemId.slice("line.".length) as keyof OpenTuiConfig["workingLine"];

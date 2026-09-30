@@ -104,8 +104,8 @@ export interface WorkingLineConfig {
 	input: WorkingInputMode;
 	output: boolean;
 	cacheHit: boolean;
-	/** Run-cumulative cost of completed messages. */
-	cost: boolean;
+	/** Run-cumulative cost of completed messages; tri-state like the footers. */
+	cost: CostDisplayMode;
 	/** Per-message output speed (the footer shows the run-average speed). */
 	speed: boolean;
 	tools: boolean;
@@ -119,7 +119,7 @@ export interface WorkingBorderConfig {
 	output: boolean;
 	input: WorkingInputMode;
 	cacheHit: boolean;
-	cost: boolean;	tools: boolean;
+	cost: CostDisplayMode;	tools: boolean;
 }
 
 /** Transcript compression mode: how finished non-body activity renders. */
@@ -440,8 +440,8 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		capitalizeProviderName: true,
 	},
 	workingStatus: "both",
-	workingLine: { elapsed: true, input: "cache", output: true, cacheHit: true, cost: true, speed: true, tools: true },
-	workingBorder: { elapsed: true, speed: true, output: false, input: "off", cacheHit: false, cost: false, tools: true },
+	workingLine: { elapsed: true, input: "cache", output: true, cacheHit: true, cost: "cost", speed: true, tools: true },
+	workingBorder: { elapsed: true, speed: true, output: false, input: "off", cacheHit: false, cost: "off", tools: true },
 	inlineFooter: false,
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
@@ -621,13 +621,21 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 			config.workingStatus = "both";
 		}
 		// legacy boolean input toggles fold into the tri-state (true showed the
-		// plain total; the cache breakdown is the upgrade default)
+		// plain total; the cache breakdown is the upgrade default); cost toggles
+		// fold the same way (true showed spend only on both surfaces)
 		for (const group of ["workingLine", "workingBorder"] as const) {
-			const rawInput: unknown = (config[group] as unknown as Record<string, unknown>).input;
-			if (rawInput === true) (config[group] as unknown as Record<string, unknown>).input = "cache";
-			else if (rawInput === false) (config[group] as unknown as Record<string, unknown>).input = "off";
+			const record = config[group] as unknown as Record<string, unknown>;
+			const rawInput: unknown = record.input;
+			if (rawInput === true) record.input = "cache";
+			else if (rawInput === false) record.input = "off";
 			else if (typeof rawInput !== "string" || !WORKING_INPUT_MODES.includes(rawInput as WorkingInputMode)) {
-				(config[group] as unknown as Record<string, unknown>).input = DEFAULT_CONFIG[group].input;
+				record.input = DEFAULT_CONFIG[group].input;
+			}
+			const rawCost: unknown = record.cost;
+			if (rawCost === true) record.cost = "cost";
+			else if (rawCost === false) record.cost = "off";
+			else if (typeof rawCost !== "string" || !COST_DISPLAY_MODES.includes(rawCost as CostDisplayMode)) {
+				record.cost = DEFAULT_CONFIG[group].cost;
 			}
 		}
 		config.stylePreset = deriveStylePreset(config);
