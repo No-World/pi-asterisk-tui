@@ -4,7 +4,7 @@ import {
 	type ExtensionContext,
 	type KeybindingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
+import type { EditorTheme, TUI, TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { CURSOR_MARKER, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { CursorStyle } from "./config.ts";
 import {
@@ -48,6 +48,10 @@ const CURSOR_STYLE_SEQUENCES: Partial<Record<CursorStyle, string>> = {
 	underline: "\x1b[4 q",
 };
 const DEFAULT_CURSOR_STYLE_SEQUENCE = "\x1b[0 q";
+// Frame geometry (rail + gap per side): mouse events arrive in framed
+// coordinates, the base editor reasons in content coordinates (upstream #48).
+const EDITOR_FRAME_LEFT_INSET = 2;
+const EDITOR_FRAME_HORIZONTAL_CHROME = EDITOR_FRAME_LEFT_INSET * 2;
 
 function removeSoftwareCursor(line: string, cursorMarker = ""): string {
 	return line.replace(/\x1b\[7m([\s\S]*?)\x1b\[0m/g, (_match, cursor: string) => {
@@ -168,7 +172,10 @@ export class OpenTuiEditor extends CustomEditor {
 	private readonly getBorder: (s: string) => string;
 	private cursorStyle: CursorStyle;
 	private previewHardwareCursor = false;
-	private workingStatusIndicator: WorkingStatusIndicator | undefined;
+	// Named to avoid colliding with pi 0.87's native (private)
+	// workingStatusIndicator on CustomEditor — pi absorbed the border-status
+	// feature upstream; see the follow-up issue on adopting it natively.
+	private frameStatusIndicator: WorkingStatusIndicator | undefined;
 	private inlineBorderContent: InlineBorderContent | undefined;
 
 	constructor(
@@ -208,13 +215,27 @@ export class OpenTuiEditor extends CustomEditor {
 	}
 
 	setWorkingStatusIndicator(indicator: WorkingStatusIndicator | undefined): void {
-		this.workingStatusIndicator = indicator;
+		this.frameStatusIndicator = indicator;
 		this.tui.requestRender();
 	}
 
 	setInlineBorderContent(content: InlineBorderContent | undefined): void {
 		this.inlineBorderContent = content;
 		this.tui.requestRender();
+	}
+
+	override handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		// The frame (rail + gap) shifts content two columns right of what the
+		// base editor believes (paddingX is 0); translate clicks into content
+		// coordinates so the caret lands where the user clicked. Narrow unframed
+		// renders keep stock behavior — mirrors the width < 4 guard in render.
+		if (event.width < EDITOR_FRAME_HORIZONTAL_CHROME) return super.handleMouse(event);
+
+		return super.handleMouse({
+			...event,
+			x: event.x - EDITOR_FRAME_LEFT_INSET,
+			width: event.width - EDITOR_FRAME_HORIZONTAL_CHROME,
+		});
 	}
 
 	private renderBase(width: number): string[] {
@@ -252,8 +273,8 @@ export class OpenTuiEditor extends CustomEditor {
 		const inline = this.inlineBorderContent?.enabled() ? this.inlineBorderContent : undefined;
 		result.push(
 			inline
-				? inlineBorder(width, "top", borderPaint, (budget) => inline.render("top", budget), baseLines[0], this.workingStatusIndicator)
-				: roundedBorder(width, "top", borderPaint, baseLines[0], this.workingStatusIndicator),
+				? inlineBorder(width, "top", borderPaint, (budget) => inline.render("top", budget), baseLines[0], this.frameStatusIndicator)
+				: roundedBorder(width, "top", borderPaint, baseLines[0], this.frameStatusIndicator),
 		);
 
 		for (let i = 1; i < bottomIdx; i++) {
