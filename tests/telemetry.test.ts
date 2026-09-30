@@ -6,6 +6,7 @@ import type {
 	ExtensionContext,
 	MessageUpdateEvent,
 	Theme,
+	TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
 import openTui from "../extensions/asterisk-tui/index.ts";
@@ -60,8 +61,17 @@ function startTurn(tracker: TurnTelemetryTracker, message: AssistantMessage, tur
 
 function endTurn(tracker: TurnTelemetryTracker, message: AssistantMessage, turnIndex = 0) {
 	tracker.handle({ type: "message_end", message });
-	return tracker.handle({ type: "turn_end", turnIndex, message, toolResults: [] });
+	return tracker.handle({ type: "turn_end", turnIndex, message, toolResults: [], messageEntryId: "m1", toolResultEntryIds: [], ...BOUNDARY_FIXTURE });
 }
+
+/** pi 0.87 TurnEndEvent carries the full boundary state; fixtures need it
+ * present but the tracker only reads message/toolResults. */
+const BOUNDARY_FIXTURE: Pick<TurnEndEvent, "entries" | "continue" | "context" | "outcome"> = {
+	entries: [],
+	continue: false,
+	context: { contextEntries: [], contextMessages: [], llmMessages: [], pendingMessages: [], canContinue: false },
+	outcome: "completed",
+};
 
 test("uses total output over full generation time", () => {
 	let now = 0;
@@ -111,7 +121,7 @@ test("normalizes invalid usage without breaking turn telemetry", () => {
 		now += 100;
 		tracker.handle({ type: "message_end", message });
 	}
-	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message: messages[1]!, toolResults: [] })!;
+	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message: messages[1]!, toolResults: [], messageEntryId: "m1", toolResultEntryIds: [], ...BOUNDARY_FIXTURE })!;
 
 	assert.equal(telemetry.inputTokens, 50);
 	assert.equal(telemetry.outputTokens, 20);
@@ -129,7 +139,7 @@ test("measures non-streamed responses from turn start", () => {
 	now = 5_000;
 	tracker.handle({ type: "message_start", message });
 	tracker.handle({ type: "message_end", message });
-	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message, toolResults: [] })!;
+	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message, toolResults: [], messageEntryId: "m1", toolResultEntryIds: [], ...BOUNDARY_FIXTURE })!;
 
 	assert.equal(telemetry.tps, 4);
 	assert.equal(telemetry.ttftMs, 5_000);
@@ -592,7 +602,7 @@ test("asterisk-tui notifies once after a complete agent run", () => {
 	emit("message_start", { type: "message_start", message });
 	emit("message_update", update(message));
 	emit("message_end", { type: "message_end", message });
-	emit("turn_end", { type: "turn_end", turnIndex: 0, message, toolResults: [] });
+	emit("turn_end", { type: "turn_end", turnIndex: 0, message, toolResults: [], messageEntryId: "m1", toolResultEntryIds: [], ...BOUNDARY_FIXTURE });
 
 	assert.equal(notifications.length, 0);
 	emit("agent_settled", { type: "agent_settled" });
@@ -618,7 +628,7 @@ test("turn summary tracks thinking time and tool counts across a run", () => {
 	assert.equal(tracker.getLiveToolCalls(), 2);
 	now = 5_000;
 	tracker.handle({ type: "message_end", message });
-	tracker.handle({ type: "turn_end", turnIndex: 0, message, toolResults: [] });
+	tracker.handle({ type: "turn_end", turnIndex: 0, message, toolResults: [], messageEntryId: "m1", toolResultEntryIds: [], ...BOUNDARY_FIXTURE });
 
 	const live = tracker.getLastTurnSummary()!;
 	assert.equal(live.thinkingMs, 3_000);

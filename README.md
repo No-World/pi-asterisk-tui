@@ -159,7 +159,7 @@ overridden) so the ✻ experience works out of the box.
 
 ## Requirements
 
-- Pi 0.80+
+- Pi 0.85+ (framed-editor mouse click alignment needs pi-tui's component mouse events)
 - UTF-8 terminal; a [Nerd Font](https://www.nerdfonts.com/font-downloads) for the full icon
   set (ASCII icons are built in)
 - Both TUI modes work: in regular mode compressed lines expand/collapse via the

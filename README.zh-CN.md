@@ -129,7 +129,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 
 ## 环境要求
 
-- Pi 0.80+
+- Pi 0.85+（带框编辑器的鼠标点击对齐依赖 pi-tui 的组件级鼠标事件）
 - UTF-8 终端；完整图标集需要 [Nerd Font](https://www.nerdfonts.com/font-downloads)
   （内置 ASCII 图标）
 - 两种 TUI 模式均可用：压缩行在普通（regular）模式下通过快捷键全部展开/收起
