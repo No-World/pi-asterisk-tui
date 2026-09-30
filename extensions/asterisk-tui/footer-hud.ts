@@ -57,6 +57,7 @@ interface HudStrings {
 	contextLabel: string;
 	costLabel: string;
 	todayLabel: string;
+	timeLabel: string;
 	speedLabel: string;
 	cacheLabel: string;
 	inputLabel: string;
@@ -75,6 +76,7 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 		contextLabel: "ctx ",
 		costLabel: "cost ",
 		todayLabel: "today ",
+		timeLabel: "time ",
 		speedLabel: "out ",
 		cacheLabel: "·cache ",
 		inputLabel: "in ",
@@ -90,6 +92,7 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 		contextLabel: "上下文 ",
 		costLabel: "费用 ",
 		todayLabel: "今日 ",
+		timeLabel: "时长 ",
 		speedLabel: "输出 ",
 		cacheLabel: "·缓存 ",
 		inputLabel: "输入 ",
@@ -619,9 +622,8 @@ export function installHudFooter(
 
 				const right1: string[] = [];
 				if (hud.time) {
-					// clock glyph (U+F017) — single-width, unlike the old ⏱️ emoji;
-					// no label: a bare duration reads fine next to labeled segments
-					right1.push(theme.fg("muted", statSegment(hud.statStyle, glyphs.working, "", formatDuration(workingMs))));
+					// clock glyph (U+F017) — single-width, unlike the old ⏱️ emoji
+					right1.push(theme.fg("muted", statSegment(hud.statStyle, glyphs.working, strings.timeLabel, formatDuration(workingMs))));
 				}
 				if (hud.cost) {
 					let costValue = `$${totals.cost.toFixed(2)}`;
