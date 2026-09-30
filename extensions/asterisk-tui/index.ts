@@ -21,7 +21,16 @@ import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
 import { installSelectionCopy, setSelectionCopyMode, setSelectionTabWidth, setSelectionTrimPadding } from "./selection-copy.ts";
 import { installThinkingClickExpand } from "./thinking-click.ts";
-import { formatTurnTelemetry, loadLastTelemetryEntry, persistTurnTelemetry, TELEMETRY_ENTRY_TYPE, TurnTelemetryTracker } from "./telemetry.ts";
+import {
+	formatTurnTelemetry,
+	formatWorkingBorderText,
+	formatWorkingLineMessage,
+	loadLastTelemetryEntry,
+	persistTurnTelemetry,
+	TELEMETRY_ENTRY_TYPE,
+	TurnTelemetryTracker,
+	type WorkingContentSource,
+} from "./telemetry.ts";
 import {
 	createInitialState,
 	getModelMeta,
@@ -123,6 +132,62 @@ export default function (pi: ExtensionAPI) {
 
 	const getThinkingLevel = () => (sessionLifecycle.isCurrent() ? pi.getThinkingLevel() : "off");
 
+	// Live values both working surfaces render from; the line shows the
+	// per-message speed, the footer's speed segment stays run-average.
+	const workingSource = (): WorkingContentSource => ({
+		elapsedText: formatDuration(Date.now() - (state.workingSince ?? Date.now())),
+		perMessageTps: turnTelemetry.getOutputTps(),
+		runInputTokens: turnTelemetry.getRunInputTokens(),
+		runOutputTokens: turnTelemetry.getRunOutputTokens(),
+		runCacheHitRate: turnTelemetry.getRunCacheHitRate(),
+		toolCount: turnTelemetry.getLiveToolCalls(),
+	});
+
+	// Working status rides the editor's top border: plain text painted with the
+	// frame color, so it recolors with thinking-level / bash-mode borders. The
+	// 250ms working timer drives tui.requestRender(), so the elapsed time and
+	// degradation ladder refresh for free. Installed only while the workingStatus
+	// mode includes the border ("line" keeps a plain frame).
+	const borderWorkingIndicator: WorkingStatusIndicator = {
+		renderInBorder: (width) => {
+			if (config.workingStatus === "line") return "";
+			if (!sessionLifecycle.isCurrent() || !active) return "";
+			if (state.workingSince === undefined) return "";
+			const glyphs = resolveGlyphs(config.icons.mode);
+			return truncateToWidth(
+				formatWorkingBorderText(config.workingBorder, workingSource(), glyphs),
+				Math.max(0, width),
+				"",
+			);
+		},
+		renderSpinnerInBorder: (width) => {
+			if (config.workingStatus === "line") return "";
+			if (!sessionLifecycle.isCurrent() || !active) return "";
+			if (state.workingSince === undefined) return "";
+			const glyphs = resolveGlyphs(config.icons.mode);
+			return truncateToWidth(glyphs.working, Math.max(0, width), "");
+		},
+	};
+	const applyWorkingStatusMode = () => {
+		editor?.setWorkingStatusIndicator(config.workingStatus === "line" ? undefined : borderWorkingIndicator);
+	};
+
+	// "border" mode hands the live status to the frame: pi's working line is
+	// hidden while running (pi re-shows it when idle, so re-assert per turn).
+	let hidWorkingLine = false;
+	const syncWorkingLineVisibility = () => {
+		const setWorkingVisible = lastCtx?.ui?.setWorkingVisible;
+		if (typeof setWorkingVisible !== "function") return;
+		const shouldHide = state.workingSince !== undefined && config.workingStatus === "border";
+		if (shouldHide) {
+			hidWorkingLine = true;
+			setWorkingVisible(false);
+		} else if (hidWorkingLine) {
+			hidWorkingLine = false;
+			setWorkingVisible(true);
+		}
+	};
+
 	const applyUi = (ctx: ExtensionContext) => {
 		if (!isTuiContext(ctx)) return;
 		if (!config.enabled) {
@@ -150,23 +215,7 @@ export default function (pi: ExtensionAPI) {
 			// the frame color, so it recolors with thinking-level / bash-mode borders.
 			// The 250ms working timer drives tui.requestRender(), so the elapsed
 			// time and degradation ladder refresh for free.
-			editor.setWorkingStatusIndicator({
-				renderInBorder: (width) => {
-					if (!config.borderWorkingStatus) return "";
-					if (!sessionLifecycle.isCurrent() || !active) return "";
-					if (state.workingSince === undefined) return "";
-					const glyphs = resolveGlyphs(config.icons.mode);
-					const elapsed = formatDuration(Date.now() - state.workingSince);
-					return truncateToWidth(`${glyphs.working} ${elapsed}`, Math.max(0, width), "");
-				},
-				renderSpinnerInBorder: (width) => {
-					if (!config.borderWorkingStatus) return "";
-					if (!sessionLifecycle.isCurrent() || !active) return "";
-					if (state.workingSince === undefined) return "";
-					const glyphs = resolveGlyphs(config.icons.mode);
-					return truncateToWidth(glyphs.working, Math.max(0, width), "");
-				},
-			});
+			applyWorkingStatusMode();
 			// Inline footer: classic rows drawn into the editor borders.
 			editor.setInlineBorderContent(footerHandle?.inline);
 			// Re-enabled mid-session: the collapse/click patches install here too
@@ -269,11 +318,13 @@ export default function (pi: ExtensionAPI) {
 		const ctx = lastCtx;
 		if (!ctx?.ui?.setWorkingMessage) return;
 		if (state.workingSince === undefined) return;
-		const elapsed = formatDuration(Date.now() - state.workingSince);
-		const outTokens = turnTelemetry.getRunOutputTokens();
-		const tools = turnTelemetry.getLiveToolCalls();
-		const toolPart = tools > 0 ? ` · ${tools} tool${tools > 1 ? "s" : ""}` : "";
-		ctx.ui.setWorkingMessage(`Working… (${elapsed} · ↓ ${fmtTokens(outTokens)} tokens${toolPart})`);
+		// the HUD speed segment is run-average: refresh it on the same 1s tick
+		const runTps = turnTelemetry.getRunTps();
+		if (runTps !== null) state.outputTps = runTps;
+		if (config.workingStatus === "border") return; // hidden, visibility owned below
+		ctx.ui.setWorkingMessage(
+			formatWorkingLineMessage(config.workingLine, workingSource(), resolveGlyphs(config.icons.mode)),
+		);
 	};
 	const startWorkingLabel = () => {
 		stopWorkingLabel();
@@ -411,7 +462,8 @@ export default function (pi: ExtensionAPI) {
 		state.workingSince = Date.now();
 		state.lastDoneIn = undefined;
 		startWorkingTimer();
-		startWorkingLabel();
+		if (config.workingStatus !== "border") startWorkingLabel();
+		syncWorkingLineVisibility();
 	});
 
 	pi.on("agent_end", (_event, _ctx) => {
@@ -422,11 +474,13 @@ export default function (pi: ExtensionAPI) {
 			state.lastDoneIn = Date.now() - state.workingSince;
 			state.workingSince = undefined;
 		}
+		syncWorkingLineVisibility();
 		requestFooterRender?.();
 	});
 
 	pi.on("turn_start", (event) => {
 		turnTelemetry.handle(event);
+		syncWorkingLineVisibility();
 	});
 
 	pi.on("message_start", (event) => {
@@ -476,7 +530,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_end", (event, ctx) => {
 		turnTelemetry.handle(event);
-		state.outputTps = turnTelemetry.getOutputTps();
+		state.outputTps = turnTelemetry.getRunTps() ?? state.outputTps;
 		if (!sessionLifecycle.isCurrent()) return;
 		invalidateUsageCache();
 		refreshInteractiveState(ctx);
@@ -504,6 +558,7 @@ export default function (pi: ExtensionAPI) {
 		getConfig: () => config,
 		onConfigChanged: (newConfig) => {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
+			const workingStatusChanged = config.workingStatus !== newConfig.workingStatus;
 			const wheelScrollLinesChanged = config.fullscreen.wheelScrollLines !== newConfig.fullscreen.wheelScrollLines;
 			const footerStyleChanged = config.footerStyle !== newConfig.footerStyle;
 			const turnCollapseChanged = config.turnCollapse !== newConfig.turnCollapse;
@@ -525,6 +580,10 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (cursorStyleChanged && active && editor) {
 				editor.setCursorStyle(newConfig.cursorStyle);
+			}
+			if (workingStatusChanged && active) {
+				applyWorkingStatusMode();
+				syncWorkingLineVisibility();
 			}
 			if (wheelScrollLinesChanged && active && editor) {
 				editor.setWheelScrollLines(newConfig.fullscreen.wheelScrollLines);

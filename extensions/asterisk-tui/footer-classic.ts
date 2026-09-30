@@ -437,12 +437,12 @@ export function installClassicFooter(
 
 				// Bottom: stats (plus compact context) on the right; the left cell
 				// carries the done summary only — while working, the editor's
-				// top-border status owns the live indicator… unless it's disabled
-				// (borderWorkingStatus off), in which case the working timer falls
+				// top-border status owns the live indicator… unless the workingStatus
+				// mode has no border ("line"), in which case the working timer falls
 				// back here so the state is never invisible.
 				const rightBits = [parts.contextCompact ?? "", parts.statsBlock].filter((b) => b.length > 0);
 				const right = rightBits.join(theme.fg("dim", " · "));
-				const suppressTimer = state.workingSince !== undefined && config.borderWorkingStatus;
+				const suppressTimer = state.workingSince !== undefined && config.workingStatus !== "line";
 				const left = suppressTimer ? "" : parts.timerSeg;
 				if (visibleWidth(right) > budget) {
 					return { left: "", right: truncateToWidth(right, budget, theme.fg("dim", "...")) };

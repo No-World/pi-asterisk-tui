@@ -10,7 +10,15 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
 import openTui from "../extensions/asterisk-tui/index.ts";
-import { formatTurnTelemetry, loadLastTelemetryEntry, TELEMETRY_ENTRY_TYPE, TurnTelemetryTracker } from "../extensions/asterisk-tui/telemetry.ts";
+import {
+	formatTurnTelemetry,
+	formatWorkingBorderText,
+	formatWorkingLineMessage,
+	loadLastTelemetryEntry,
+	TELEMETRY_ENTRY_TYPE,
+	TurnTelemetryTracker,
+} from "../extensions/asterisk-tui/telemetry.ts";
+import { resolveGlyphs } from "../extensions/asterisk-tui/icons.ts";
 import { estimateStreamedTokens } from "../extensions/asterisk-tui/utils.ts";
 
 const theme = {
@@ -701,4 +709,78 @@ test("loadLastTelemetryEntry replays the newest valid persisted run", () => {
 	assert.equal(loadLastTelemetryEntry([run({ totalMs: Number.NaN })]), undefined);
 	// invalid entries do not shadow an older valid one
 	assert.equal(loadLastTelemetryEntry([run({ outputTokens: 7 }), run({ costUsd: null })])?.outputTokens, 7);
+});
+
+test("run metrics accumulate input, cache and generation across messages", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" });
+
+	const first = makeMessage(20, 50, 10, 1_000);
+	startTurn(tracker, first);
+	now = 100;
+	tracker.handle(update(first));
+	now = 2_100;
+	endTurn(tracker, first);
+	assert.equal(tracker.getRunInputTokens(), 50 + 10 + 1_000);
+	assert.equal(tracker.getRunCacheReadTokens(), 1_000);
+	assert.equal(tracker.getRunCacheHitRate(), 94.3);
+	assert.equal(tracker.getRunGenerationMs(), 2_000);
+
+	const second = makeMessage(30, 5, 0, 0);
+	startTurn(tracker, second, 1);
+	now = 2_150;
+	tracker.handle(update(second));
+	now = 3_150;
+	endTurn(tracker, second, 1);
+	assert.equal(tracker.getRunInputTokens(), 1_065);
+	assert.equal(tracker.getRunGenerationMs(), 3_000);
+	// run-average speed (footer): 50 tokens over the summed 3s of streaming
+	assert.equal(tracker.getRunTps(), 16.7);
+	// per-message speed (working displays): the latest message alone
+	assert.equal(tracker.getOutputTps(), 30);
+
+	// a fresh run resets the accumulators
+	tracker.handle({ type: "agent_settled" });
+	tracker.handle({ type: "agent_start" });
+	assert.equal(tracker.getRunInputTokens(), 0);
+	assert.equal(tracker.getRunGenerationMs(), 0);
+	assert.equal(tracker.getRunTps(), null);
+});
+
+test("working line and border compose from config toggles", () => {
+	const glyphs = resolveGlyphs("ascii");
+	const source = {
+		elapsedText: "2m 3s",
+		perMessageTps: 12.5 as number | null,
+		runInputTokens: 3_400_000,
+		runOutputTokens: 5_300,
+		runCacheHitRate: 96.4 as number | null,
+		toolCount: 3,
+	};
+	assert.equal(
+		formatWorkingLineMessage(
+			{ input: true, output: true, cacheHit: true, speed: true, tools: true },
+			source,
+			glyphs,
+		),
+		"Working\u2026 (2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 3 tools)",
+	);
+	assert.equal(
+		formatWorkingBorderText(
+			{ elapsed: true, speed: true, output: false, input: false, cacheHit: false, tools: true },
+			source,
+			glyphs,
+		),
+		"o 2m 3s \u00b7 12.5 tok/s \u00b7 3 tools",
+	);
+	// everything off (or speed not yet credible) still shows the elapsed time
+	assert.equal(
+		formatWorkingBorderText(
+			{ elapsed: false, speed: true, output: false, input: false, cacheHit: false, tools: false },
+			{ ...source, perMessageTps: null },
+			glyphs,
+		),
+		"o 2m 3s",
+	);
 });

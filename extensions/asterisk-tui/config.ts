@@ -73,6 +73,32 @@ export type { IconMode } from "./icons.ts";
 export type FooterStyle = "hud" | "classic";
 export type StylePreset = "hud" | "classic" | "custom";
 
+/** Working-status presentation while the agent runs: pi's working line, the
+ *  editor's top border, or both (the historical default). */
+export type WorkingStatusMode = "line" | "border" | "both";
+export const WORKING_STATUS_MODES: readonly WorkingStatusMode[] = ["line", "border", "both"];
+
+/** Working-line content toggles; elapsed time is always shown. */
+export interface WorkingLineConfig {
+	/** Input tokens incl. cache read (updated at message boundaries). */
+	input: boolean;
+	output: boolean;
+	cacheHit: boolean;
+	/** Per-message output speed (the footer shows the run-average speed). */
+	speed: boolean;
+	tools: boolean;
+}
+
+/** Border-status content toggles; degrades by width (segments → elapsed → glyph). */
+export interface WorkingBorderConfig {
+	elapsed: boolean;
+	/** Per-message output speed, shown only while width allows. */
+	speed: boolean;
+	output: boolean;
+	input: boolean;
+	cacheHit: boolean;	tools: boolean;
+}
+
 /** Transcript compression mode: how finished non-body activity renders. */
 export type CollapseMode = "native" | "single" | "group-same" | "group-all";
 /** Spacing around compressed lines: compact (flush) or classic (blank-padded). */
@@ -340,9 +366,14 @@ export interface OpenTuiConfig {
 	};
 	footerStyle: FooterStyle;
 	footerSegments: FooterSegments;
-	/** Working status embedded in the editor's top border (elapsed time next
-	 * to the working glyph, frame-colored). Applies to both footer styles. */
-	borderWorkingStatus: boolean;
+	/** Working-status presentation while running: "line" (pi's working line),
+	 *  "border" (editor top border only), or "both". Migrated from the old
+	 *  borderWorkingStatus boolean (true→both, false→line). */
+	workingStatus: WorkingStatusMode;
+	/** Working-line content (inert while workingStatus is "border"). */
+	workingLine: WorkingLineConfig;
+	/** Border-status content (inert while workingStatus is "line"). */
+	workingBorder: WorkingBorderConfig;
 	/** Classic footer rows render inside the editor frame borders instead of
 	 * dedicated rows (vertical-space saver). Inert under footerStyle "hud". */
 	inlineFooter: boolean;
@@ -382,7 +413,9 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		extensionStatuses: true,
 		capitalizeProviderName: true,
 	},
-	borderWorkingStatus: true,
+	workingStatus: "both",
+	workingLine: { input: true, output: true, cacheHit: true, speed: true, tools: true },
+	workingBorder: { elapsed: true, speed: true, output: false, input: false, cacheHit: false, tools: true },
 	inlineFooter: false,
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
@@ -526,6 +559,16 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 			source = legacyPath;
 		}
 		const parsed: unknown = JSON.parse(raw);
+		// borderWorkingStatus (boolean) folds into the workingStatus tri-state
+		// BEFORE the merge — otherwise the filled-in default is indistinguishable
+		// from an explicit "both" and the legacy value would be ignored
+		const parsedRecord = parsed as Record<string, unknown>;
+		if (parsedRecord !== null && typeof parsedRecord === "object") {
+			if (parsedRecord.workingStatus === undefined && typeof parsedRecord.borderWorkingStatus === "boolean") {
+				parsedRecord.workingStatus = parsedRecord.borderWorkingStatus ? "both" : "line";
+			}
+			delete parsedRecord.borderWorkingStatus;
+		}
 		const config = deepMerge(DEFAULT_CONFIG, parsed);
 		if (config.settingsLanguage !== "en" && config.settingsLanguage !== "zh") {
 			config.settingsLanguage = DEFAULT_CONFIG.settingsLanguage;
@@ -542,6 +585,9 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 			config.stylePreset = "custom";
 		}
 		config.hud = normalizeHudConfig(deepMerge(DEFAULT_HUD_CONFIG, config.hud));
+		if (!WORKING_STATUS_MODES.includes(config.workingStatus)) {
+			config.workingStatus = "both";
+		}
 		config.stylePreset = deriveStylePreset(config);
 		config.fullscreen.wheelScrollLines = normalizeFullscreenWheelScrollLines(
 			config.fullscreen.wheelScrollLines,

@@ -66,8 +66,10 @@ pi install git:github.com/No-World/pi-asterisk-tui
 
 ## 遥测
 
-- **Working 指示器**：`Working… (34s · ↓ 1.2k tokens · 3 tools)`——耗时、按运行累计的
-  输出 token（流式期间增量估算、完成回填精确值，工具执行不清零）、实时工具计数。
+- **Working 指示器**：`Working… (34s · 󰓅 61.8 tok/s · ↑ 1.2k · ↓ 3.4k ·  96.0% · 3 tools)`——
+  时长始终开头，其余各段均为工作状态页的独立开关（`workingLine.*`）。输出 token 按运行
+  累计（流式期间增量估算、完成回填精确值，工具执行不清零）；这里的速度是最近单条消息
+  的速度——HUD 底栏的速度段用运行平均值。
 - **单轮遥测**：每次运行结束显示 TPS、TTFT、耗时、停顿次数/时长、输入/输出 token
   明细（含缓存读/写）、缓存命中率、模型标价 $/M 速率。
 - **持久化**：每轮遥测以 session 自定义条目存储（扩展私有，不进模型上下文），并通过条目渲染器直接画成转录行——刚跑完和重进会话看到的是同一行、同一位置，按当前图标/语言设置格式化；回退剪枝时连同所属轮次一起剪掉。`telemetry.persist` 可关（默认开）；关闭时退回旧的一次性状态行，仅当前会话可见。
@@ -97,15 +99,12 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 ## 编辑器与设置
 
 - 带边框编辑器，块状 / 竖线 / 下划线三种光标样式。
-- **上边框工作状态**（`borderWorkingStatus`，默认开，`/*tui` → Footer 页）：agent 运行
-  期间，编辑器边框自带耗时与工作图标（`╭── ◐ 12s ────╮`）——随边框着色（与思考级别 /
-  bash 模式变色同源），两种底栏风格下均生效。窄边框先退化为仅图标，再退化为纯边框；
-  滚动提示（`↑ 3 more`）保持居中槽位。底栏自身的工作段不变。
+- **工作状态**（`/*tui` → 工作状态页，`workingStatus`）：运行中状态显示在哪——`line`（仅 pi 的 Working 行）、`border`（仅编辑器上边框）或 `both`（默认，两者）。两个展示面信息对等，各自有独立的内容开关（仅在对应模式启用时出现）：单条消息输出速度、输入 token（含缓存读，按消息边界更新）、输出 token、缓存命中率、工具计数；Working 行始终以时长开头，边框按宽度退化（各段 → 时长 → 图标）。速度口径：工作展示面用最近一条消息的速度，HUD 底栏的速度段用运行平均值（与轮末遥测摘要同分母）。边框状态随边框着色（与思考级别 / bash 模式变色同源），窄边框退化为仅图标，滚动提示（`↑ 3 more`）保持居中槽位。旧 `borderWorkingStatus` 自动迁移（`true`→`both`、`false`→`line`）。
 - **内嵌底栏**（`inlineFooter`，默认关，仅 classic 风格）：把 classic 底栏的两行主内容
   画进编辑器边框——上边框左侧是位置段（cwd · 主机 · 会话 · git）、右侧是模型块；下边框
   左侧是轮末摘要、右侧是统计行（紧凑上下文 · token · 费用）。扩展状态行仍留在编辑器
   下方。宽度收缩时右侧块优先存活（与 plain 底栏的 alignRight 优先级一致）。工作期间
-  下边框左格仅在上边框状态开启时留空——关掉 `borderWorkingStatus` 后工作计时回退到
+  下边框左格仅在 workingStatus 模式含边框时留空——`line` 模式下工作计时回退到
   下边框单元格，状态永不失踪。小屏终端省下两行垂直空间。`footerStyle: "hud"` 下此
   开关无效。
 - **选区复制（全屏）三级模式**（`/*tui` 面板或 `selection.copy` 配置，默认
@@ -174,7 +173,9 @@ VS Code、Windows Terminal 等应用必须设在终端配置文件里，只装�
 | `footerSegments.*` | 混合 | classic 底栏段落开关 |
 | `footerSegments.hostname` | `false` | 可选主机名段（取主机名的首个标签）——多机 SSH 时一眼区分所在主机；HUD 侧同款开关为 `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | 首字母大写 provider 名；`false` 保留原始 id 大小写（适配 `cc-switch-zhipu-glm` 这类代理 id） |
-| `borderWorkingStatus` | `true` | 编辑器上边框内嵌工作状态；两种底栏风格均适用 |
+| `workingStatus` | `"both"` | 运行状态显示在 Working 行 / 编辑器上边框 / 两者；旧 `borderWorkingStatus` 自动迁移（true→both、false→line） |
+| `workingLine.*` / `workingBorder.*` | 混合 | 各展示面的内容开关（单条速度、输入/输出 token、缓存命中、工具计数），按模式条件生效 |
+| `workingBorder.elapsed` | `true` | 边框窄时始终退化为时长 → 图标 |
 | `inlineFooter` | `false` | classic 底栏两行主内容改画进编辑器边框；`footerStyle: "hud"` 下无效 |
 | `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`；`hud.statStyle`：`icon` / `icon+text` / `text`——统计段显示纯图标、图标+文字还是纯文字） |
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |

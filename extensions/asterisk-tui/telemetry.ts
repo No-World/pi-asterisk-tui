@@ -9,7 +9,8 @@ import type {
 	TurnStartEvent,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { IconMode, TelemetryConfig } from "./config.ts";
+import type { IconGlyphs } from "./icons.ts";
+import type { IconMode, TelemetryConfig, WorkingBorderConfig, WorkingLineConfig } from "./config.ts";
 import { resolveGlyphs } from "./icons.ts";
 import { cacheHitColor, estimateStreamedTokens, finiteOrZero, fmtTokens, formatDuration, formatInputBreakdown } from "./utils.ts";
 
@@ -114,6 +115,12 @@ export class TurnTelemetryTracker {
 	private liveToolCalls = 0;
 	/** Exact output tokens of completed messages in the current agent run. */
 	private agentRunOutputTokens = 0;
+	/** Input+cacheWrite+cacheRead of completed messages in the current run. */
+	private agentRunInputTokens = 0;
+	/** Cache-read tokens of completed messages in the current run. */
+	private agentRunCacheReadTokens = 0;
+	/** Streaming windows of completed messages; excludes tool time. */
+	private agentRunGenerationMs = 0;
 	/** Per-turn summaries collected during the current agent run. */
 	private agentSummaries: TurnSummary[] = [];
 	/** Merged summary of the most recently settled agent run. */
@@ -160,6 +167,38 @@ export class TurnTelemetryTracker {
 			: 0;
 		return this.agentRunOutputTokens + inFlight;
 	}
+	/** Input+cacheWrite+cacheRead of completed messages in the current run. */
+	getRunInputTokens(): number {
+		return this.agentRunInputTokens;
+	}
+
+	getRunCacheReadTokens(): number {
+		return this.agentRunCacheReadTokens;
+	}
+
+	/** Completed streaming windows plus the in-flight one; excludes tool time. */
+	getRunGenerationMs(): number {
+		const current = this.turn?.currentMessage;
+		const live = current?.firstOutputMs != null ? Math.max(0, this.now() - current.firstOutputMs) : 0;
+		return this.agentRunGenerationMs + live;
+	}
+
+	/** Run cache hit rate over completed messages; null without cache tokens. */
+	getRunCacheHitRate(): number | null {
+		return this.agentRunCacheReadTokens > 0 && this.agentRunInputTokens > 0
+			? round((this.agentRunCacheReadTokens / this.agentRunInputTokens) * 100, 1)
+			: null;
+	}
+
+	/** Run-average output speed (run tokens over summed streaming windows) —
+	 *  the same denominator the settled run summary uses. The footer shows
+	 *  this; the working displays show the per-message speed instead. */
+	getRunTps(): number | null {
+		const genMs = this.getRunGenerationMs();
+		if (genMs < MIN_MESSAGE_TPS_WINDOW_MS) return null;
+		return round(this.getRunOutputTokens() / (genMs / 1000), 1);
+	}
+
 
 	handle(event: TelemetryEvent): TurnTelemetry | undefined {
 		switch (event.type) {
@@ -169,6 +208,9 @@ export class TurnTelemetryTracker {
 					this.agentTurns = [];
 					this.liveToolCalls = 0;
 					this.agentRunOutputTokens = 0;
+				this.agentRunInputTokens = 0;
+				this.agentRunCacheReadTokens = 0;
+				this.agentRunGenerationMs = 0;
 					this.agentSummaries = [];
 					this.agentRunThinkingMs = [];
 				}
@@ -295,6 +337,7 @@ export class TurnTelemetryTracker {
 			if (out > 0 && firstOutput !== null && genMs >= MIN_MESSAGE_TPS_WINDOW_MS) {
 				this.lastMessageTps = round(out / (genMs / 1000), 1);
 			}
+			this.agentRunGenerationMs += genMs;
 			if (current.sawThinking) {
 				const messageThinkingMs = Math.max(0, (current.thinkingEndMs ?? endMs) - current.startMs);
 				turn.thinkingMs += messageThinkingMs;
@@ -306,6 +349,11 @@ export class TurnTelemetryTracker {
 		}
 		if (!current) turn.messageThinkingMs.push(0);
 		this.agentRunOutputTokens += finiteOrZero(message.usage?.output);
+		this.agentRunInputTokens +=
+			finiteOrZero(message.usage?.input) +
+			finiteOrZero(message.usage?.cacheWrite) +
+			finiteOrZero(message.usage?.cacheRead);
+		this.agentRunCacheReadTokens += finiteOrZero(message.usage?.cacheRead);
 		turn.messages.push(message);
 	}
 
@@ -542,4 +590,61 @@ export function formatTurnTelemetry(
 		parts.push(theme.fg("warning", `${glyphs.cost} $${telemetry.rateUsdPerMTokens.toFixed(2)}/M`));
 	}
 	return parts.join(` ${theme.fg("dim", "|")} `);
+}
+
+/** Live values the working-status surfaces render from. */
+export interface WorkingContentSource {
+	elapsedText: string;
+	/** Most recent per-message speed; null until a credible window exists. */
+	perMessageTps: number | null;
+	runInputTokens: number;
+	runOutputTokens: number;
+	runCacheHitRate: number | null;
+	toolCount: number;
+}
+
+/** pi working-line message: "Working… (1m 23s · 󰓅 62.2 tok/s · …)". Elapsed
+ *  always leads; every other segment is gated by the workingLine config. */
+export function formatWorkingLineMessage(
+	content: WorkingLineConfig,
+	source: WorkingContentSource,
+	glyphs: IconGlyphs,
+): string {
+	const parts: string[] = [source.elapsedText];
+	if (content.speed && source.perMessageTps !== null) {
+		parts.push(`${glyphs.speed} ${source.perMessageTps.toFixed(1)} tok/s`);
+	}
+	if (content.input) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
+	if (content.output) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
+	if (content.cacheHit && source.runCacheHitRate !== null) {
+		parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
+	}
+	if (content.tools && source.toolCount > 0) {
+		parts.push(`${source.toolCount} tool${source.toolCount > 1 ? "s" : ""}`);
+	}
+	return `Working… (${parts.join(" · ")})`;
+}
+
+/** Border status text: leading working glyph then the enabled segments. The
+ *  editor truncates by width and degrades to the glyph alone when narrow. */
+export function formatWorkingBorderText(
+	content: WorkingBorderConfig,
+	source: WorkingContentSource,
+	glyphs: IconGlyphs,
+): string {
+	const parts: string[] = [];
+	if (content.elapsed) parts.push(source.elapsedText);
+	if (content.speed && source.perMessageTps !== null) {
+		parts.push(`${source.perMessageTps.toFixed(1)} tok/s`);
+	}
+	if (content.input) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
+	if (content.output) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
+	if (content.cacheHit && source.runCacheHitRate !== null) {
+		parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
+	}
+	if (content.tools && source.toolCount > 0) {
+		parts.push(`${source.toolCount} tool${source.toolCount > 1 ? "s" : ""}`);
+	}
+	if (parts.length === 0) parts.push(source.elapsedText);
+	return `${glyphs.working} ${parts.join(" · ")}`;
 }

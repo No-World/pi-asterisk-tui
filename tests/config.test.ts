@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { DEFAULT_TURN_COLLAPSE, DEFAULT_HUD_CONFIG, effectiveThoughtTreatment, loadConfig, normalizeHudConfig, normalizeTurnCollapse } from "../extensions/asterisk-tui/config.ts";
+import { DEFAULT_CONFIG, DEFAULT_TURN_COLLAPSE, DEFAULT_HUD_CONFIG, effectiveThoughtTreatment, loadConfig, normalizeHudConfig, normalizeTurnCollapse } from "../extensions/asterisk-tui/config.ts";
 
 test("loadConfig adopts settings from a legacy open-tui.json on first run", () => {
 	const agentDir = mkdtempSync(join(tmpdir(), "asterisk-tui-config-"));
@@ -137,6 +137,44 @@ test("loadConfig migrates a stored legacy boolean via deepMerge", () => {
 		assert.equal(config.turnCollapse.mode, "native");
 		assert.equal(config.turnCollapse.style, "compact");
 		assert.equal(config.turnCollapse.retryErrors, true);
+	} finally {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});
+
+test("borderWorkingStatus migrates into workingStatus and drops the stale key", () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "asterisk-tui-config-"));
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	try {
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		const write = (obj: unknown) =>
+			writeFileSync(join(agentDir, "asterisk-tui.json"), JSON.stringify(obj), "utf8");
+
+		write({ borderWorkingStatus: false });
+		let config = loadConfig();
+		assert.equal(config.workingStatus, "line");
+		assert.equal("borderWorkingStatus" in config, false, "stale key removed");
+
+		write({ borderWorkingStatus: true });
+		config = loadConfig();
+		assert.equal(config.workingStatus, "both");
+
+		write({ workingStatus: "border" });
+		config = loadConfig();
+		assert.equal(config.workingStatus, "border");
+
+		write({ workingStatus: "bogus" });
+		config = loadConfig();
+		assert.equal(config.workingStatus, "both");
+
+		// content configs deep-merge: partial toggles keep the other defaults
+		write({ workingLine: { tools: false } });
+		config = loadConfig();
+		assert.equal(config.workingLine.tools, false);
+		assert.equal(config.workingLine.speed, true);
+		assert.deepEqual(config.workingBorder, DEFAULT_CONFIG.workingBorder);
 	} finally {
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;

@@ -1328,7 +1328,7 @@ test("inline footer moves classic rows into border content", () => {
 
 	// …and falls back to the bottom cell when the border status is disabled,
 	// so the working state is never invisible.
-	config.borderWorkingStatus = false;
+	config.workingStatus = "line";
 	const fallback = handle.inline.render("bottom", 60);
 	assert.ok(fallback, "bottom line missing in fallback");
 	assert.ok(fallback.left.includes("working"), `fallback timer missing: ${fallback.left}`);
