@@ -785,7 +785,7 @@ test("working line and border compose from config toggles", () => {
 	);
 });
 
-test("run wall-clock speed and session-average speed track their own scopes", () => {
+test("run response-time speed and session-average speed track their own scopes", () => {
 	let now = 0;
 	const tracker = new TurnTelemetryTracker(() => now);
 	tracker.handle({ type: "agent_start" }); // submitted at t=0
@@ -794,7 +794,7 @@ test("run wall-clock speed and session-average speed track their own scopes", ()
 	const message = makeMessage(0, 50);
 	startTurn(tracker, message);
 	now = 500;
-	assert.equal(tracker.getRunWallTps(), null);
+	assert.equal(tracker.getRunActiveTps(), null);
 
 	// first streamed output at t=0.1s (opens the session streaming window)
 	now = 100;
@@ -804,18 +804,48 @@ test("run wall-clock speed and session-average speed track their own scopes", ()
 	const done = makeMessage(100, 50);
 	now = 2_100;
 	tracker.handle({ type: "message_end", message: done });
-	assert.equal(tracker.getRunWallTps(), 47.6);
+	assert.equal(tracker.getRunActiveTps(), 47.6);
 
 	// a tool runs until t=4.2s: the wall average decays, tokens unchanged
 	now = 4_200;
-	assert.equal(tracker.getRunWallTps(), 23.8);
+	assert.equal(tracker.getRunActiveTps(), 23.8);
 
 	// session average uses streaming windows only, so it stays higher
-	assert.ok(tracker.getSessionTps()! > tracker.getRunWallTps()!);
+	assert.ok(tracker.getSessionTps()! > tracker.getRunActiveTps()!);
 	tracker.handle({ type: "agent_settled" });
 	tracker.handle({ type: "agent_start" });
-	assert.equal(tracker.getRunWallTps(), null); // fresh run: no tokens yet
+	assert.equal(tracker.getRunActiveTps(), null); // fresh run: no tokens yet
 	assert.ok(tracker.getSessionTps()! > 0, "session average survives run boundaries");
+});
+
+test("tool-execution time is excluded from elapsed and run speed", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" });
+
+	// 100 tokens stream between t=1s and t=2.1s
+	const message = makeMessage(0, 50);
+	startTurn(tracker, message);
+	now = 1_000;
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(40), partial: message }));
+	const done = makeMessage(100, 50);
+	now = 2_100;
+	tracker.handle({ type: "message_end", message: done });
+	assert.equal(tracker.getRunActiveTps(), 47.6);
+
+	// a tool runs t=2.1s→4.2s: busy while running, accumulated after the end
+	tracker.handle({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: {} });
+	now = 4_200;
+	assert.equal(tracker.getToolBusyMs(), 2_100);
+	tracker.handle({ type: "tool_execution_end", toolCallId: "t1", toolName: "bash", result: {}, durationMs: 2_100 } as never);
+	assert.equal(tracker.getToolBusyMs(), 2_100);
+	// speed no longer decays during tool waits: same tokens, response time 2.1s
+	assert.equal(tracker.getRunActiveTps(), 47.6);
+
+	// fresh run resets the tool windows
+	tracker.handle({ type: "agent_settled" });
+	tracker.handle({ type: "agent_start" });
+	assert.equal(tracker.getToolBusyMs(), 0);
 });
 
 test("working surfaces hide zero token segments", () => {

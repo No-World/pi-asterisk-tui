@@ -4,6 +4,7 @@ import type {
 	MessageEndEvent,
 	MessageStartEvent,
 	MessageUpdateEvent,
+	ToolExecutionEndEvent,
 	ToolExecutionStartEvent,
 	TurnEndEvent,
 	TurnStartEvent,
@@ -33,6 +34,7 @@ type TelemetryEvent =
 	| MessageUpdateEvent
 	| MessageEndEvent
 	| ToolExecutionStartEvent
+	| ToolExecutionEndEvent
 	| TurnEndEvent;
 type AgentMessage = MessageStartEvent["message"];
 type AssistantMessage = Extract<AgentMessage, { role: "assistant" }>;
@@ -121,6 +123,10 @@ export class TurnTelemetryTracker {
 	private agentRunCacheReadTokens = 0;
 	/** Streaming windows of completed messages; excludes tool time. */
 	private agentRunGenerationMs = 0;
+	/** Wall time spent inside tool executions this run (TTFT counts, tools don't). */
+	private toolBusyAccumMs = 0;
+	/** Perf-clock starts of currently executing tools (nested/parallel safe). */
+	private activeToolStarts: number[] = [];
 	/** Per-turn summaries collected during the current agent run. */
 	private agentSummaries: TurnSummary[] = [];
 	/** Merged summary of the most recently settled agent run. */
@@ -193,16 +199,25 @@ export class TurnTelemetryTracker {
 			: null;
 	}
 
-	/** Run-average speed from submission to the current frame: run tokens
-	 *  over wall-clock elapsed (includes TTFT and tool time) — the same
-	 *  elapsed shown beside it on the working surfaces, so tokens/elapsed
-	 *  reconciles by eye. */
-	getRunWallTps(): number | null {
+	/** Wall time currently attributable to tool executions: finished windows
+	 *  plus the in-flight ones. Excluded from the working displays' elapsed
+	 *  time — TTFT counts as response time, tool waits do not. */
+	getToolBusyMs(): number {
+		const now = this.now();
+		const live = this.activeToolStarts.reduce((sum, start) => sum + Math.max(0, now - start), 0);
+		return this.toolBusyAccumMs + live;
+	}
+
+	/** Run-average speed over response time: run tokens over wall-clock
+	 *  elapsed since submission minus tool-execution time — the same elapsed
+	 *  shown beside it on the working surfaces, so tokens/elapsed reconciles
+	 *  by eye. */
+	getRunActiveTps(): number | null {
 		if (this.agentStartMs === null) return null;
-		const seconds = (this.now() - this.agentStartMs) / 1000;
+		const ms = this.now() - this.agentStartMs - this.getToolBusyMs();
 		const tokens = this.getRunOutputTokens();
-		if (tokens <= 0 || seconds < 1) return null;
-		return round(tokens / seconds, 1);
+		if (tokens <= 0 || ms < 1_000) return null;
+		return round(tokens / (ms / 1000), 1);
 	}
 
 	/** Session-average output speed: every message this session over its
@@ -238,6 +253,8 @@ export class TurnTelemetryTracker {
 				this.agentRunGenerationMs = 0;
 				// stale speeds from the previous run must not leak into the new one
 				this.lastMessageTps = null;
+				this.toolBusyAccumMs = 0;
+				this.activeToolStarts = [];
 					this.agentSummaries = [];
 					this.agentRunThinkingMs = [];
 				}
@@ -258,10 +275,16 @@ export class TurnTelemetryTracker {
 				return;
 			case "tool_execution_start":
 				this.liveToolCalls++;
+				this.activeToolStarts.push(this.now());
 				if (this.turn) {
 					this.turn.toolCounts.set(event.toolName, (this.turn.toolCounts.get(event.toolName) ?? 0) + 1);
 				}
 				return;
+			case "tool_execution_end": {
+				const started = this.activeToolStarts.shift();
+				if (started !== undefined) this.toolBusyAccumMs += Math.max(0, this.now() - started);
+				return;
+			}
 			case "turn_end":
 				return this.endTurnAndCollect();
 		}
@@ -566,14 +589,24 @@ export function loadLastTelemetryEntry(entries: Iterable<unknown>): TurnTelemetr
 	return last;
 }
 
-/** Append one run's telemetry to the session file. Extension event contexts
- *  hand out ReadonlySessionManager, whose Pick omits the append family even
- *  though appendCustomEntry's own docstring says "for extensions" (upstream
- *  oversight, still true in 0.87) — so this reaches through with a runtime
- *  cast, isolated here. If a future pi hands restricted proxies instead, the
- *  optional call degrades to a no-op and only persistence is lost; the live
- *  notify path never touches this. */
-export function persistTurnTelemetry(sessionManager: object | undefined, telemetry: TurnTelemetry): void {
+/** Append one run's telemetry to the session file. Prefers the official
+ *  pi.appendEntry (emits entry_appended, so the TUI renders the line live);
+ *  the ReadonlySessionManager cast stays only as a fallback for pi versions
+ *  without appendEntry — it bypasses the event, leaving restore-only
+ *  rendering, and a future restricted proxy degrades it to a no-op. */
+export function persistTurnTelemetry(
+	pi: { appendEntry?: (customType: string, data?: unknown) => void },
+	sessionManager: object | undefined,
+	telemetry: TurnTelemetry,
+): void {
+	if (typeof pi.appendEntry === "function") {
+		try {
+			pi.appendEntry(TELEMETRY_ENTRY_TYPE, telemetry);
+			return;
+		} catch {
+			// fall through to the legacy cast below
+		}
+	}
 	if (!sessionManager || typeof sessionManager !== "object") return;
 	const sm = sessionManager as {
 		appendCustomEntry?: (customType: string, data?: unknown) => string;

@@ -135,8 +135,10 @@ export default function (pi: ExtensionAPI) {
 	// Live values both working surfaces render from; the line shows the
 	// per-message speed, the footer's speed segment stays run-average.
 	const workingSource = (): WorkingContentSource => ({
-		elapsedText: formatDuration(Date.now() - (state.workingSince ?? Date.now())),
-		runTps: turnTelemetry.getRunWallTps(),
+		elapsedText: formatDuration(
+			Math.max(0, Date.now() - (state.workingSince ?? Date.now()) - turnTelemetry.getToolBusyMs()),
+		),
+		runTps: turnTelemetry.getRunActiveTps(),
 		runInputTokens: turnTelemetry.getRunInputTokens(),
 		runOutputTokens: turnTelemetry.getRunOutputTokens(),
 		runCacheHitRate: turnTelemetry.getRunCacheHitRate(),
@@ -296,6 +298,9 @@ export default function (pi: ExtensionAPI) {
 		stopWorkingTimer();
 		const tick = () => {
 			if (!sessionLifecycle.isCurrent() || !active) return;
+			// one 250ms cadence drives both surfaces: footer render + working
+			// line message, so their numbers never visibly disagree
+			updateWorkingLabel();
 			requestFooterRender?.();
 		};
 		tick();
@@ -313,7 +318,6 @@ export default function (pi: ExtensionAPI) {
 	// "⠴ Working… (7m 57s · ↓ 14.8k tokens · 3 tools)" — per-turn timer, output tokens, and
 	// live tool count on the working indicator.
 	// setWorkingMessage only swaps the label; pi's spinner frames stay untouched.
-	let workingLabelTimer: ReturnType<typeof setInterval> | undefined;
 	const updateWorkingLabel = () => {
 		const ctx = lastCtx;
 		if (!ctx?.ui?.setWorkingMessage) return;
@@ -326,17 +330,7 @@ export default function (pi: ExtensionAPI) {
 			formatWorkingLineMessage(config.workingLine, workingSource(), resolveGlyphs(config.icons.mode)),
 		);
 	};
-	const startWorkingLabel = () => {
-		stopWorkingLabel();
-		updateWorkingLabel();
-		workingLabelTimer = setInterval(updateWorkingLabel, 500);
-		workingLabelTimer.unref?.();
-	};
 	const stopWorkingLabel = () => {
-		if (workingLabelTimer) {
-			clearInterval(workingLabelTimer);
-			workingLabelTimer = undefined;
-		}
 		lastCtx?.ui?.setWorkingMessage?.(); // restore default "Working..."
 	};
 
@@ -462,7 +456,7 @@ export default function (pi: ExtensionAPI) {
 		state.workingSince = Date.now();
 		state.lastDoneIn = undefined;
 		startWorkingTimer();
-		if (config.workingStatus !== "border") startWorkingLabel();
+		if (config.workingStatus !== "border") updateWorkingLabel();
 		syncWorkingLineVisibility();
 	});
 
@@ -476,6 +470,10 @@ export default function (pi: ExtensionAPI) {
 		}
 		syncWorkingLineVisibility();
 		requestFooterRender?.();
+	});
+
+	pi.on("tool_execution_end", (event) => {
+		turnTelemetry.handle(event as never);
 	});
 
 	pi.on("turn_start", (event) => {
@@ -510,7 +508,7 @@ export default function (pi: ExtensionAPI) {
 			if (config.telemetry.persist) {
 				// The entry itself renders as a transcript line (entry renderer above),
 				// in place for both live runs and resume — no notify duplication.
-				persistTurnTelemetry(ctx.sessionManager, telemetry);
+				persistTurnTelemetry(pi, ctx.sessionManager, telemetry);
 			} else if (isTuiContext(ctx)) {
 				// transient fallback: without the entry there is nothing to restore,
 				// so keep the one-shot status line for the live session only
