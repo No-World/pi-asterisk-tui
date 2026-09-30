@@ -88,8 +88,9 @@ claude-hud 风格四行面板（同时内置 starship 风格 classic 预设）�
    无法测速，保留上一条可信速度）。
 2. **上下文行**——用量进度条、百分比与 token 数、缓存命中率，以及压缩次数后缀（`hud.compactions`，默认开，发生过压缩才显示）：`·  压缩 2`。Token 统计有三种呈现（`hud.tokens`）：本地化完整标签 `verbose`、语言无关的紧凑速记 `compact`（图标+数值，如 `77M (U 855k + R 77M) │ 266k │ 98.9%`）、或 `off`。统计段（时长、费用、今日费用、输出速度、token、缓存命中）的呈现由 `hud.statStyle` 控制：`icon`（纯图标）/ `icon+text`（图标+文字，默认）/ `text`（纯文字）；图标与遥测行、classic 底栏共用同一 glyph 集，`icons.mode: "ascii"` 下有符号回退。
 3. **工具行**——按工具的调用计数（✓ 标记）、运行中的工具标签。
-4. **环境行**——MCP 服务器计数（仅当实际安装了 pi-mcp-adapter 时统计）、内存占用、
-   压缩次数、pi 版本。
+4. **环境行**——MCP 服务器计数（pi ≥0.99 统计原生 `mcp.json` 服务器——全局、受信项目、
+   扩展运行时注册——过渡期 pi-mcp-adapter 的配置链仍同时计数，同名时原生优先）、
+   内存占用、压缩次数、pi 版本。
 
 另有：工作目录与变更文件的 OSC 8 超链接（点击打开）、powerline 风格 git 段、
 ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在仓库子目录启动时无法显示
@@ -120,6 +121,8 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
   以及「压缩」页（压缩模式、压缩行间隔、重试错误折叠、思考块开关、每工具覆盖——
   扩展/MCP 工具在出现过一次后才列出）——含命名风格预设（hud / classic / custom）。
 - 版本守护的兼容层：全屏滚轮速度依赖的运行时结构变化时自动回退 pi 默认值。
+  pi ≥0.99 上该项整体让位——滚轮速度已原生内置（含加速的 `"auto"` 模式）且 pi 会在
+  启动/设置变更时回写自己的值，设置项改为指向 `/settings → fullscreenWheelScrollLines`（ADR-0009）。
 
 全新安装会把 pi 的 `hideThinkingBlock` 默认置为 `true`（已有选择永不覆盖），✻ 体验
 开箱即用。
@@ -177,7 +180,7 @@ VS Code、Windows Terminal 等应用必须设在终端配置文件里，只装�
 | `workingBorder.elapsed` | `true` | 边框窄时始终退化为时长 → 图标 |
 | `inlineFooter` | `false` | classic 底栏两行主内容改画进编辑器边框；`footerStyle: "hud"` 下无效 |
 | `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`；`hud.statStyle`：`icon` / `icon+text` / `text`；`hud.cost`：`off` / `cost` / `cost+rate` 三态） |
-| `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
+| `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数；pi ≥0.99 上无效——改用 pi 原生 `/settings` 的滚轮项 |
 | `selection.copy` | `"unwrapped"` | 选区复制：`plain`（视觉内容）/ `unwrapped`（逻辑内容，默认）/ `raw`（原始内容）；依赖 pi-tui 内部结构，pi 升级后可能静默回退原生 |
 | `selection.trimPadding` | `true` | 选区边距裁剪：高亮不覆盖补齐空白、视觉内容复制不含前后边距空格 |
 | `selection.tabWidth` | `3` | 原始内容复制的 Tab 宽度：2–8 任意整数（`3` 与渲染一致）或 `tab` 保留制表符；逐块复制会从原文确定性恢复真实 Tab |

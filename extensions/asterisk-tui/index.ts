@@ -38,7 +38,7 @@ import {
 	invalidateUsageCache,
 	type FooterState,
 } from "./state.ts";
-import { formatDuration, truncateToWidth } from "./utils.ts";
+import { formatDuration, piVersionAtLeast, truncateToWidth } from "./utils.ts";
 import { resolveGlyphs } from "./icons.ts";
 
 function isInteractiveLaunch(): boolean {
@@ -213,6 +213,28 @@ export default function (pi: ExtensionAPI) {
 					},
 					scheduleGitRefresh: () => {
 						void scheduleGitRefresh(ctx);
+					},
+					// Native MCP counting on pi ≥0.99 (ADR-0009): config files are read
+					// by the footer; runtime-registered servers come from the host. Both
+					// probes are optional-chained so pi 0.85–0.98 keeps working.
+					nativeMcp: {
+						enabled: () => piVersionAtLeast("0.99.0"),
+						projectTrusted: () =>
+							(ctx as { isProjectTrusted?: () => boolean }).isProjectTrusted?.() ?? false,
+						registeredServers: () => {
+							const getServers = (pi as {
+								getMcpServers?: () => { name: string; config?: { enabled?: boolean } }[];
+							}).getMcpServers;
+							if (typeof getServers !== "function") return [];
+							try {
+								return getServers().map((server) => ({
+									name: server.name,
+									enabled: server.config?.enabled !== false,
+								}));
+							} catch {
+								return [];
+							}
+						},
 					},
 				},
 			);

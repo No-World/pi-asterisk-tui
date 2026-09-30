@@ -114,8 +114,10 @@ A claude-hud style four-line dashboard (a starship-style classic preset is also 
    are not measurable and keep the last credible speed).
 2. **Context line** — usage bar with percent and token counts, cache hit rate, and a compaction-count suffix (`hud.compactions`, on by default, hidden until the session has compacted): `·  compact 2`. Token stats have three presentations (`hud.tokens`): localized `verbose` labels, language-independent `compact` shorthand (icon + value, e.g. `77M (U 855k + R 77M) │ 266k │ 98.9%`), or `off`. The stat segments (time, cost, today's cost, output speed, tokens, cache hit) render per `hud.statStyle`: `icon` (glyphs only), `icon+text` (default), or `text`; glyphs come from the same set as the telemetry line and classic footer, with ASCII fallback under `icons.mode: "ascii"`.
 3. **Tools line** — per-tool usage counts with ✓, running tool labels.
-4. **Environment line** — MCP server count (only when pi-mcp-adapter is actually
-   installed), memory usage, compaction count, pi version.
+4. **Environment line** — MCP server count (pi ≥0.99 counts native `mcp.json`
+   servers — global, trusted project, and extension-registered — while pi-mcp-adapter's
+   config chain keeps counting during transitions; same-name native entries win), memory
+   usage, compaction count, pi version.
 
 Plus: OSC 8 hyperlinks on the working directory and changed files (click to open),
 powerline-styled git segment, ahead/behind indicators, and full subdirectory git detection
@@ -154,7 +156,9 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
   overrides — extension/MCP tools appear there once seen) — with named style presets
   (hud / classic / custom).
 - Version-guarded compatibility shims: fullscreen wheel speed falls back to pi defaults if
-  the runtime shape changes.
+  the runtime shape changes. On pi ≥0.99 the wheel speed setting stands down entirely —
+  pi ships it natively (with an accelerating `"auto"` mode) and re-applies its own value,
+  so the settings entry points at `/settings → fullscreenWheelScrollLines` instead (ADR-0009).
 
 Fresh installs default pi's `hideThinkingBlock` to `true` (existing choices are never
 overridden) so the ✻ experience works out of the box.
@@ -218,7 +222,7 @@ Notable keys:
 | `workingBorder.elapsed` | `true` | border always degrades to elapsed → glyph when narrow |
 | `inlineFooter` | `false` | classic footer rows render inside the editor frame borders instead of dedicated rows; inert under `footerStyle: "hud"` |
 | `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`; `hud.statStyle`: `icon` / `icon+text` / `text`; `hud.cost`: `off` / `cost` / `cost+rate`) |
-| `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
+| `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick; inert on pi ≥0.99 — use pi's native `/settings` wheel entry instead |
 | `selection.copy` | `"unwrapped"` | selection copy: `plain` (visual content) / `unwrapped` (logical content, default) / `raw` (source content); depends on pi-tui internals, may silently fall back to stock after a pi upgrade |
 | `selection.trimPadding` | `true` | trim selection margins: highlight skips padded blanks; visual-content copies carry no margin spaces |
 | `selection.tabWidth` | `3` | tab width for source-content copies: any integer 2–8 (`3` as rendered) or `tab` for literal tabs (recovered deterministically from the original text for per-block copies) |

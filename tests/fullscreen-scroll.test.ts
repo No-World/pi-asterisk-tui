@@ -16,6 +16,7 @@ import { installEditor } from "../extensions/asterisk-tui/editor.ts";
 import {
 	applyFullscreenWheelScrollLines,
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
+	hasNativeFullscreenWheelScroll,
 	MAX_FULLSCREEN_WHEEL_SCROLL_LINES,
 	MIN_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -58,6 +59,13 @@ test("loads old configs and normalizes persisted fullscreen values", () => {
 });
 
 test("applies speed only to compatible fullscreen TUI instances", () => {
+	if (hasNativeFullscreenWheelScroll()) {
+		// pi ≥0.99 owns the knob (public setWheelScrollLines): we defer and
+		// never touch the TUI, whatever shape its internals have taken.
+		const native = new TuiAltScreen({} as unknown as Terminal);
+		assert.equal(applyFullscreenWheelScrollLines(native, 6), false);
+		return;
+	}
 	const fullscreen = new TuiAltScreen({} as unknown as Terminal);
 	assert.equal(applyFullscreenWheelScrollLines(fullscreen, 6), true);
 	assert.equal((fullscreen as unknown as { wheelScrollLines: number }).wheelScrollLines, 6);
@@ -81,6 +89,7 @@ test("silently ignores a fullscreen speed field that becomes read-only", () => {
 });
 
 test("applies fullscreen speed on editor mount and updates it without reinstalling", () => {
+	if (hasNativeFullscreenWheelScroll()) return; // legacy shim scenario — pi ≥0.99 owns the knob
 	let editorInstalls = 0;
 	let hardwareCursor = false;
 	const tui = {

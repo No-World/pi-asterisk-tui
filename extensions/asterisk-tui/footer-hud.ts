@@ -197,6 +197,17 @@ interface EnvInfo {
 	mcp: number;
 }
 
+/** Native MCP (pi ≥0.99) server source for the environment segment: config
+ * files are read here (agentDir + trusted project), runtime-registered
+ * servers come from the host via callbacks — the mcp_servers_change event is
+ * deliberately NOT subscribed (handling it marks us as the MCP connector).
+ * The pi-mcp-adapter chain stays active alongside for transition periods. */
+export interface NativeMcpSource {
+	enabled(): boolean;
+	projectTrusted(): boolean;
+	registeredServers(): { name: string; enabled: boolean }[];
+}
+
 function fileExists(p: string): boolean {
 	try {
 		return fs.statSync(p).isFile();
@@ -205,7 +216,7 @@ function fileExists(p: string): boolean {
 	}
 }
 
-function collectEnvInfo(cwd: string): EnvInfo {
+export function collectEnvInfo(cwd: string, nativeMcp?: NativeMcpSource): EnvInfo {
 	const agentDir = getAgentDir();
 	let contextFiles = 0;
 	if (
@@ -277,7 +288,32 @@ function collectEnvInfo(cwd: string): EnvInfo {
 	}
 	const mcp = [...mcpNames.values()].filter((d) => !d).length;
 
-	return { contextFiles, skills, extensions, packages, mcp };
+	// Native MCP config (pi ≥0.99): global agentDir/mcp.json plus the trusted
+	// project's .pi/mcp.json (project entries replace same-name global ones),
+	// then extension-registered servers. Native entries override same-name
+	// adapter entries; `enabled: false` keeps the entry without connecting.
+	if (nativeMcp?.enabled()) {
+		const nativeFiles = [path.join(agentDir, "mcp.json")];
+		if (nativeMcp.projectTrusted()) nativeFiles.push(path.join(cwd, ".pi", "mcp.json"));
+		for (const f of nativeFiles) {
+			try {
+				const cfg = JSON.parse(fs.readFileSync(f, "utf8"));
+				const servers = cfg?.mcpServers;
+				if (!servers || typeof servers !== "object") continue;
+				for (const [name, entry] of Object.entries(servers as Record<string, unknown>)) {
+					mcpNames.set(name, (entry as Record<string, unknown> | null)?.enabled === false);
+				}
+			} catch {
+				/* ignore */
+			}
+		}
+		for (const server of nativeMcp.registeredServers()) {
+			if (!mcpNames.has(server.name)) mcpNames.set(server.name, !server.enabled);
+		}
+	}
+	const totalMcp = [...mcpNames.values()].filter((d) => !d).length;
+
+	return { contextFiles, skills, extensions, packages, mcp: totalMcp };
 }
 
 function todayStartMs(): number {
@@ -435,6 +471,8 @@ function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig, s
 export interface FooterHooks {
 	setRequestRender: (fn: (() => void) | undefined) => void;
 	scheduleGitRefresh: () => void;
+	/** Native MCP counting on pi ≥0.99; optional so classic-only setups skip it. */
+	nativeMcp?: NativeMcpSource;
 }
 
 export function installHudFooter(
@@ -478,7 +516,7 @@ export function installHudFooter(
 			if (extrasInflight) return;
 			extrasInflight = true;
 			try {
-				envInfo = collectEnvInfo(ctx.sessionManager.getCwd());
+				envInfo = collectEnvInfo(ctx.sessionManager.getCwd(), hooks.nativeMcp);
 				const sessionFile = ctx.sessionManager.getSessionFile?.();
 				dailyCost = collectDailyCost(sessionFile ? path.dirname(sessionFile) : null);
 				if (piVer === null) piVer = await collectPiVersion();
