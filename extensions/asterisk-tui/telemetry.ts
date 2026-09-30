@@ -86,6 +86,8 @@ export interface TurnSummary {
 export interface TurnTelemetry {
 	tps: number | null;
 	ttftMs: number;
+	/** Tool executions started during the run. */
+	toolCalls: number;
 	totalMs: number;
 	inputTokens: number;
 	outputTokens: number;
@@ -504,6 +506,7 @@ export class TurnTelemetryTracker {
 		return {
 			tps,
 			ttftMs: turn.firstTokenMs - turn.startMs,
+			toolCalls: sumMapValues(turn.toolCounts),
 			totalMs: endMs - turn.startMs,
 			inputTokens,
 			outputTokens,
@@ -557,6 +560,7 @@ export class TurnTelemetryTracker {
 		return {
 			tps,
 			ttftMs: turns[0]!.ttftMs,
+			toolCalls: turns.reduce((sum, turn) => sum + turn.toolCalls, 0),
 			totalMs: this.now() - startMs,
 			inputTokens,
 			outputTokens,
@@ -692,6 +696,10 @@ export function formatTurnTelemetry(
 	}
 	if (config.duration) {
 		parts.push(theme.fg("success", `${glyphs.done} ${formatTurnDuration(telemetry.totalMs)}`));
+	}
+	if (config.tools) {
+		const toolCalls = finiteOrZero(telemetry.toolCalls);
+		if (toolCalls > 0) parts.push(theme.fg("text", `${glyphs.tools} ${toolCalls}`));
 	}
 	if (config.tokens) {
 		parts.push(theme.fg("accent", `${glyphs.input} ${formatInputBreakdown(telemetry.inputTokens, telemetry.cacheReadTokens)}`));

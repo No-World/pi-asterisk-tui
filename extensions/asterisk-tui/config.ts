@@ -343,6 +343,8 @@ export interface FooterSegments {
 
 export interface TelemetryConfig {
 	enabled: boolean;
+	/** Tool-call count segment on the post-run line. */
+	tools: boolean;
 	/** Store each run's summary as a session custom entry and replay the last
 	 *  one on session resume (the live notify itself is transcript-transient). */
 	persist: boolean;
@@ -432,6 +434,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	telemetry: {
 		enabled: true,
 		persist: true,
+		tools: true,
 		tps: true,
 		ttft: true,
 		duration: true,

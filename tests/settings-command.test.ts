@@ -366,8 +366,9 @@ test("configures telemetry from its own tab", async () => {
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().telemetry.tps, false);
-	// Persistence rides at the end of the telemetry tab (after the field toggles)
-	for (let i = 0; i < 6; i++) settings.component.handleInput("\x1b[B");
+	// Persistence rides at the end of the telemetry tab (after the field toggles,
+	// which now include the tool-call count)
+	for (let i = 0; i < 7; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Persistence/);
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().telemetry.persist, false);

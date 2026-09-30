@@ -97,6 +97,7 @@ test("uses total output over full generation time", () => {
 	assert.deepEqual(telemetry, {
 		tps: 4,
 		ttftMs: 4_000,
+		toolCalls: 0,
 		totalMs: 5_000,
 		inputTokens: 50,
 		outputTokens: 20,
@@ -167,6 +168,7 @@ test("uses footer semantics and respects telemetry segment settings", () => {
 	const telemetry = {
 		tps: 50,
 		ttftMs: 200,
+		toolCalls: 3,
 		totalMs: 900,
 		inputTokens: 50,
 		outputTokens: 20,
@@ -182,13 +184,14 @@ test("uses footer semantics and respects telemetry segment settings", () => {
 
 	assert.match(
 		formatTurnTelemetry(telemetry, styledTheme, DEFAULT_CONFIG.telemetry, "ascii"),
-		/^> TPS 50\.0 tok\/s \| ~ TTFT 0\.2s.*↑ 5\.0k \(U 50 \+ R 5\.0k\) \| ↓ 20.*! stall 1x \/ 0\.8s \| \$ \$4\.00\/M$/,
+		/^> TPS 50\.0 tok\/s \| ~ TTFT 0\.2s \| \+ 0\.9s \| t 3 \| ↑ 5\.0k \(U 50 \+ R 5\.0k\) \| ↓ 20.*! stall 1x \/ 0\.8s \| \$ \$4\.00\/M$/,
 	);
-	assert.deepEqual(colors, ["accent", "text", "success", "accent", "success", "warning", "warning", "dim"]);
+	assert.deepEqual(colors, ["accent", "text", "success", "text", "accent", "success", "warning", "warning", "dim"]);
 
 	const hidden: typeof DEFAULT_CONFIG.telemetry = {
 		enabled: false,
 		persist: false,
+		tools: false,
 		tps: false,
 		ttft: false,
 		duration: false,
@@ -693,7 +696,7 @@ test("loadLastTelemetryEntry replays the newest valid persisted run", () => {
 		type: "custom",
 		customType: TELEMETRY_ENTRY_TYPE,
 		data: {
-			tps: 47.8, ttftMs: 5100, totalMs: 1_241_000, inputTokens: 135_000, outputTokens: 52_000,
+			tps: 47.8, ttftMs: 5100, toolCalls: 2, totalMs: 1_241_000, inputTokens: 135_000, outputTokens: 52_000,
 			cacheReadTokens: 3_600_000, stallMs: 8600, stallCount: 4, rateUsdPerMTokens: 0.36,
 			generationMs: 900_000, totalTokens: 3_787_000, cacheHitRate: 96.4, costUsd: 0.36,
 			measurementMs: 900_000,
