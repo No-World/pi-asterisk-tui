@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { TuiMainScreen, visibleWidth, type EditorTheme, type Terminal, type TUI } from "@earendil-works/pi-tui";
-import { installEditor, OpenTuiEditor } from "../extensions/asterisk-tui/editor.ts";
+import { installEditor, OpenTuiEditor, type WorkingStatusIndicator } from "../extensions/asterisk-tui/editor.ts";
 import { stripAnsi } from "../extensions/asterisk-tui/utils.ts";
 
 const tui = {
@@ -185,7 +185,7 @@ test("embeds the working status in the top border", () => {
 		editorTheme,
 		{ matches: () => false } as unknown as KeybindingsManager,
 	);
-	editor.setWorkingStatusIndicator({
+	editor.setFrameIndicator({
 		renderInBorder: () => "◐ working",
 		renderSpinnerInBorder: () => "◐",
 	});
@@ -199,7 +199,7 @@ test("degrades the working border to spinner-only when narrow", () => {
 		editorTheme,
 		{ matches: () => false } as unknown as KeybindingsManager,
 	);
-	editor.setWorkingStatusIndicator({
+	editor.setFrameIndicator({
 		renderInBorder: () => "◐ working",
 		renderSpinnerInBorder: () => "◐",
 	});
@@ -219,7 +219,7 @@ test("keeps a narrow scrolled working border intact", () => {
 	);
 	editor.setText(Array.from({ length: 10 }, (_, index) => `line ${index}`).join("\n"));
 	let spinnerRenders = 0;
-	editor.setWorkingStatusIndicator({
+	editor.setFrameIndicator({
 		renderInBorder: () => "◐ working status that ignores width",
 		renderSpinnerInBorder: () => {
 			spinnerRenders++;
@@ -242,7 +242,7 @@ test("drops the working status when the indicator goes empty", () => {
 		{ matches: () => false } as unknown as KeybindingsManager,
 	);
 	let working = true;
-	editor.setWorkingStatusIndicator({
+	editor.setFrameIndicator({
 		renderInBorder: () => (working ? "◐ working" : ""),
 		renderSpinnerInBorder: () => (working ? "◐" : ""),
 	});
@@ -250,6 +250,68 @@ test("drops the working status when the indicator goes empty", () => {
 	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /◐ working/);
 	working = false;
 	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /^╭─+╮$/);
+});
+
+test("pi's turn-boundary clears cannot remove the extension-owned status", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setEmbeddedWorkingStatusRouting(true);
+	editor.setFrameIndicator({
+		renderInBorder: () => "◐ working",
+		renderSpinnerInBorder: () => "◐",
+	});
+
+	// pi's turn_start with workingVisible=false fires clearStatusIndicator()
+	// → setWorkingStatusIndicator(undefined) on the embedded editor.
+	editor.setWorkingStatusIndicator(undefined);
+	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /◐ working/);
+});
+
+test("pi's retry overlays the own status and clears back to it", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setEmbeddedWorkingStatusRouting(true);
+	editor.setFrameIndicator({
+		renderInBorder: () => "◐ working",
+		renderSpinnerInBorder: () => "◐",
+	});
+	editor.setWorkingStatusIndicator({
+		kind: "retry",
+		renderInBorder: () => "↻ Retrying (1/3)",
+		renderSpinnerInBorder: () => "↻",
+	} as WorkingStatusIndicator & { kind: string });
+
+	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /↻ Retrying/);
+	// Retry ends: pi clears the overlay — the own status resumes.
+	editor.setWorkingStatusIndicator(undefined);
+	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /◐ working/);
+});
+
+test("drops pi's own working loader instead of letting it replace ours", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setEmbeddedWorkingStatusRouting(true);
+	editor.setFrameIndicator({
+		renderInBorder: () => "◐ working",
+		renderSpinnerInBorder: () => "◐",
+	});
+	editor.setWorkingStatusIndicator({
+		kind: "working",
+		renderInBorder: () => "Working...",
+		renderSpinnerInBorder: () => "◐",
+	} as WorkingStatusIndicator & { kind: string });
+
+	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /◐ working/);
+	assert.doesNotMatch(stripAnsi(editor.render(40)[0] ?? ""), /Working\.\./);
 });
 
 test("routes pi's own indicators only when embed routing is on", () => {
@@ -261,7 +323,7 @@ test("routes pi's own indicators only when embed routing is on", () => {
 	// Default off: pi's duck-typed detection (embedWorkingStatus === true)
 	// sees a stock editor and keeps its status lines.
 	assert.equal(editor.embedWorkingStatus, false);
-	editor.setWorkingStatusIndicator({
+	editor.setFrameIndicator({
 		renderInBorder: () => "◐ working",
 		renderSpinnerInBorder: () => "◐",
 	});
@@ -280,7 +342,7 @@ test("keeps the native ladder on while pi's embed routing stays off (both mode)"
 		{ matches: () => false } as unknown as KeybindingsManager,
 	);
 	editor.setEmbeddedWorkingStatusRouting(false);
-	editor.setWorkingStatusIndicator({
+	editor.setFrameIndicator({
 		renderInBorder: () => "◐ working",
 		renderSpinnerInBorder: () => "◐",
 	});
@@ -331,7 +393,7 @@ test("paints the border status with the current border color at render time", ()
 		{ ...editorTheme, borderColor: (s: string) => `\x1b[36m${s}\x1b[0m` } as EditorTheme,
 		{ matches: () => false } as unknown as KeybindingsManager,
 	);
-	editor.setWorkingStatusIndicator({
+	editor.setFrameIndicator({
 		renderInBorder: () => "◐ working",
 		renderSpinnerInBorder: () => "◐",
 	});
@@ -347,7 +409,7 @@ test("inline border keeps the status run beside the scroll label", () => {
 		{ matches: () => false } as unknown as KeybindingsManager,
 	);
 	editor.setText(Array.from({ length: 10 }, (_, index) => `line ${index}`).join("\n"));
-	editor.setWorkingStatusIndicator({
+	editor.setFrameIndicator({
 		renderInBorder: () => "◐ working",
 		renderSpinnerInBorder: () => "◐",
 	});

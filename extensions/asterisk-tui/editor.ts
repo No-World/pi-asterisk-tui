@@ -126,10 +126,17 @@ export class OpenTuiEditor extends CustomEditor {
 	private readonly getBorder: (s: string) => string;
 	private cursorStyle: CursorStyle;
 	private previewHardwareCursor = false;
-	// Mirror of the indicator handed to pi's private field: the inline-border
-	// path needs direct access (pi's native ladder only reads its own copy).
-	// Still named to avoid colliding with pi's private workingStatusIndicator.
+	// Named to avoid colliding with pi's private workingStatusIndicator.
+	// Effective mirror (pi overlay ?? own) for the inline-border path.
 	private frameStatusIndicator: WorkingStatusIndicator | undefined;
+	// Extension-owned indicator: survives pi's lifecycle writes. pi clears
+	// the embedded indicator at every turn boundary while workingVisible is
+	// false (border mode hides pi's line) — routing those clears into our own
+	// status silently blanked the frame mid-run (found in live testing).
+	private ownFrameIndicator: WorkingStatusIndicator | undefined;
+	// pi-fed overlay indicator (retry/compaction/branchSummary); takes
+	// precedence over the own indicator while present.
+	private piFrameIndicator: WorkingStatusIndicator | undefined;
 	private inlineBorderContent: InlineBorderContent | undefined;
 	// True only while our render() drives the base render, so the border hooks
 	// know whether to emit the framed (cornered) form or pi's plain one.
@@ -177,16 +184,39 @@ export class OpenTuiEditor extends CustomEditor {
 		this.tui.requestRender();
 	}
 
+	/** Extension channel for our own border status. Unlike pi's lifecycle
+	 * channel below, this one is never cleared by pi's turn-boundary
+	 * writes — see ownFrameIndicator. */
+	setFrameIndicator(indicator: WorkingStatusIndicator | undefined): void {
+		this.ownFrameIndicator = indicator;
+		this.applyFrameIndicator();
+	}
+
+	/** pi's lifecycle channel (embed routing): overlays pi's own
+	 * retry/compaction/branchSummary indicators on top of ours, and treats
+	 * pi's clears as "overlay ended" — our own status resumes, it never
+	 * silently vanishes at tool/turn boundaries. pi's plain working loader
+	 * is dropped (kind === "working"): our elapsed snapshot is the richer
+	 * replacement and must not be overwritten by it. */
 	override setWorkingStatusIndicator(indicator: WorkingStatusIndicator | undefined): void {
-		this.frameStatusIndicator = indicator;
+		if (indicator && (indicator as { kind?: string }).kind === "working") {
+			indicator = undefined;
+		}
+		this.piFrameIndicator = indicator;
+		this.applyFrameIndicator();
+	}
+
+	private applyFrameIndicator(): void {
+		const effective = this.piFrameIndicator ?? this.ownFrameIndicator;
+		this.frameStatusIndicator = effective;
 		// Wrap before storing into pi's field: the native ladder inserts the
 		// status raw between borderColor runs, but our indicators return plain
 		// text — painting at render time keeps the status following bash-mode /
 		// thinking-level recolors. pi's own ANSI-colored indicators pass through
 		// unchanged in effect (their inner SGR wins over the outer wrap).
-		const wrapped = indicator && {
-			renderInBorder: (width: number) => this.getBorder(indicator.renderInBorder(width)),
-			renderSpinnerInBorder: (width: number) => this.getBorder(indicator.renderSpinnerInBorder(width)),
+		const wrapped = effective && {
+			renderInBorder: (width: number) => this.getBorder(effective.renderInBorder(width)),
+			renderSpinnerInBorder: (width: number) => this.getBorder(effective.renderSpinnerInBorder(width)),
 		};
 		super.setWorkingStatusIndicator(wrapped as PiStatusIndicator);
 		this.tui.requestRender();
@@ -333,7 +363,7 @@ export function installEditor(
 		applyFullscreenWheelScrollLines(tui, currentWheelScrollLines);
 		previousHardwareCursor = tui.getShowHardwareCursor();
 		activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle);
-		activeEditor.setWorkingStatusIndicator(workingStatusIndicator);
+		activeEditor.setFrameIndicator(workingStatusIndicator);
 		activeEditor.setEmbeddedWorkingStatusRouting(embeddedWorkingStatusRouting);
 		activeEditor.setInlineBorderContent(inlineBorderContent);
 		return activeEditor;
@@ -347,9 +377,9 @@ export function installEditor(
 			currentWheelScrollLines = nextWheelScrollLines;
 			if (activeTui) applyFullscreenWheelScrollLines(activeTui, currentWheelScrollLines);
 		},
-		setWorkingStatusIndicator(indicator: WorkingStatusIndicator | undefined): void {
+		setFrameIndicator(indicator: WorkingStatusIndicator | undefined): void {
 			workingStatusIndicator = indicator;
-			activeEditor?.setWorkingStatusIndicator(indicator);
+			activeEditor?.setFrameIndicator(indicator);
 		},
 		setEmbeddedWorkingStatusRouting(enabled: boolean): void {
 			embeddedWorkingStatusRouting = enabled;
