@@ -12,7 +12,7 @@ import { installHudFooter, statSegment } from "../extensions/asterisk-tui/footer
 import { emptyGitStatus } from "../extensions/asterisk-tui/git.ts";
 import { autoIconHintText, resolveGlyphs, resolveIconMode, shouldShowAutoIconHint } from "../extensions/asterisk-tui/icons.ts";
 import { getModelMeta, getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/asterisk-tui/state.ts";
-import { fitSegmentsByPriority, formatProviderLabel, shortHostname, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
+import { effortColor, fitSegmentsByPriority, formatProviderLabel, shortHostname, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
 import { hostname as osHostname } from "node:os";
 
 const theme = {
@@ -1435,4 +1435,149 @@ test("hud stat segments follow the statStyle tri-state", () => {
 	assert.equal(statSegment("icon", "$", "cost ", "$0.16"), "$ $0.16");
 	// empty label (time segment) renders the bare duration in every style
 	assert.equal(statSegment("text", "\u{f017}", "", "2m 43s"), "2m 43s");
+});
+
+test("effortColor covers every level pi's thinking border uses", () => {
+	// pi maps border colors off/minimal/low/medium/high/xhigh/max →
+	// thinking{Off,Minimal,Low,Medium,High,Xhigh,Max}; a missing case here
+	// desyncs the ● ball from the editor border (max once fell to medium).
+	assert.equal(effortColor("minimal"), "thinkingMinimal");
+	assert.equal(effortColor("low"), "thinkingLow");
+	assert.equal(effortColor("medium"), "thinkingMedium");
+	assert.equal(effortColor("high"), "thinkingHigh");
+	assert.equal(effortColor("xhigh"), "thinkingXhigh");
+	assert.equal(effortColor("max"), "thinkingMax");
+});
+
+function recordingTheme(sink: Array<{ color: string; text: string }>): Theme {
+	return {
+		fg: (color: string, text: string) => {
+			sink.push({ color, text });
+			return text;
+		},
+		underline: (text: string) => text,
+	} as unknown as Theme;
+}
+
+function colorsFor(sink: Array<{ color: string; text: string }>, text: string): string[] {
+	return sink.filter((p) => p.text === text).map((p) => p.color);
+}
+
+function makeHudCtx(): ExtensionContext {
+	return {
+		model: { provider: "openai", contextWindow: 1_000_000 },
+		ui: {
+			setFooter(factory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]>) {
+				(this as { factory?: unknown }).factory = factory;
+			},
+		},
+		sessionManager: {
+			getCwd: () => "/work/project",
+			getEntries: () => [],
+			getBranch: () => [],
+			getSessionName: () => undefined,
+		},
+		getContextUsage: () => ({ tokens: 250_000, contextWindow: 1_000_000, percent: 25 }),
+	} as unknown as ExtensionContext;
+}
+
+test("hud model block paints name, ball, and level text with the effort color", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = makeHudCtx();
+	ctx.ui.setFooter = (factory: typeof footerFactory) => {
+		footerFactory = factory;
+	};
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	let meta = { provider: "OpenAI", model: "glm-5.3", effort: "max" };
+	const handle = installHudFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => meta,
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	let sink: Array<{ color: string; text: string }> = [];
+	const component = footerFactory(
+		{ requestRender() {} } as TUI,
+		recordingTheme(sink),
+		footerData,
+	) as Component;
+	try {
+		component.render(160);
+		// max: name, ball+level text all thinkingMax — same color as the border.
+		assert.deepEqual(colorsFor(sink, "glm-5.3"), ["thinkingMax"]);
+		assert.deepEqual(colorsFor(sink, "● max"), ["thinkingMax"]);
+
+		// off: no effort indicator → model name keeps the accent baseline.
+		sink.length = 0;
+		meta = { provider: "OpenAI", model: "glm-5.3", effort: "off" };
+		(component as unknown as { render(w: number): string[] }).render(160);
+		assert.deepEqual(colorsFor(sink, "glm-5.3"), ["accent"]);
+	} finally {
+		handle.cleanup();
+		(component as unknown as { dispose?: () => void }).dispose?.();
+	}
+});
+
+test("classic footer model name follows the effort color", () => {
+	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const ctx = makeHudCtx();
+	ctx.ui.setFooter = (factory: typeof footerFactory) => {
+		footerFactory = factory;
+	};
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = {
+		git: { ...emptyGitStatus(), branch: "main" },
+		sessionStartEpoch: Date.now(),
+		workingSince: undefined,
+		lastDoneIn: undefined,
+		lastTurnSummary: undefined,
+		outputTps: null,
+	};
+	let meta = { provider: "OpenAI", model: "gpt-5", effort: "max" };
+	const handle = installFooter(
+		ctx,
+		() => state,
+		() => config,
+		() => meta,
+		{ setRequestRender() {}, scheduleGitRefresh() {} },
+	);
+	assert.ok(footerFactory);
+	const footerData = {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () => new Map(),
+	} as unknown as ReadonlyFooterDataProvider;
+	let sink: Array<{ color: string; text: string }> = [];
+	const component = footerFactory(
+		{ requestRender() {} } as TUI,
+		recordingTheme(sink),
+		footerData,
+	) as Component;
+	try {
+		component.render(160);
+		assert.deepEqual(colorsFor(sink, "gpt-5"), ["thinkingMax"]);
+
+		sink.length = 0;
+		meta = { provider: "OpenAI", model: "gpt-5", effort: "off" };
+		component.render(160);
+		assert.deepEqual(colorsFor(sink, "gpt-5"), ["text"]);
+	} finally {
+		handle.cleanup();
+		(component as unknown as { dispose?: () => void }).dispose?.();
+	}
 });

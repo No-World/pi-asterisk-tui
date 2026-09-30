@@ -105,7 +105,9 @@ compresses is the **compression mode** (`/*tui` → Collapse):
 
 A claude-hud style four-line dashboard (a starship-style classic preset is also built in):
 
-1. **Status line** — model with context window, thinking level (moon-phase icons), git
+1. **Status line** — model with context window, thinking level (moon-phase icons; the
+   model name, icon, and level text share the thinking-level color, matching the
+   editor border — all levels including `max`), git
    branch with dirty marker, ahead/behind, per-file diff totals `[+71 -5]`, session name,
    cumulative working time, cost, today's cost, live output speed (tok/s; only
    updated when the message streamed for at least 1s — burst-flushed responses

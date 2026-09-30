@@ -313,9 +313,12 @@ function collectClassicParts(
 	if (meta.provider && meta.provider !== "Unknown") {
 		modelParts.push(theme.fg(providerColor(ctx.model?.provider ?? "none"), meta.provider));
 	}
-	modelParts.push(theme.fg("text", meta.model));
-	if (meta.effort && meta.effort !== "off") {
-		modelParts.push(theme.fg(effortColor(meta.effort), `${glyphs.thinking} ${meta.effort}`));
+	// With thinking active the model name joins the effort segment's color
+	// (matching the editor border) instead of the plain text color.
+	const activeEffort = meta.effort && meta.effort !== "off" ? meta.effort : undefined;
+	modelParts.push(theme.fg(activeEffort ? effortColor(activeEffort) : "text", meta.model));
+	if (activeEffort) {
+		modelParts.push(theme.fg(effortColor(activeEffort), `${glyphs.thinking} ${activeEffort}`));
 	}
 	const modelBlock = modelParts.join(theme.fg("dim", " · "));
 
