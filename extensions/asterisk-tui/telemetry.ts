@@ -129,6 +129,9 @@ export class TurnTelemetryTracker {
 	private lastRunThinkingMs: number[] = [];
 	/** Per-message thinking durations collected during the current agent run. */
 	private agentRunThinkingMs: number[] = [];
+	/** Exact output tokens / streaming windows across the whole session (never reset). */
+	private sessionOutputTokens = 0;
+	private sessionGenerationMs = 0;
 
 	constructor(now: () => number = () => performance.now()) {
 		this.now = now;
@@ -190,9 +193,30 @@ export class TurnTelemetryTracker {
 			: null;
 	}
 
-	/** Run-average output speed (run tokens over summed streaming windows) —
-	 *  the same denominator the settled run summary uses. The footer shows
-	 *  this; the working displays show the per-message speed instead. */
+	/** Live speed of the in-flight message (estimated tokens over its
+	 *  streaming window); null before the first credible window. */
+	getLiveMessageTps(): number | null {
+		const current = this.turn?.currentMessage;
+		if (!current || current.firstOutputMs === null) return null;
+		const out = Math.max(current.liveUsageOutput, Math.floor(current.streamedEstimate));
+		const ms = this.now() - current.firstOutputMs;
+		if (out <= 0 || ms < MIN_MESSAGE_TPS_WINDOW_MS) return null;
+		return round(out / (ms / 1000), 1);
+	}
+
+	/** Session-average output speed: every message this session over its
+	 *  summed streaming windows, including the in-flight one. The HUD footer's
+	 *  speed segment shows this; the working surfaces are per-message. */
+	getSessionTps(): number | null {
+		const current = this.turn?.currentMessage;
+		const liveOut = current ? Math.max(current.liveUsageOutput, Math.floor(current.streamedEstimate)) : 0;
+		const liveMs = current?.firstOutputMs != null ? Math.max(0, this.now() - current.firstOutputMs) : 0;
+		const tokens = this.sessionOutputTokens + liveOut;
+		const ms = this.sessionGenerationMs + liveMs;
+		if (tokens <= 0 || ms < MIN_MESSAGE_TPS_WINDOW_MS) return null;
+		return round(tokens / (ms / 1000), 1);
+	}
+
 	getRunTps(): number | null {
 		const genMs = this.getRunGenerationMs();
 		if (genMs < MIN_MESSAGE_TPS_WINDOW_MS) return null;
@@ -211,6 +235,8 @@ export class TurnTelemetryTracker {
 				this.agentRunInputTokens = 0;
 				this.agentRunCacheReadTokens = 0;
 				this.agentRunGenerationMs = 0;
+				// stale speeds from the previous run must not leak into the new one
+				this.lastMessageTps = null;
 					this.agentSummaries = [];
 					this.agentRunThinkingMs = [];
 				}
@@ -338,6 +364,7 @@ export class TurnTelemetryTracker {
 				this.lastMessageTps = round(out / (genMs / 1000), 1);
 			}
 			this.agentRunGenerationMs += genMs;
+			this.sessionGenerationMs += genMs;
 			if (current.sawThinking) {
 				const messageThinkingMs = Math.max(0, (current.thinkingEndMs ?? endMs) - current.startMs);
 				turn.thinkingMs += messageThinkingMs;
@@ -349,6 +376,7 @@ export class TurnTelemetryTracker {
 		}
 		if (!current) turn.messageThinkingMs.push(0);
 		this.agentRunOutputTokens += finiteOrZero(message.usage?.output);
+		this.sessionOutputTokens += finiteOrZero(message.usage?.output);
 		this.agentRunInputTokens +=
 			finiteOrZero(message.usage?.input) +
 			finiteOrZero(message.usage?.cacheWrite) +
@@ -614,8 +642,8 @@ export function formatWorkingLineMessage(
 	if (content.speed && source.perMessageTps !== null) {
 		parts.push(`${glyphs.speed} ${source.perMessageTps.toFixed(1)} tok/s`);
 	}
-	if (content.input) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
-	if (content.output) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
+	if (content.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
+	if (content.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
 	if (content.cacheHit && source.runCacheHitRate !== null) {
 		parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
 	}
@@ -637,8 +665,8 @@ export function formatWorkingBorderText(
 	if (content.speed && source.perMessageTps !== null) {
 		parts.push(`${source.perMessageTps.toFixed(1)} tok/s`);
 	}
-	if (content.input) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
-	if (content.output) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
+	if (content.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
+	if (content.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
 	if (content.cacheHit && source.runCacheHitRate !== null) {
 		parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
 	}

@@ -136,7 +136,7 @@ export default function (pi: ExtensionAPI) {
 	// per-message speed, the footer's speed segment stays run-average.
 	const workingSource = (): WorkingContentSource => ({
 		elapsedText: formatDuration(Date.now() - (state.workingSince ?? Date.now())),
-		perMessageTps: turnTelemetry.getOutputTps(),
+		perMessageTps: turnTelemetry.getLiveMessageTps() ?? turnTelemetry.getOutputTps(),
 		runInputTokens: turnTelemetry.getRunInputTokens(),
 		runOutputTokens: turnTelemetry.getRunOutputTokens(),
 		runCacheHitRate: turnTelemetry.getRunCacheHitRate(),
@@ -318,9 +318,9 @@ export default function (pi: ExtensionAPI) {
 		const ctx = lastCtx;
 		if (!ctx?.ui?.setWorkingMessage) return;
 		if (state.workingSince === undefined) return;
-		// the HUD speed segment is run-average: refresh it on the same 1s tick
-		const runTps = turnTelemetry.getRunTps();
-		if (runTps !== null) state.outputTps = runTps;
+		// the HUD speed segment is session-average: refresh it on this tick
+		const sessionTps = turnTelemetry.getSessionTps();
+		if (sessionTps !== null) state.outputTps = sessionTps;
 		if (config.workingStatus === "border") return; // hidden, visibility owned below
 		ctx.ui.setWorkingMessage(
 			formatWorkingLineMessage(config.workingLine, workingSource(), resolveGlyphs(config.icons.mode)),
@@ -329,7 +329,7 @@ export default function (pi: ExtensionAPI) {
 	const startWorkingLabel = () => {
 		stopWorkingLabel();
 		updateWorkingLabel();
-		workingLabelTimer = setInterval(updateWorkingLabel, 1000);
+		workingLabelTimer = setInterval(updateWorkingLabel, 500);
 		workingLabelTimer.unref?.();
 	};
 	const stopWorkingLabel = () => {
@@ -530,7 +530,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_end", (event, ctx) => {
 		turnTelemetry.handle(event);
-		state.outputTps = turnTelemetry.getRunTps() ?? state.outputTps;
+		state.outputTps = turnTelemetry.getSessionTps() ?? state.outputTps;
 		if (!sessionLifecycle.isCurrent()) return;
 		invalidateUsageCache();
 		refreshInteractiveState(ctx);

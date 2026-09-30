@@ -83,8 +83,8 @@ compresses is the **compression mode** (`/*tui` → Collapse):
 - **Working indicator**: `Working… (34s · 󰓅 61.8 tok/s · ↑ 1.2k · ↓ 3.4k ·  96.0% · 3 tools)` —
   elapsed always leads; every other segment is a per-surface toggle on the Working tab
   (`workingLine.*`). Output tokens are run-cumulative (stream-estimated while streaming,
-  exact on message completion, kept across tool calls); the speed shown here is the latest
-  single-message speed — the HUD footer's speed segment is the run average.
+  exact on message completion, kept across tool calls); the speed shown here is the live
+  single-message speed — the HUD footer's speed segment is the session average.
 - **Turn telemetry** after each run: TPS, TTFT, duration, stall count/time, input/output
   token breakdown with cache-read and cache-write, cache hit rate, and list-price $/M rate.
 - **Persistence**: each run's telemetry is stored as a session custom entry (extension-owned,
@@ -122,7 +122,7 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
 ## Editor & settings
 
 - Framed editor with block / bar / underline cursor styles.
-- **Working status** (`/*tui` → Working tab, `workingStatus`): where the live run status renders — `line` (pi's working line only), `border` (editor top border only), or `both` (default). The two surfaces are information peers, each with its own content toggles shown only when that surface is active: per-message output speed, input tokens (incl. cache read, updated at message boundaries), output tokens, cache hit rate, and tool count; the line always leads with the elapsed time, the border degrades by width (segments → elapsed → glyph). Speed semantics: the working surfaces show the latest single-message speed, while the HUD footer's speed segment is the run average (same denominator as the settled telemetry summary). The border status is painted with the frame color, recoloring with thinking-level and bash-mode borders; narrow frames degrade to a glyph-only rung and the scroll hint (`↑ 3 more`) keeps its centered slot. Legacy `borderWorkingStatus` configs migrate (`true`→`both`, `false`→`line`).
+- **Working status** (`/*tui` → Working tab, `workingStatus`): where the live run status renders — `line` (pi's working line only), `border` (editor top border only), or `both` (default). The two surfaces are information peers, each with its own content toggles shown only when that surface is active: per-message output speed, input tokens (incl. cache read, updated at message boundaries), output tokens, cache hit rate, and tool count; the line always leads with the elapsed time, the border degrades by width (segments → elapsed → glyph). Speed semantics: the working surfaces show the live per-message speed (the last completed message's while a tool runs), while the HUD footer's speed segment is the session average — every message this session over its summed streaming windows, never reset across runs; during a run's TTFT the stale previous value is dropped rather than shown as current. The border status is painted with the frame color, recoloring with thinking-level and bash-mode borders; narrow frames degrade to a glyph-only rung and the scroll hint (`↑ 3 more`) keeps its centered slot. Legacy `borderWorkingStatus` configs migrate (`true`→`both`, `false`→`line`).
 - **Inline footer** (`inlineFooter`, default off, classic style only): moves the classic
   footer's two main rows into the editor frame borders — top carries the location
   segments (cwd · host · session · git) left and the model block right; bottom carries

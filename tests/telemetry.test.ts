@@ -784,3 +784,53 @@ test("working line and border compose from config toggles", () => {
 		"o 2m 3s",
 	);
 });
+
+test("live per-message speed and session-average speed track their own scopes", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" });
+
+	// in-flight message: no speed before the first output / a credible window
+	const message = makeMessage(0, 50); // usage output 0; estimate drives the live counter
+	startTurn(tracker, message);
+	now = 500;
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(60), partial: message }));
+	assert.equal(tracker.getLiveMessageTps(), null);
+	assert.equal(tracker.getSessionTps(), null);
+	now = 1_600;
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(60), partial: message }));
+	assert.ok(tracker.getLiveMessageTps()! > 0, "live speed once the window is credible");
+	assert.ok(tracker.getSessionTps()! > 0, "session speed includes the live window");
+
+	// message completes with exact usage; the run settles
+	const done = makeMessage(100, 50);
+	now = 2_100;
+	tracker.handle({ type: "message_end", message: done });
+	assert.equal(tracker.getOutputTps(), 100 / 1.6); // last message: 100 tokens / 1.6s
+	tracker.handle({ type: "agent_settled" });
+
+	// a new run clears the stale per-message speed but keeps session totals
+	tracker.handle({ type: "agent_start" });
+	assert.equal(tracker.getOutputTps(), null);
+	assert.ok(tracker.getSessionTps()! > 0, "session average survives run boundaries");
+});
+
+test("working surfaces hide zero token segments", () => {
+	const glyphs = resolveGlyphs("ascii");
+	const source = {
+		elapsedText: "5s",
+		perMessageTps: null as number | null,
+		runInputTokens: 0,
+		runOutputTokens: 0,
+		runCacheHitRate: null as number | null,
+		toolCount: 0,
+	};
+	assert.equal(
+		formatWorkingLineMessage({ input: true, output: true, cacheHit: true, speed: true, tools: true }, source, glyphs),
+		"Working\u2026 (5s)",
+	);
+	assert.equal(
+		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: true, cacheHit: true, tools: true }, source, glyphs),
+		"o 5s",
+	);
+});
