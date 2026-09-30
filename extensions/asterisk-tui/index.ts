@@ -215,7 +215,7 @@ export default function (pi: ExtensionAPI) {
 			editor = installEditor(pi, ctx, config.cursorStyle, config.fullscreen.wheelScrollLines);
 			// Working status rides the editor's top border: plain text painted with
 			// the frame color, so it recolors with thinking-level / bash-mode borders.
-			// The 250ms working timer drives tui.requestRender(), so the elapsed
+			// The working timer drives tui.requestRender(), so the elapsed
 			// time and degradation ladder refresh for free.
 			applyWorkingStatusMode();
 			// Inline footer: classic rows drawn into the editor borders.
@@ -298,13 +298,13 @@ export default function (pi: ExtensionAPI) {
 		stopWorkingTimer();
 		const tick = () => {
 			if (!sessionLifecycle.isCurrent() || !active) return;
-			// one 250ms cadence drives both surfaces: footer render + working
+		// one 500ms cadence drives both surfaces: footer render + working
 			// line message, so their numbers never visibly disagree
 			updateWorkingLabel();
 			requestFooterRender?.();
 		};
 		tick();
-		workingTimer = setInterval(tick, 250);
+		workingTimer = setInterval(tick, 500);
 		workingTimer.unref?.();
 	};
 
