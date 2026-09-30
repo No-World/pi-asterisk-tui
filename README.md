@@ -80,9 +80,11 @@ compresses is the **compression mode** (`/*tui` → Collapse):
 
 ## Telemetry
 
-- **Working indicator**: `Working… (34s · ↓ 1.2k tokens · 3 tools)` — elapsed, run-cumulative
-  output tokens (stream-estimated while streaming, exact on message completion, kept across
-  tool calls), tool count as they start.
+- **Working indicator**: every segment carries its own glyph — elapsed (clock), speed, input,
+  output, cache hit, tool count (wrench): `Working… ( 34s · 󰓅 61.8 tok/s · ↑ 1.2k · ↓ 3.4k ·  96.0% ·  3)` —
+  elapsed always leads; every other segment is a per-surface toggle on the Working tab
+  (`workingLine.*`). Output tokens are run-cumulative (stream-estimated while streaming,
+  exact on message completion, kept across tool calls); the speed shown here is the run average from submission to now — the HUD footer's speed segment is the session average.
 - **Turn telemetry** after each run: TPS, TTFT, duration, stall count/time, input/output
   token breakdown with cache-read and cache-write, cache hit rate, and list-price $/M rate.
 - **Persistence**: each run's telemetry is stored as a session custom entry (extension-owned,
@@ -120,20 +122,15 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
 ## Editor & settings
 
 - Framed editor with block / bar / underline cursor styles.
-- **Working status in the top border** (`borderWorkingStatus`, default on, `/*tui` → Footer
-  tab): while the agent runs, the editor frame itself carries the elapsed time next to the
-  working glyph (`╭── ◐ 12s ────╮`) — painted with the frame color, so it recolors together
-  with thinking-level and bash-mode borders. Applies to both footer styles. Narrow frames
-  degrade to a glyph-only rung, then to a plain border; the scroll hint (`↑ 3 more`) keeps
-  its centered slot. The footer's own working segment is unchanged.
+- **Working status** (`/*tui` → Working tab, `workingStatus`): where the live run status renders — `line` (pi's working line only), `border` (editor top border only), or `both` (default). The two surfaces are information peers, each with its own content toggles shown only when that surface is active: per-message output speed, input tokens (incl. cache read, updated at message boundaries), output tokens, cache hit rate, and tool count; the line always leads with the elapsed time, the border degrades by width (segments → elapsed → glyph). Speed semantics: the working surfaces show the run average over response time — run tokens over wall-clock elapsed since submission minus tool-execution time (TTFT counts as response time, tool waits do not), reconciling by eye with the elapsed and token segments beside it; both surfaces draw from one 500ms snapshot (the border renders on every streaming repaint but only shows the cached text, so it can never run a beat ahead of the line). The HUD footer's speed segment is the session average — every message this session over its summed streaming windows, never reset across runs, and re-seeded on resume from the persisted run telemetry so it survives restarts. The border status is painted with the frame color, recoloring with thinking-level and bash-mode borders; narrow frames degrade to a glyph-only rung and the scroll hint (`↑ 3 more`) keeps its centered slot. Legacy `borderWorkingStatus` configs migrate (`true`→`both`, `false`→`line`).
 - **Inline footer** (`inlineFooter`, default off, classic style only): moves the classic
   footer's two main rows into the editor frame borders — top carries the location
   segments (cwd · host · session · git) left and the model block right; bottom carries
   the done summary left and the stats row (compact context · tokens · cost) right.
   Extension status rows stay below the editor. The right block survives shrinking
   widths first, mirroring the plain footer's alignRight priorities. While working, the
-  bottom-left stays empty only when the border status is on — turn `borderWorkingStatus`
-  off and the working timer falls back to the bottom cell, so the state is never
+  bottom-left stays empty only when the workingStatus mode includes the border — in `line`
+  mode the working timer falls back to the bottom cell, so the state is never
   invisible. Saves two rows of vertical space on small terminals. Inert under
   `footerStyle: "hud"`.
 - **Selection copy (fullscreen)** in three modes (`/*tui` panel or `selection.copy`,
@@ -214,7 +211,9 @@ Notable keys:
 | `footerSegments.hostname` | `false` | opt-in short host name segment (first label of the machine's host name) — for telling SSH targets apart at a glance; same toggle exists as `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | uppercase the provider name's first letter; `false` keeps the raw provider id casing (proxy-style ids like `cc-switch-zhipu-glm`) |
 | `footerSegments.capitalizeProviderName` | `true` | uppercase the provider name's first letter; `false` keeps the raw provider id casing (proxy-style ids like `cc-switch-zhipu-glm`) |
-| `borderWorkingStatus` | `true` | working status embedded in the editor's top border; both footer styles |
+| `workingStatus` | `"both"` | live run status on pi's working line, the editor top border, or both; legacy `borderWorkingStatus` migrates (true→both, false→line) |
+| `workingLine.*` / `workingBorder.*` | mixed | per-surface content toggles (per-message speed, input/output tokens, cache hit, tools); shown per the active mode |
+| `workingBorder.elapsed` | `true` | border always degrades to elapsed → glyph when narrow |
 | `inlineFooter` | `false` | classic footer rows render inside the editor frame borders instead of dedicated rows; inert under `footerStyle: "hud"` |
 | `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`; `hud.statStyle`: `icon` / `icon+text` / `text` — whether stat segments show glyphs, labels, or both) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |

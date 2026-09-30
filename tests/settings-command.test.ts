@@ -281,6 +281,7 @@ test("remembers the selection for each tab", async () => {
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
+	settings.component.handleInput("\t");
 
 	assert.match(selectedLine(settings.component), /Git branch/);
 });
@@ -502,37 +503,46 @@ test("inline footer toggles from the segments tab", async () => {
 
 	// Segments tab: style, cwd, hostname, sessionName, gitBranch, gitStatus,
 	// gitCommit, context, tokens, cost, extensionStatuses, capitalizeProviderName,
-	// borderWorkingStatus, then inlineFooter.
+	// then inlineFooter (the working-status item moved to its own tab).
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
 	settings.component.handleInput("\t");
-	for (let i = 0; i < 13; i++) settings.component.handleInput("\x1b[B");
+	for (let i = 0; i < 12; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Inline footer/);
 
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().inlineFooter, true);
 });
 
-test("border working status toggles from the segments tab in both styles", async () => {
-	for (const footerStyle of ["classic", "hud"] as const) {
-		const config = structuredClone(DEFAULT_CONFIG);
-		config.footerStyle = footerStyle;
-		const settings = await openSettings(config);
+test("working status tab cycles modes and gates content options", async () => {
+	const settings = await openSettings();
 
-		settings.component.handleInput("\t");
-		settings.component.handleInput("\t");
-		settings.component.handleInput("\t");
-		// Classic: item sits after capitalizeProviderName (slot 12).
-		// HUD: item sits after the toggle list (tokens + statStyle included), before toolsMax.
-		const downs = footerStyle === "classic" ? 12 : 30;
-		for (let i = 0; i < downs; i++) settings.component.handleInput("\x1b[B");
-		assert.match(
-			selectedLine(settings.component),
-			/Border working status/,
-			`${footerStyle}: item not reached`,
-		);
+	// Working is the last tab: five Tab presses from General
+	for (let i = 0; i < 5; i++) settings.component.handleInput("\t");
+	assert.match(selectedLine(settings.component), /Display mode/);
 
-		settings.component.handleInput("\r");
-		assert.equal(settings.getConfig().borderWorkingStatus, false, footerStyle);
-	}
+	// "both" (default) shows both content groups
+	let render = settings.component.render(100).join("\n");
+	assert.match(render, /Working line · speed/);
+	assert.match(render, /Border · elapsed/);
+
+	settings.component.handleInput("\r"); // both → line
+	assert.equal(settings.getConfig().workingStatus, "line");
+	render = settings.component.render(100).join("\n");
+	assert.match(render, /Working line · speed/);
+	assert.ok(!render.includes("Border · elapsed"), "border options leaked in line mode");
+
+	settings.component.handleInput("\r"); // line → border
+	assert.equal(settings.getConfig().workingStatus, "border");
+	render = settings.component.render(100).join("\n");
+	assert.ok(!render.includes("Working line · speed"), "line options leaked in border mode");
+	assert.match(render, /Border · elapsed/);
+
+	settings.component.handleInput("\r"); // border → both (round trip)
+	assert.equal(settings.getConfig().workingStatus, "both");
+
+	// content options toggle their nested flags (mode stays selected after cycling)
+	settings.component.handleInput("\x1b[B");
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().workingLine.speed, false);
 });

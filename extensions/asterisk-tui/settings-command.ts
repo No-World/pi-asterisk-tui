@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SelectionCopyMode, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES, WORKING_STATUS_MODES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -22,14 +22,14 @@ interface SettingItem {
 	currentValue: string;
 }
 
-type Tab = "features" | "icons" | "collapse" | "segments" | "telemetry";
+type Tab = "features" | "icons" | "collapse" | "segments" | "telemetry" | "working";
 
-const TABS: Tab[] = ["features", "icons", "collapse", "segments", "telemetry"];
+const TABS: Tab[] = ["features", "icons", "collapse", "segments", "telemetry", "working"];
 
 const COPY = {
 	en: {
 		title: "Asterisk TUI Settings",
-		tabs: { features: "General", icons: "Appearance", collapse: "Collapse", segments: "Footer", telemetry: "Telemetry" },
+		tabs: { features: "General", icons: "Appearance", collapse: "Collapse", segments: "Footer", telemetry: "Telemetry", working: "Working" },
 		hint: "Tab/Shift+Tab/←/→: tabs · ↑/↓: move · Enter/Space: change · Enter on wheel speed: type 1-10 · Esc/q: close",
 		labels: {
 			enabled: "Enabled",
@@ -44,7 +44,18 @@ const COPY = {
 		hostname: "Hostname",
 		capitalizeProviderName: "Provider capitalization",
 		inlineFooter: "Inline footer",
-		borderWorkingStatus: "Border working status",
+		workingMode: "Display mode",
+		workingLineSpeed: "Working line · speed (per message)",
+		workingLineInput: "Working line · input tokens (incl. cache)",
+		workingLineOutput: "Working line · output tokens",
+		workingLineCacheHit: "Working line · cache hit",
+		workingLineTools: "Working line · tool count",
+		workingBorderElapsed: "Border · elapsed",
+		workingBorderSpeed: "Border · speed (per message)",
+		workingBorderOutput: "Border · output tokens",
+		workingBorderInput: "Border · input tokens (incl. cache)",
+		workingBorderCacheHit: "Border · cache hit",
+		workingBorderTools: "Border · tool count",
 			sessionName: "Session name",
 			gitBranch: "Git branch",
 			gitStatus: "Git status",
@@ -116,6 +127,7 @@ const COPY = {
 			stylePresets: { hud: "HUD", classic: "Classic", custom: "Custom" },
 			tokenModes: { off: "Off", verbose: "Full (labels + cache detail)", compact: "Compact (icon shorthand)" },
 			statStyles: { icon: "Icons only", "icon+text": "Icons + text", text: "Text only" },
+			workingModes: { line: "Working line only", border: "Border only", both: "Working line + border" },
 			collapseModes: { native: "Native", single: "One per tool", "group-same": "Group same type", "group-all": "Group all" },
 			collapseStyles: { compact: "Compact", classic: "Classic" },
 			toolOverrides: { default: "Default", single: "One line", "group-same": "Group same type", expand: "Native box" },
@@ -128,7 +140,7 @@ const COPY = {
 	},
 	zh: {
 		title: "Asterisk TUI 设置",
-		tabs: { features: "常规", icons: "外观", collapse: "压缩", segments: "Footer", telemetry: "遥测" },
+		tabs: { features: "常规", icons: "外观", collapse: "压缩", segments: "Footer", telemetry: "遥测", working: "工作状态" },
 		hint: "Tab/Shift+Tab/←/→：切页 · ↑/↓：移动 · Enter/Space：更改 · 滚轮速度项 Enter 输入 1-10 · Esc/q：关闭",
 		labels: {
 			enabled: "启用",
@@ -143,7 +155,18 @@ const COPY = {
 		hostname: "主机名",
 		capitalizeProviderName: "Provider 大小写",
 		inlineFooter: "内嵌底栏",
-		borderWorkingStatus: "边框工作状态",
+		workingMode: "显示模式",
+		workingLineSpeed: "Working 行 · 输出速度（单条消息）",
+		workingLineInput: "Working 行 · 输入 token（含缓存）",
+		workingLineOutput: "Working 行 · 输出 token",
+		workingLineCacheHit: "Working 行 · 缓存命中",
+		workingLineTools: "Working 行 · 工具计数",
+		workingBorderElapsed: "边框 · 时长",
+		workingBorderSpeed: "边框 · 输出速度（单条消息）",
+		workingBorderOutput: "边框 · 输出 token",
+		workingBorderInput: "边框 · 输入 token（含缓存）",
+		workingBorderCacheHit: "边框 · 缓存命中",
+		workingBorderTools: "边框 · 工具计数",
 			sessionName: "会话名",
 			gitBranch: "Git 分支",
 			gitStatus: "Git 状态",
@@ -215,6 +238,7 @@ const COPY = {
 			stylePresets: { hud: "HUD 风格", classic: "经典风格", custom: "自定义" },
 			tokenModes: { off: "关闭", verbose: "完整（文字标签＋缓存明细）", compact: "紧凑（图标速记，语言无关）" },
 			statStyles: { icon: "纯图标", "icon+text": "图标+文字", text: "纯文字" },
+			workingModes: { line: "单 Working 行", border: "单边框信息", both: "Working 行+边框信息" },
 			collapseModes: { native: "原生", single: "每工具单行", "group-same": "同类归纳", "group-all": "整段归纳" },
 			collapseStyles: { compact: "紧凑", classic: "经典" },
 			toolOverrides: { default: "默认", single: "单行", "group-same": "同类归纳", expand: "原生" },
@@ -268,6 +292,43 @@ function cycleTokenMode(config: OpenTuiConfig): OpenTuiConfig {
 }
 
 /** Cycles the HUD stat-segment style: icon → icon+text → text → icon. */
+/** Cycles the working-status mode: line → border → both → line. */
+function cycleWorkingStatus(config: OpenTuiConfig): OpenTuiConfig {
+	const idx = WORKING_STATUS_MODES.indexOf(config.workingStatus);
+	const next = WORKING_STATUS_MODES[(idx + 1) % WORKING_STATUS_MODES.length]!;
+	return { ...config, workingStatus: next };
+}
+
+function buildWorkingItems(config: OpenTuiConfig, copy: SettingsCopy): SettingItem[] {
+	const flag = (value: boolean) => value ? copy.values.on : copy.values.off;
+	const items: SettingItem[] = [
+		{ id: "mode", label: copy.labels.workingMode, currentValue: copy.values.workingModes[config.workingStatus] },
+	];
+	// content options appear only for the surfaces the mode actually shows
+	if (config.workingStatus !== "border") {
+		const line = config.workingLine;
+		items.push(
+			{ id: "line.speed", label: copy.labels.workingLineSpeed, currentValue: flag(line.speed) },
+			{ id: "line.input", label: copy.labels.workingLineInput, currentValue: flag(line.input) },
+			{ id: "line.output", label: copy.labels.workingLineOutput, currentValue: flag(line.output) },
+			{ id: "line.cacheHit", label: copy.labels.workingLineCacheHit, currentValue: flag(line.cacheHit) },
+			{ id: "line.tools", label: copy.labels.workingLineTools, currentValue: flag(line.tools) },
+		);
+	}
+	if (config.workingStatus !== "line") {
+		const border = config.workingBorder;
+		items.push(
+			{ id: "border.elapsed", label: copy.labels.workingBorderElapsed, currentValue: flag(border.elapsed) },
+			{ id: "border.speed", label: copy.labels.workingBorderSpeed, currentValue: flag(border.speed) },
+			{ id: "border.output", label: copy.labels.workingBorderOutput, currentValue: flag(border.output) },
+			{ id: "border.input", label: copy.labels.workingBorderInput, currentValue: flag(border.input) },
+			{ id: "border.cacheHit", label: copy.labels.workingBorderCacheHit, currentValue: flag(border.cacheHit) },
+			{ id: "border.tools", label: copy.labels.workingBorderTools, currentValue: flag(border.tools) },
+		);
+	}
+	return items;
+}
+
 function cycleStatStyle(config: OpenTuiConfig): OpenTuiConfig {
 	const idx = HUD_STAT_STYLES.indexOf(config.hud.statStyle);
 	const next = HUD_STAT_STYLES[(idx + 1) % HUD_STAT_STYLES.length]!;
@@ -472,7 +533,6 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			{ id: "cost", label: copy.labels.cost, currentValue: flag(segs.cost) },
 			{ id: "extensionStatuses", label: copy.labels.extensionStatuses, currentValue: flag(segs.extensionStatuses) },
 			{ id: "capitalizeProviderName", label: copy.labels.capitalizeProviderName, currentValue: flag(segs.capitalizeProviderName) },
-			{ id: "borderWorkingStatus", label: copy.labels.borderWorkingStatus, currentValue: flag(config.borderWorkingStatus) },
 			{ id: "inlineFooter", label: copy.labels.inlineFooter, currentValue: flag(config.inlineFooter) },
 		];
 	}
@@ -499,7 +559,6 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 	return [
 		styleItem,
 		...toggleItems,
-		{ id: "borderWorkingStatus", label: labels.borderWorkingStatus, currentValue: flag(config.borderWorkingStatus) },
 		{ id: "toolsMax", label: labels.hudToolsMax, currentValue: copy.values.count(hud.toolsMax) },
 		{ id: "filesMax", label: labels.hudFilesMax, currentValue: copy.values.count(hud.filesMax) },
 	];
@@ -563,6 +622,7 @@ function buildItems(tab: Tab, config: OpenTuiConfig): SettingItem[] {
 		case "collapse": return buildCollapseItems(config, copy);
 		case "segments": return buildSegmentsItems(config, copy);
 		case "telemetry": return buildTelemetryItems(config, copy);
+		case "working": return buildWorkingItems(config, copy);
 	}
 }
 
@@ -589,8 +649,6 @@ function handleSettingChange(
 			next = cycleFooterStyle(config);
 		} else if (itemId === "inlineFooter") {
 			next = { ...config, inlineFooter: !config.inlineFooter };
-		} else if (itemId === "borderWorkingStatus") {
-			next = { ...config, borderWorkingStatus: !config.borderWorkingStatus };
 		} else if (config.footerStyle === "hud" && itemId === "tokens") {
 			next = cycleTokenMode(config); // tri-state, not a boolean toggle
 		} else if (config.footerStyle === "hud" && itemId === "statStyle") {
@@ -610,6 +668,18 @@ function handleSettingChange(
 		if (itemId === "liveThinking" || itemId === "liveTools") return toggleLiveOption(config, itemId);
 		if (itemId === "thought") return cycleThoughtOverride(config);
 		if (itemId.startsWith("tool:")) return cycleToolOverride(config, itemId.slice("tool:".length));
+		return config;
+	}
+	if (tab === "working") {
+		if (itemId === "mode") return cycleWorkingStatus(config);
+		if (itemId.startsWith("line.")) {
+			const key = itemId.slice("line.".length) as keyof OpenTuiConfig["workingLine"];
+			return { ...config, workingLine: { ...config.workingLine, [key]: !config.workingLine[key] } };
+		}
+		if (itemId.startsWith("border.")) {
+			const key = itemId.slice("border.".length) as keyof OpenTuiConfig["workingBorder"];
+			return { ...config, workingBorder: { ...config.workingBorder, [key]: !config.workingBorder[key] } };
+		}
 		return config;
 	}
 	if (tab === "telemetry") {

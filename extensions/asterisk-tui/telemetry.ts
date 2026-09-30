@@ -4,12 +4,14 @@ import type {
 	MessageEndEvent,
 	MessageStartEvent,
 	MessageUpdateEvent,
+	ToolExecutionEndEvent,
 	ToolExecutionStartEvent,
 	TurnEndEvent,
 	TurnStartEvent,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { IconMode, TelemetryConfig } from "./config.ts";
+import type { IconGlyphs } from "./icons.ts";
+import type { IconMode, TelemetryConfig, WorkingBorderConfig, WorkingLineConfig } from "./config.ts";
 import { resolveGlyphs } from "./icons.ts";
 import { cacheHitColor, estimateStreamedTokens, finiteOrZero, fmtTokens, formatDuration, formatInputBreakdown } from "./utils.ts";
 
@@ -32,6 +34,7 @@ type TelemetryEvent =
 	| MessageUpdateEvent
 	| MessageEndEvent
 	| ToolExecutionStartEvent
+	| ToolExecutionEndEvent
 	| TurnEndEvent;
 type AgentMessage = MessageStartEvent["message"];
 type AssistantMessage = Extract<AgentMessage, { role: "assistant" }>;
@@ -114,6 +117,16 @@ export class TurnTelemetryTracker {
 	private liveToolCalls = 0;
 	/** Exact output tokens of completed messages in the current agent run. */
 	private agentRunOutputTokens = 0;
+	/** Input+cacheWrite+cacheRead of completed messages in the current run. */
+	private agentRunInputTokens = 0;
+	/** Cache-read tokens of completed messages in the current run. */
+	private agentRunCacheReadTokens = 0;
+	/** Streaming windows of completed messages; excludes tool time. */
+	private agentRunGenerationMs = 0;
+	/** Wall time spent inside tool executions this run (TTFT counts, tools don't). */
+	private toolBusyAccumMs = 0;
+	/** Perf-clock starts of currently executing tools (nested/parallel safe). */
+	private activeToolStarts: number[] = [];
 	/** Per-turn summaries collected during the current agent run. */
 	private agentSummaries: TurnSummary[] = [];
 	/** Merged summary of the most recently settled agent run. */
@@ -122,6 +135,9 @@ export class TurnTelemetryTracker {
 	private lastRunThinkingMs: number[] = [];
 	/** Per-message thinking durations collected during the current agent run. */
 	private agentRunThinkingMs: number[] = [];
+	/** Exact output tokens / streaming windows across the whole session (never reset). */
+	private sessionOutputTokens = 0;
+	private sessionGenerationMs = 0;
 
 	constructor(now: () => number = () => performance.now()) {
 		this.now = now;
@@ -160,6 +176,76 @@ export class TurnTelemetryTracker {
 			: 0;
 		return this.agentRunOutputTokens + inFlight;
 	}
+	/** Input+cacheWrite+cacheRead of completed messages in the current run. */
+	getRunInputTokens(): number {
+		return this.agentRunInputTokens;
+	}
+
+	getRunCacheReadTokens(): number {
+		return this.agentRunCacheReadTokens;
+	}
+
+	/** Completed streaming windows plus the in-flight one; excludes tool time. */
+	getRunGenerationMs(): number {
+		const current = this.turn?.currentMessage;
+		const live = current?.firstOutputMs != null ? Math.max(0, this.now() - current.firstOutputMs) : 0;
+		return this.agentRunGenerationMs + live;
+	}
+
+	/** Run cache hit rate over completed messages; null without cache tokens. */
+	getRunCacheHitRate(): number | null {
+		return this.agentRunCacheReadTokens > 0 && this.agentRunInputTokens > 0
+			? round((this.agentRunCacheReadTokens / this.agentRunInputTokens) * 100, 1)
+			: null;
+	}
+
+	/** Wall time currently attributable to tool executions: finished windows
+	 *  plus the in-flight ones. Excluded from the working displays' elapsed
+	 *  time — TTFT counts as response time, tool waits do not. */
+	getToolBusyMs(): number {
+		const now = this.now();
+		const live = this.activeToolStarts.reduce((sum, start) => sum + Math.max(0, now - start), 0);
+		return this.toolBusyAccumMs + live;
+	}
+
+	/** Run-average speed over response time: run tokens over wall-clock
+	 *  elapsed since submission minus tool-execution time — the same elapsed
+	 *  shown beside it on the working surfaces, so tokens/elapsed reconciles
+	 *  by eye. */
+	getRunActiveTps(): number | null {
+		if (this.agentStartMs === null) return null;
+		const ms = this.now() - this.agentStartMs - this.getToolBusyMs();
+		const tokens = this.getRunOutputTokens();
+		if (tokens <= 0 || ms < 1_000) return null;
+		return round(tokens / (ms / 1000), 1);
+	}
+
+	/** Seeds the session totals from persisted run telemetry on resume, so the
+	 *  session-average speed is continuous across restarts. */
+	seedSessionTotals(outputTokens: number, generationMs: number): void {
+		this.sessionOutputTokens = outputTokens;
+		this.sessionGenerationMs = generationMs;
+	}
+
+	/** Session-average output speed: every message this session over its
+	 *  summed streaming windows, including the in-flight one. The HUD footer's
+	 *  speed segment shows this; the working surfaces are per-message. */
+	getSessionTps(): number | null {
+		const current = this.turn?.currentMessage;
+		const liveOut = current ? Math.max(current.liveUsageOutput, Math.floor(current.streamedEstimate)) : 0;
+		const liveMs = current?.firstOutputMs != null ? Math.max(0, this.now() - current.firstOutputMs) : 0;
+		const tokens = this.sessionOutputTokens + liveOut;
+		const ms = this.sessionGenerationMs + liveMs;
+		if (tokens <= 0 || ms < MIN_MESSAGE_TPS_WINDOW_MS) return null;
+		return round(tokens / (ms / 1000), 1);
+	}
+
+	getRunTps(): number | null {
+		const genMs = this.getRunGenerationMs();
+		if (genMs < MIN_MESSAGE_TPS_WINDOW_MS) return null;
+		return round(this.getRunOutputTokens() / (genMs / 1000), 1);
+	}
+
 
 	handle(event: TelemetryEvent): TurnTelemetry | undefined {
 		switch (event.type) {
@@ -169,6 +255,13 @@ export class TurnTelemetryTracker {
 					this.agentTurns = [];
 					this.liveToolCalls = 0;
 					this.agentRunOutputTokens = 0;
+				this.agentRunInputTokens = 0;
+				this.agentRunCacheReadTokens = 0;
+				this.agentRunGenerationMs = 0;
+				// stale speeds from the previous run must not leak into the new one
+				this.lastMessageTps = null;
+				this.toolBusyAccumMs = 0;
+				this.activeToolStarts = [];
 					this.agentSummaries = [];
 					this.agentRunThinkingMs = [];
 				}
@@ -189,10 +282,16 @@ export class TurnTelemetryTracker {
 				return;
 			case "tool_execution_start":
 				this.liveToolCalls++;
+				this.activeToolStarts.push(this.now());
 				if (this.turn) {
 					this.turn.toolCounts.set(event.toolName, (this.turn.toolCounts.get(event.toolName) ?? 0) + 1);
 				}
 				return;
+			case "tool_execution_end": {
+				const started = this.activeToolStarts.shift();
+				if (started !== undefined) this.toolBusyAccumMs += Math.max(0, this.now() - started);
+				return;
+			}
 			case "turn_end":
 				return this.endTurnAndCollect();
 		}
@@ -295,6 +394,8 @@ export class TurnTelemetryTracker {
 			if (out > 0 && firstOutput !== null && genMs >= MIN_MESSAGE_TPS_WINDOW_MS) {
 				this.lastMessageTps = round(out / (genMs / 1000), 1);
 			}
+			this.agentRunGenerationMs += genMs;
+			this.sessionGenerationMs += genMs;
 			if (current.sawThinking) {
 				const messageThinkingMs = Math.max(0, (current.thinkingEndMs ?? endMs) - current.startMs);
 				turn.thinkingMs += messageThinkingMs;
@@ -306,6 +407,12 @@ export class TurnTelemetryTracker {
 		}
 		if (!current) turn.messageThinkingMs.push(0);
 		this.agentRunOutputTokens += finiteOrZero(message.usage?.output);
+		this.sessionOutputTokens += finiteOrZero(message.usage?.output);
+		this.agentRunInputTokens +=
+			finiteOrZero(message.usage?.input) +
+			finiteOrZero(message.usage?.cacheWrite) +
+			finiteOrZero(message.usage?.cacheRead);
+		this.agentRunCacheReadTokens += finiteOrZero(message.usage?.cacheRead);
 		turn.messages.push(message);
 	}
 
@@ -489,14 +596,45 @@ export function loadLastTelemetryEntry(entries: Iterable<unknown>): TurnTelemetr
 	return last;
 }
 
-/** Append one run's telemetry to the session file. Extension event contexts
- *  hand out ReadonlySessionManager, whose Pick omits the append family even
- *  though appendCustomEntry's own docstring says "for extensions" (upstream
- *  oversight, still true in 0.87) — so this reaches through with a runtime
- *  cast, isolated here. If a future pi hands restricted proxies instead, the
- *  optional call degrades to a no-op and only persistence is lost; the live
- *  notify path never touches this. */
-export function persistTurnTelemetry(sessionManager: object | undefined, telemetry: TurnTelemetry): void {
+/** Sums output tokens and streaming windows over every persisted telemetry
+ *  entry on a branch — the resume seed for the session-average speed. */
+export function sumSessionTelemetry(entries: Iterable<unknown>): { outputTokens: number; generationMs: number } | null {
+	let outputTokens = 0;
+	let generationMs = 0;
+	let seen = false;
+	for (const raw of entries) {
+		const entry = raw as { type?: unknown; customType?: unknown; data?: unknown } | null;
+		if (!entry || entry.type !== "custom" || entry.customType !== TELEMETRY_ENTRY_TYPE) continue;
+		const data = entry.data as Record<string, unknown> | undefined;
+		if (
+			!data || !isFiniteNumber(data.outputTokens) || !isFiniteNumber(data.generationMs) ||
+			!isFiniteNumber(data.ttftMs) || !isFiniteNumber(data.totalMs)
+		) continue;
+		outputTokens += data.outputTokens;
+		generationMs += data.generationMs;
+		seen = true;
+	}
+	return seen ? { outputTokens, generationMs } : null;
+}
+
+/** Append one run's telemetry to the session file. Prefers the official
+ *  pi.appendEntry (emits entry_appended, so the TUI renders the line live);
+ *  the ReadonlySessionManager cast stays only as a fallback for pi versions
+ *  without appendEntry — it bypasses the event, leaving restore-only
+ *  rendering, and a future restricted proxy degrades it to a no-op. */
+export function persistTurnTelemetry(
+	pi: { appendEntry?: (customType: string, data?: unknown) => void },
+	sessionManager: object | undefined,
+	telemetry: TurnTelemetry,
+): void {
+	if (typeof pi.appendEntry === "function") {
+		try {
+			pi.appendEntry(TELEMETRY_ENTRY_TYPE, telemetry);
+			return;
+		} catch {
+			// fall through to the legacy cast below
+		}
+	}
 	if (!sessionManager || typeof sessionManager !== "object") return;
 	const sm = sessionManager as {
 		appendCustomEntry?: (customType: string, data?: unknown) => string;
@@ -542,4 +680,55 @@ export function formatTurnTelemetry(
 		parts.push(theme.fg("warning", `${glyphs.cost} $${telemetry.rateUsdPerMTokens.toFixed(2)}/M`));
 	}
 	return parts.join(` ${theme.fg("dim", "|")} `);
+}
+
+/** Live values the working-status surfaces render from. */
+export interface WorkingContentSource {
+	elapsedText: string;
+	/** Run speed from submission to now; null until tokens exist. */
+	runTps: number | null;
+	runInputTokens: number;
+	runOutputTokens: number;
+	runCacheHitRate: number | null;
+	toolCount: number;
+}
+
+/** Glyph-prefixed segments shared by both working surfaces — every segment
+ *  carries its own icon (clock/wrench included) so the two never disagree. */
+function workingSegments(
+	source: WorkingContentSource,
+	glyphs: IconGlyphs,
+	opts: { elapsed: boolean; speed: boolean; input: boolean; output: boolean; cacheHit: boolean; tools: boolean },
+): string[] {
+	const parts: string[] = [];
+	if (opts.elapsed) parts.push(`${glyphs.working} ${source.elapsedText}`);
+	if (opts.speed && source.runTps !== null) parts.push(`${glyphs.speed} ${source.runTps.toFixed(1)} tok/s`);
+	if (opts.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
+	if (opts.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
+	if (opts.cacheHit && source.runCacheHitRate !== null) parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
+	if (opts.tools && source.toolCount > 0) parts.push(`${glyphs.tools} ${source.toolCount}`);
+	return parts;
+}
+
+/** pi working-line message: "Working… ( 1m 23s · 󰓅 62.2 tok/s · …)". Elapsed
+ *  always leads; every other segment is gated by the workingLine config. */
+export function formatWorkingLineMessage(
+	content: WorkingLineConfig,
+	source: WorkingContentSource,
+	glyphs: IconGlyphs,
+): string {
+	const parts = workingSegments(source, glyphs, { elapsed: true, ...content });
+	return `Working… (${parts.join(" · ")})`;
+}
+
+/** Border status text: the same glyph-prefixed segments, joined directly. The
+ *  editor truncates by width and degrades to the glyph alone when narrow. */
+export function formatWorkingBorderText(
+	content: WorkingBorderConfig,
+	source: WorkingContentSource,
+	glyphs: IconGlyphs,
+): string {
+	const parts = workingSegments(source, glyphs, content);
+	if (parts.length === 0) parts.push(`${glyphs.working} ${source.elapsedText}`);
+	return parts.join(" · ");
 }

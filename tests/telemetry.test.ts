@@ -10,7 +10,16 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
 import openTui from "../extensions/asterisk-tui/index.ts";
-import { formatTurnTelemetry, loadLastTelemetryEntry, TELEMETRY_ENTRY_TYPE, TurnTelemetryTracker } from "../extensions/asterisk-tui/telemetry.ts";
+import {
+	formatTurnTelemetry,
+	formatWorkingBorderText,
+	formatWorkingLineMessage,
+	loadLastTelemetryEntry,
+	sumSessionTelemetry,
+	TELEMETRY_ENTRY_TYPE,
+	TurnTelemetryTracker,
+} from "../extensions/asterisk-tui/telemetry.ts";
+import { resolveGlyphs } from "../extensions/asterisk-tui/icons.ts";
 import { estimateStreamedTokens } from "../extensions/asterisk-tui/utils.ts";
 
 const theme = {
@@ -701,4 +710,186 @@ test("loadLastTelemetryEntry replays the newest valid persisted run", () => {
 	assert.equal(loadLastTelemetryEntry([run({ totalMs: Number.NaN })]), undefined);
 	// invalid entries do not shadow an older valid one
 	assert.equal(loadLastTelemetryEntry([run({ outputTokens: 7 }), run({ costUsd: null })])?.outputTokens, 7);
+});
+
+test("run metrics accumulate input, cache and generation across messages", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" });
+
+	const first = makeMessage(20, 50, 10, 1_000);
+	startTurn(tracker, first);
+	now = 100;
+	tracker.handle(update(first));
+	now = 2_100;
+	endTurn(tracker, first);
+	assert.equal(tracker.getRunInputTokens(), 50 + 10 + 1_000);
+	assert.equal(tracker.getRunCacheReadTokens(), 1_000);
+	assert.equal(tracker.getRunCacheHitRate(), 94.3);
+	assert.equal(tracker.getRunGenerationMs(), 2_000);
+
+	const second = makeMessage(30, 5, 0, 0);
+	startTurn(tracker, second, 1);
+	now = 2_150;
+	tracker.handle(update(second));
+	now = 3_150;
+	endTurn(tracker, second, 1);
+	assert.equal(tracker.getRunInputTokens(), 1_065);
+	assert.equal(tracker.getRunGenerationMs(), 3_000);
+	// run-average speed (footer): 50 tokens over the summed 3s of streaming
+	assert.equal(tracker.getRunTps(), 16.7);
+	// per-message speed (working displays): the latest message alone
+	assert.equal(tracker.getOutputTps(), 30);
+
+	// a fresh run resets the accumulators
+	tracker.handle({ type: "agent_settled" });
+	tracker.handle({ type: "agent_start" });
+	assert.equal(tracker.getRunInputTokens(), 0);
+	assert.equal(tracker.getRunGenerationMs(), 0);
+	assert.equal(tracker.getRunTps(), null);
+});
+
+test("working line and border compose from config toggles", () => {
+	const glyphs = resolveGlyphs("ascii");
+	const source = {
+		elapsedText: "2m 3s",
+		runTps: 12.5 as number | null,
+		runInputTokens: 3_400_000,
+		runOutputTokens: 5_300,
+		runCacheHitRate: 96.4 as number | null,
+		toolCount: 3,
+	};
+	assert.equal(
+		formatWorkingLineMessage(
+			{ input: true, output: true, cacheHit: true, speed: true, tools: true },
+			source,
+			glyphs,
+		),
+		"Working\u2026 (o 2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 t 3)",
+	);
+	assert.equal(
+		formatWorkingBorderText(
+			{ elapsed: true, speed: true, output: false, input: false, cacheHit: false, tools: true },
+			source,
+			glyphs,
+		),
+		"o 2m 3s \u00b7 > 12.5 tok/s \u00b7 t 3",
+	);
+	// everything off (or speed not yet credible) still shows the elapsed time
+	assert.equal(
+		formatWorkingBorderText(
+			{ elapsed: false, speed: true, output: false, input: false, cacheHit: false, tools: false },
+			{ ...source, runTps: null },
+			glyphs,
+		),
+		"o 2m 3s",
+	);
+});
+
+test("run response-time speed and session-average speed track their own scopes", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" }); // submitted at t=0
+
+	// no speed before any token exists or before a 1s window
+	const message = makeMessage(0, 50);
+	startTurn(tracker, message);
+	now = 500;
+	assert.equal(tracker.getRunActiveTps(), null);
+
+	// first streamed output at t=0.1s (opens the session streaming window)
+	now = 100;
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(40), partial: message }));
+
+	// 100 exact tokens by t=2.1s: wall speed = 100/2.1 (includes TTFT)
+	const done = makeMessage(100, 50);
+	now = 2_100;
+	tracker.handle({ type: "message_end", message: done });
+	assert.equal(tracker.getRunActiveTps(), 47.6);
+
+	// a tool runs until t=4.2s: the wall average decays, tokens unchanged
+	now = 4_200;
+	assert.equal(tracker.getRunActiveTps(), 23.8);
+
+	// session average uses streaming windows only, so it stays higher
+	assert.ok(tracker.getSessionTps()! > tracker.getRunActiveTps()!);
+	tracker.handle({ type: "agent_settled" });
+	tracker.handle({ type: "agent_start" });
+	assert.equal(tracker.getRunActiveTps(), null); // fresh run: no tokens yet
+	assert.ok(tracker.getSessionTps()! > 0, "session average survives run boundaries");
+});
+
+test("tool-execution time is excluded from elapsed and run speed", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" });
+
+	// 100 tokens stream between t=1s and t=2.1s
+	const message = makeMessage(0, 50);
+	startTurn(tracker, message);
+	now = 1_000;
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(40), partial: message }));
+	const done = makeMessage(100, 50);
+	now = 2_100;
+	tracker.handle({ type: "message_end", message: done });
+	assert.equal(tracker.getRunActiveTps(), 47.6);
+
+	// a tool runs t=2.1s→4.2s: busy while running, accumulated after the end
+	tracker.handle({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: {} });
+	now = 4_200;
+	assert.equal(tracker.getToolBusyMs(), 2_100);
+	tracker.handle({ type: "tool_execution_end", toolCallId: "t1", toolName: "bash", result: {}, durationMs: 2_100 } as never);
+	assert.equal(tracker.getToolBusyMs(), 2_100);
+	// speed no longer decays during tool waits: same tokens, response time 2.1s
+	assert.equal(tracker.getRunActiveTps(), 47.6);
+
+	// fresh run resets the tool windows
+	tracker.handle({ type: "agent_settled" });
+	tracker.handle({ type: "agent_start" });
+	assert.equal(tracker.getToolBusyMs(), 0);
+});
+
+test("working surfaces hide zero token segments", () => {
+	const glyphs = resolveGlyphs("ascii");
+	const source = {
+		elapsedText: "5s",
+		runTps: null as number | null,
+		runInputTokens: 0,
+		runOutputTokens: 0,
+		runCacheHitRate: null as number | null,
+		toolCount: 0,
+	};
+	assert.equal(
+		formatWorkingLineMessage({ input: true, output: true, cacheHit: true, speed: true, tools: true }, source, glyphs),
+		"Working\u2026 (o 5s)",
+	);
+	assert.equal(
+		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: true, cacheHit: true, tools: true }, source, glyphs),
+		"o 5s",
+	);
+});
+
+test("sumSessionTelemetry seeds the session speed across restarts", () => {
+	const run = (out: number, gen: number) => ({
+		type: "custom",
+		customType: "asterisk.telemetry",
+		data: { tps: 1, ttftMs: 100, totalMs: 1000, inputTokens: 10, outputTokens: out, cacheReadTokens: 0, stallMs: 0, stallCount: 0, rateUsdPerMTokens: 1, generationMs: gen, totalTokens: out + 10, cacheHitRate: null, costUsd: 0.01, measurementMs: gen },
+	});
+	const totals = sumSessionTelemetry([run(100, 2_000), { type: "custom", customType: "pi.share" }, run(50, 3_000), run(NaN, 1)]);
+	assert.ok(totals);
+	assert.equal(totals.outputTokens, 150);
+	assert.equal(totals.generationMs, 5_000);
+	assert.equal(sumSessionTelemetry([]), null);
+
+	// seeded tracker reports the historical session average immediately
+	const tracker = new TurnTelemetryTracker(() => 0);
+	tracker.seedSessionTotals(totals.outputTokens, totals.generationMs);
+	assert.equal(tracker.getSessionTps(), 30);
+	// and keeps accumulating on top after a live run
+	tracker.handle({ type: "agent_start" });
+	const message = makeMessage(30, 5);
+	startTurn(tracker, message);
+	tracker.handle(update(message));
+	tracker.handle({ type: "message_end", message: { ...message, usage: { ...message.usage, output: 30 } } });
+	assert.equal(tracker.getSessionTps(), 36); // 180 tokens / 5s
 });
