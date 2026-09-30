@@ -558,6 +558,28 @@ test("working status tab cycles modes and gates content options", async () => {
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().workingLine.input, "cache");
 
+	// cost cycles its own tri-state (cost rides last: input → output → cacheHit → tools → cost)
+	settings.component.handleInput("\x1b[B");
+	settings.component.handleInput("\x1b[B");
+	settings.component.handleInput("\x1b[B");
+	settings.component.handleInput("\x1b[B");
+	assert.match(selectedLine(settings.component), /Working line · cost/);
+	settings.component.handleInput("\r"); // cost → cost+rate
+	assert.equal(settings.getConfig().workingLine.cost, "cost+rate");
+	assert.match(selectedLine(settings.component), /Cost \+ rate/);
+	settings.component.handleInput("\r"); // cost+rate → off
+	assert.equal(settings.getConfig().workingLine.cost, "off");
+	assert.match(selectedLine(settings.component), /Off/);
+	settings.component.handleInput("\r"); // off → cost
+	assert.equal(settings.getConfig().workingLine.cost, "cost");
+
+	// restore the cursor to the input item so the scroll window below
+	// (border-tail visibility) behaves exactly as before this block
+	settings.component.handleInput("\x1b[A");
+	settings.component.handleInput("\x1b[A");
+	settings.component.handleInput("\x1b[A");
+	settings.component.handleInput("\x1b[A");
+
 	// the two groups list their options in the same order (elapsed, speed, input, output, cacheHit, tools);
 	// scroll down first so the border tail (11th item) is on screen
 	for (let i = 0; i < 6; i++) settings.component.handleInput("\x1b[B");

@@ -176,6 +176,42 @@ test("borderWorkingStatus migrates into workingStatus and drops the stale key", 
 		assert.equal(config.workingLine.speed, true);
 		assert.deepEqual(config.workingBorder, DEFAULT_CONFIG.workingBorder);
 	} finally {
+		process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});
+
+test("working-surface cost toggles fold into the tri-state", () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "asterisk-tui-config-"));
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	try {
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		const write = (obj: unknown) =>
+			writeFileSync(join(agentDir, "asterisk-tui.json"), JSON.stringify(obj), "utf8");
+
+		// legacy booleans: true showed spend only, false hid it
+		write({ workingLine: { cost: true }, workingBorder: { cost: true } });
+		let config = loadConfig();
+		assert.equal(config.workingLine.cost, "cost");
+		assert.equal(config.workingBorder.cost, "cost");
+
+		write({ workingLine: { cost: false }, workingBorder: { cost: false } });
+		config = loadConfig();
+		assert.equal(config.workingLine.cost, "off");
+		assert.equal(config.workingBorder.cost, "off");
+
+		// valid strings pass through unchanged
+		write({ workingLine: { cost: "cost+rate" }, workingBorder: { cost: "cost" } });
+		config = loadConfig();
+		assert.equal(config.workingLine.cost, "cost+rate");
+		assert.equal(config.workingBorder.cost, "cost");
+
+		// invalid values fall back to the per-surface default
+		write({ workingLine: { cost: "bogus" }, workingBorder: { cost: "bogus" } });
+		config = loadConfig();
+		assert.equal(config.workingLine.cost, "cost");
+		assert.equal(config.workingBorder.cost, "off");
+	} finally {
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		rmSync(agentDir, { recursive: true, force: true });

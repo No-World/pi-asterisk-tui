@@ -11,7 +11,7 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { IconGlyphs } from "./icons.ts";
-import type { IconMode, TelemetryConfig, WorkingBorderConfig, WorkingInputMode, WorkingLineConfig } from "./config.ts";
+import type { CostDisplayMode, IconMode, TelemetryConfig, WorkingBorderConfig, WorkingInputMode, WorkingLineConfig } from "./config.ts";
 import { resolveGlyphs } from "./icons.ts";
 import { cacheHitColor, estimateStreamedTokens, finiteOrZero, fmtTokens, formatDuration, formatInputBreakdown } from "./utils.ts";
 
@@ -747,7 +747,7 @@ export interface WorkingContentSource {
 function workingSegments(
 	source: WorkingContentSource,
 	glyphs: IconGlyphs,
-	opts: { elapsed: boolean; speed: boolean; input: WorkingInputMode; output: boolean; cacheHit: boolean; cost: boolean; tools: boolean },
+	opts: { elapsed: boolean; speed: boolean; input: WorkingInputMode; output: boolean; cacheHit: boolean; cost: CostDisplayMode; tools: boolean },
 ): string[] {
 	const parts: string[] = [];
 	if (opts.elapsed) parts.push(`${glyphs.working} ${source.elapsedText}`);
@@ -762,7 +762,15 @@ function workingSegments(
 	if (opts.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
 	if (opts.cacheHit && source.runCacheHitRate !== null) parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
 	if (opts.tools && source.toolCount > 0) parts.push(`${glyphs.tools} ${source.toolCount}`);
-	if (opts.cost && source.runCostUsd > 0) parts.push(`${glyphs.cost} $${source.runCostUsd.toFixed(2)}`);
+	if (opts.cost !== "off" && source.runCostUsd > 0) {
+		// same blended rate as the footers: run cost over run tokens
+		// (usage.totalTokens ≈ input+cacheRead+cacheWrite+output)
+		const runTokens = source.runInputTokens + source.runOutputTokens;
+		const rate = opts.cost === "cost+rate" && runTokens > 0
+			? ` · $${(source.runCostUsd / (runTokens / 1_000_000)).toFixed(2)}/M`
+			: "";
+		parts.push(`${glyphs.cost} $${source.runCostUsd.toFixed(2)}${rate}`);
+	}
 	return parts;
 }
 

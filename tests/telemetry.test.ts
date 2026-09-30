@@ -775,15 +775,24 @@ test("working line and border compose from config toggles", () => {
 	};
 	assert.equal(
 		formatWorkingLineMessage(
-			{ elapsed: true, input: "cache", output: true, cacheHit: true, cost: true, speed: true, tools: true },
+			{ elapsed: true, input: "cache", output: true, cacheHit: true, cost: "cost", speed: true, tools: true },
 			source,
 			glyphs,
 		),
 		"Working\u2026 (o 2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M (R 3.3M) \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 t 3 \u00b7 $ $0.42)",
 	);
+	// cost+rate appends the blended run rate (run cost over run tokens)
+	assert.equal(
+		formatWorkingLineMessage(
+			{ elapsed: false, input: "off", output: false, cacheHit: false, cost: "cost+rate", speed: false, tools: false },
+			source,
+			glyphs,
+		),
+		"Working\u2026 ($ $0.42 \u00b7 $0.12/M)",
+	);
 	assert.equal(
 		formatWorkingBorderText(
-			{ elapsed: false, speed: true, output: false, input: "total", cacheHit: false, cost: false, tools: true },
+			{ elapsed: false, speed: true, output: false, input: "total", cacheHit: false, cost: "off", tools: true },
 			source,
 			glyphs,
 		),
@@ -792,7 +801,7 @@ test("working line and border compose from config toggles", () => {
 	// everything off (or speed not yet credible) still shows the elapsed time
 	assert.equal(
 		formatWorkingBorderText(
-			{ elapsed: false, speed: true, output: false, input: "off", cacheHit: false, cost: false, tools: false },
+			{ elapsed: false, speed: true, output: false, input: "off", cacheHit: false, cost: "off", tools: false },
 			{ ...source, runTps: null },
 			glyphs,
 		),
@@ -876,11 +885,11 @@ test("working surfaces hide zero token segments", () => {
 		toolCount: 0,
 	};
 	assert.equal(
-		formatWorkingLineMessage({ elapsed: true, input: "cache", output: true, cacheHit: true, cost: true, speed: true, tools: true }, source, glyphs),
+		formatWorkingLineMessage({ elapsed: true, input: "cache", output: true, cacheHit: true, cost: "cost+rate", speed: true, tools: true }, source, glyphs),
 		"Working\u2026 (o 5s)",
 	);
 	assert.equal(
-		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: "cache", cacheHit: true, cost: true, tools: true }, source, glyphs),
+		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: "cache", cacheHit: true, cost: "cost+rate", tools: true }, source, glyphs),
 		"o 5s",
 	);
 });
