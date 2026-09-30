@@ -751,8 +751,8 @@ function workingSegments(
 	}
 	if (opts.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
 	if (opts.cacheHit && source.runCacheHitRate !== null) parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
-	if (opts.cost && source.runCostUsd > 0) parts.push(`${glyphs.cost} $${source.runCostUsd.toFixed(2)}`);
 	if (opts.tools && source.toolCount > 0) parts.push(`${glyphs.tools} ${source.toolCount}`);
+	if (opts.cost && source.runCostUsd > 0) parts.push(`${glyphs.cost} $${source.runCostUsd.toFixed(2)}`);
 	return parts;
 }
 

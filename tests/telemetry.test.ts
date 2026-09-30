@@ -770,7 +770,7 @@ test("working line and border compose from config toggles", () => {
 			source,
 			glyphs,
 		),
-		"Working\u2026 (o 2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M (R 3.3M) \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 $ $0.42 \u00b7 t 3)",
+		"Working\u2026 (o 2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M (R 3.3M) \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 t 3 \u00b7 $ $0.42)",
 	);
 	assert.equal(
 		formatWorkingBorderText(

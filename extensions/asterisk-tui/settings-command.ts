@@ -323,8 +323,8 @@ function buildWorkingItems(config: OpenTuiConfig, copy: SettingsCopy): SettingIt
 			{ id: "line.input", label: copy.labels.workingLineInput, currentValue: copy.values.inputModes[line.input] },
 			{ id: "line.output", label: copy.labels.workingLineOutput, currentValue: flag(line.output) },
 			{ id: "line.cacheHit", label: copy.labels.workingLineCacheHit, currentValue: flag(line.cacheHit) },
-			{ id: "line.cost", label: copy.labels.workingLineCost, currentValue: flag(line.cost) },
 			{ id: "line.tools", label: copy.labels.workingLineTools, currentValue: flag(line.tools) },
+			{ id: "line.cost", label: copy.labels.workingLineCost, currentValue: flag(line.cost) },
 		);
 	}
 	if (config.workingStatus !== "line") {
@@ -335,8 +335,8 @@ function buildWorkingItems(config: OpenTuiConfig, copy: SettingsCopy): SettingIt
 			{ id: "border.input", label: copy.labels.workingBorderInput, currentValue: copy.values.inputModes[border.input] },
 			{ id: "border.output", label: copy.labels.workingBorderOutput, currentValue: flag(border.output) },
 			{ id: "border.cacheHit", label: copy.labels.workingBorderCacheHit, currentValue: flag(border.cacheHit) },
-			{ id: "border.cost", label: copy.labels.workingBorderCost, currentValue: flag(border.cost) },
 			{ id: "border.tools", label: copy.labels.workingBorderTools, currentValue: flag(border.tools) },
+			{ id: "border.cost", label: copy.labels.workingBorderCost, currentValue: flag(border.cost) },
 		);
 	}
 	return items;
