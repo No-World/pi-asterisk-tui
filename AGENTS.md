@@ -50,7 +50,7 @@ Decisions that survive the discussion become an ADR — see `docs/adrs/README.md
 - **Hard gate before merge**: `npm test && npm run typecheck` green. CI runs it on every PR; run it locally too when touching code.
 - **Squash-merge**, then delete the branch.
 - **Agent vs human**: the agent handles branch/commit/push/open-PR and prepares gate evidence; review and merge are the maintainer's call — the agent never runs `gh pr merge`, not even when the user authorizes a release ("发新版" authorizes tag/publish after the user merges; it never delegates the merge itself).
-- **Releases**: version-bump branch → PR (`No-Issue: version bump`) → **maintainer merges first** → only then push the `vX.Y.Z` tag. Tag push triggers npm publish (irreversible: a published version number is permanently taken). Never push the release tag before the PR is merged — v0.7.0 did this once and was called out. Direct-pushing main is always declined anyway (CodeQL push rule deadlocks non-PR commits).
+- **Releases**: version-bump branch → PR (`No-Issue: version bump`) → **maintainer merges first** → push the `vX.Y.Z` tag (this only creates a draft release with generated notes — ADR-0007) → fill in the highlights → **publishing the release is what triggers npm publish** (irreversible: a published version number is permanently taken; the workflow also enforces tag↔package.json version consistency). Never push the release tag before the PR is merged — v0.7.0 did this once and was called out. Direct-pushing main is always declined anyway (CodeQL push rule deadlocks non-PR commits).
 - Never stage with a bare `git add -A` / `git add .` — stage explicit paths.
 
 ## Quality Gate Placement

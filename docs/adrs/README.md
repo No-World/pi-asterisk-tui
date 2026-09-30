@@ -49,3 +49,4 @@ Date: YYYY-MM-DD
 | [0004](./0004-regular-mode-collapse-and-expand-all.md) | 压缩行适配 regular 模式：TuiMainScreen 发现 + 全部展开快捷键（ctrl+\ 默认，单一事实源标注） | 2026-09-08 | Accepted |
 | [0005](./0005-selection-copy-modes.md) | 选区复制：换行感知与三级模式（plain / unwrapped / raw，默认 unwrapped） | 2026-09-28 | Accepted |
 | [0006](./0006-optimistic-auto-icon-detection.md) | 图标 auto 检测乐观策略 + 一次性豆腐块提示（ADR-0006） | 2026-09-29 | Accepted |
+| [0007](./0007-release-gated-npm-publish.md) | 发布闸门前移：GitHub Release 发布触发 npm publish，tag 推送只建草稿 | 2026-09-30 | Accepted |
