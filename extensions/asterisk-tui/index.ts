@@ -141,6 +141,7 @@ export default function (pi: ExtensionAPI) {
 		),
 		runTps: turnTelemetry.getRunActiveTps(),
 		runInputTokens: turnTelemetry.getRunInputTokens(),
+		runCacheReadTokens: turnTelemetry.getRunCacheReadTokens(),
 		runOutputTokens: turnTelemetry.getRunOutputTokens(),
 		runCacheHitRate: turnTelemetry.getRunCacheHitRate(),
 		toolCount: turnTelemetry.getLiveToolCalls(),

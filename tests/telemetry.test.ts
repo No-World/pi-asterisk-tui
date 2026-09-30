@@ -755,30 +755,31 @@ test("working line and border compose from config toggles", () => {
 		elapsedText: "2m 3s",
 		runTps: 12.5 as number | null,
 		runInputTokens: 3_400_000,
+		runCacheReadTokens: 3_300_000,
 		runOutputTokens: 5_300,
 		runCacheHitRate: 96.4 as number | null,
 		toolCount: 3,
 	};
 	assert.equal(
 		formatWorkingLineMessage(
-			{ input: true, output: true, cacheHit: true, speed: true, tools: true },
+			{ elapsed: true, input: "cache", output: true, cacheHit: true, speed: true, tools: true },
 			source,
 			glyphs,
 		),
-		"Working\u2026 (o 2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 t 3)",
+		"Working\u2026 (o 2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M (R 3.3M) \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 t 3)",
 	);
 	assert.equal(
 		formatWorkingBorderText(
-			{ elapsed: true, speed: true, output: false, input: false, cacheHit: false, tools: true },
+			{ elapsed: false, speed: true, output: false, input: "total", cacheHit: false, tools: true },
 			source,
 			glyphs,
 		),
-		"o 2m 3s \u00b7 > 12.5 tok/s \u00b7 t 3",
+		"> 12.5 tok/s \u00b7 \u2191 3.4M \u00b7 t 3",
 	);
 	// everything off (or speed not yet credible) still shows the elapsed time
 	assert.equal(
 		formatWorkingBorderText(
-			{ elapsed: false, speed: true, output: false, input: false, cacheHit: false, tools: false },
+			{ elapsed: false, speed: true, output: false, input: "off", cacheHit: false, tools: false },
 			{ ...source, runTps: null },
 			glyphs,
 		),
@@ -855,16 +856,17 @@ test("working surfaces hide zero token segments", () => {
 		elapsedText: "5s",
 		runTps: null as number | null,
 		runInputTokens: 0,
+		runCacheReadTokens: 0,
 		runOutputTokens: 0,
 		runCacheHitRate: null as number | null,
 		toolCount: 0,
 	};
 	assert.equal(
-		formatWorkingLineMessage({ input: true, output: true, cacheHit: true, speed: true, tools: true }, source, glyphs),
+		formatWorkingLineMessage({ elapsed: true, input: "cache", output: true, cacheHit: true, speed: true, tools: true }, source, glyphs),
 		"Working\u2026 (o 5s)",
 	);
 	assert.equal(
-		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: true, cacheHit: true, tools: true }, source, glyphs),
+		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: "cache", cacheHit: true, tools: true }, source, glyphs),
 		"o 5s",
 	);
 });

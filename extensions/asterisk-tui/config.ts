@@ -78,10 +78,17 @@ export type StylePreset = "hud" | "classic" | "custom";
 export type WorkingStatusMode = "line" | "border" | "both";
 export const WORKING_STATUS_MODES: readonly WorkingStatusMode[] = ["line", "border", "both"];
 
+/** Input-token segment presentation on the working surfaces: hidden, the
+ *  run total, or the total with its cache-read part spelled out. */
+export type WorkingInputMode = "off" | "total" | "cache";
+export const WORKING_INPUT_MODES: readonly WorkingInputMode[] = ["off", "total", "cache"];
+
 /** Working-line content toggles; elapsed time is always shown. */
 export interface WorkingLineConfig {
 	/** Input tokens incl. cache read (updated at message boundaries). */
-	input: boolean;
+	/** Elapsed is always shown when everything else is off. */
+	elapsed: boolean;
+	input: WorkingInputMode;
 	output: boolean;
 	cacheHit: boolean;
 	/** Per-message output speed (the footer shows the run-average speed). */
@@ -95,7 +102,7 @@ export interface WorkingBorderConfig {
 	/** Per-message output speed, shown only while width allows. */
 	speed: boolean;
 	output: boolean;
-	input: boolean;
+	input: WorkingInputMode;
 	cacheHit: boolean;	tools: boolean;
 }
 
@@ -414,8 +421,8 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		capitalizeProviderName: true,
 	},
 	workingStatus: "both",
-	workingLine: { input: true, output: true, cacheHit: true, speed: true, tools: true },
-	workingBorder: { elapsed: true, speed: true, output: false, input: false, cacheHit: false, tools: true },
+	workingLine: { elapsed: true, input: "cache", output: true, cacheHit: true, speed: true, tools: true },
+	workingBorder: { elapsed: true, speed: true, output: false, input: "off", cacheHit: false, tools: true },
 	inlineFooter: false,
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
@@ -587,6 +594,16 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		config.hud = normalizeHudConfig(deepMerge(DEFAULT_HUD_CONFIG, config.hud));
 		if (!WORKING_STATUS_MODES.includes(config.workingStatus)) {
 			config.workingStatus = "both";
+		}
+		// legacy boolean input toggles fold into the tri-state (true showed the
+		// plain total; the cache breakdown is the upgrade default)
+		for (const group of ["workingLine", "workingBorder"] as const) {
+			const rawInput: unknown = (config[group] as unknown as Record<string, unknown>).input;
+			if (rawInput === true) (config[group] as unknown as Record<string, unknown>).input = "cache";
+			else if (rawInput === false) (config[group] as unknown as Record<string, unknown>).input = "off";
+			else if (typeof rawInput !== "string" || !WORKING_INPUT_MODES.includes(rawInput as WorkingInputMode)) {
+				(config[group] as unknown as Record<string, unknown>).input = DEFAULT_CONFIG[group].input;
+			}
 		}
 		config.stylePreset = deriveStylePreset(config);
 		config.fullscreen.wheelScrollLines = normalizeFullscreenWheelScrollLines(

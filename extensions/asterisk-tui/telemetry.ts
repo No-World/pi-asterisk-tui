@@ -11,7 +11,7 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { IconGlyphs } from "./icons.ts";
-import type { IconMode, TelemetryConfig, WorkingBorderConfig, WorkingLineConfig } from "./config.ts";
+import type { IconMode, TelemetryConfig, WorkingBorderConfig, WorkingInputMode, WorkingLineConfig } from "./config.ts";
 import { resolveGlyphs } from "./icons.ts";
 import { cacheHitColor, estimateStreamedTokens, finiteOrZero, fmtTokens, formatDuration, formatInputBreakdown } from "./utils.ts";
 
@@ -688,6 +688,7 @@ export interface WorkingContentSource {
 	/** Run speed from submission to now; null until tokens exist. */
 	runTps: number | null;
 	runInputTokens: number;
+	runCacheReadTokens: number;
 	runOutputTokens: number;
 	runCacheHitRate: number | null;
 	toolCount: number;
@@ -698,12 +699,18 @@ export interface WorkingContentSource {
 function workingSegments(
 	source: WorkingContentSource,
 	glyphs: IconGlyphs,
-	opts: { elapsed: boolean; speed: boolean; input: boolean; output: boolean; cacheHit: boolean; tools: boolean },
+	opts: { elapsed: boolean; speed: boolean; input: WorkingInputMode; output: boolean; cacheHit: boolean; tools: boolean },
 ): string[] {
 	const parts: string[] = [];
 	if (opts.elapsed) parts.push(`${glyphs.working} ${source.elapsedText}`);
 	if (opts.speed && source.runTps !== null) parts.push(`${glyphs.speed} ${source.runTps.toFixed(1)} tok/s`);
-	if (opts.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
+	if (opts.input !== "off" && source.runInputTokens > 0) {
+		const total = fmtTokens(source.runInputTokens);
+		const cachePart = opts.input === "cache" && source.runCacheReadTokens > 0
+			? ` (R ${fmtTokens(source.runCacheReadTokens)})`
+			: "";
+		parts.push(`${glyphs.input} ${total}${cachePart}`);
+	}
 	if (opts.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
 	if (opts.cacheHit && source.runCacheHitRate !== null) parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
 	if (opts.tools && source.toolCount > 0) parts.push(`${glyphs.tools} ${source.toolCount}`);
@@ -717,7 +724,7 @@ export function formatWorkingLineMessage(
 	source: WorkingContentSource,
 	glyphs: IconGlyphs,
 ): string {
-	const parts = workingSegments(source, glyphs, { elapsed: true, ...content });
+	const parts = workingSegments(source, glyphs, content);
 	return `Working… (${parts.join(" · ")})`;
 }
 

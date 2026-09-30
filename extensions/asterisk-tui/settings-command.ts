@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SelectionCopyMode, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES, WORKING_STATUS_MODES } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES, WORKING_INPUT_MODES, WORKING_STATUS_MODES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -45,15 +45,16 @@ const COPY = {
 		capitalizeProviderName: "Provider capitalization",
 		inlineFooter: "Inline footer",
 		workingMode: "Display mode",
-		workingLineSpeed: "Working line · speed (per message)",
-		workingLineInput: "Working line · input tokens (incl. cache)",
+		workingLineElapsed: "Working line · elapsed",
+		workingLineSpeed: "Working line · speed",
+		workingLineInput: "Working line · input tokens",
 		workingLineOutput: "Working line · output tokens",
 		workingLineCacheHit: "Working line · cache hit",
 		workingLineTools: "Working line · tool count",
 		workingBorderElapsed: "Border · elapsed",
-		workingBorderSpeed: "Border · speed (per message)",
+		workingBorderSpeed: "Border · speed",
 		workingBorderOutput: "Border · output tokens",
-		workingBorderInput: "Border · input tokens (incl. cache)",
+		workingBorderInput: "Border · input tokens",
 		workingBorderCacheHit: "Border · cache hit",
 		workingBorderTools: "Border · tool count",
 			sessionName: "Session name",
@@ -128,6 +129,7 @@ const COPY = {
 			tokenModes: { off: "Off", verbose: "Full (labels + cache detail)", compact: "Compact (icon shorthand)" },
 			statStyles: { icon: "Icons only", "icon+text": "Icons + text", text: "Text only" },
 			workingModes: { line: "Working line only", border: "Border only", both: "Working line + border" },
+			inputModes: { off: "Off", total: "Total", cache: "Total + cache" },
 			collapseModes: { native: "Native", single: "One per tool", "group-same": "Group same type", "group-all": "Group all" },
 			collapseStyles: { compact: "Compact", classic: "Classic" },
 			toolOverrides: { default: "Default", single: "One line", "group-same": "Group same type", expand: "Native box" },
@@ -156,15 +158,16 @@ const COPY = {
 		capitalizeProviderName: "Provider 大小写",
 		inlineFooter: "内嵌底栏",
 		workingMode: "显示模式",
-		workingLineSpeed: "Working 行 · 输出速度（单条消息）",
-		workingLineInput: "Working 行 · 输入 token（含缓存）",
+		workingLineElapsed: "Working 行 · 时长",
+		workingLineSpeed: "Working 行 · 输出速度",
+		workingLineInput: "Working 行 · 输入 token",
 		workingLineOutput: "Working 行 · 输出 token",
 		workingLineCacheHit: "Working 行 · 缓存命中",
 		workingLineTools: "Working 行 · 工具计数",
 		workingBorderElapsed: "边框 · 时长",
-		workingBorderSpeed: "边框 · 输出速度（单条消息）",
+		workingBorderSpeed: "边框 · 输出速度",
 		workingBorderOutput: "边框 · 输出 token",
-		workingBorderInput: "边框 · 输入 token（含缓存）",
+		workingBorderInput: "边框 · 输入 token",
 		workingBorderCacheHit: "边框 · 缓存命中",
 		workingBorderTools: "边框 · 工具计数",
 			sessionName: "会话名",
@@ -239,6 +242,7 @@ const COPY = {
 			tokenModes: { off: "关闭", verbose: "完整（文字标签＋缓存明细）", compact: "紧凑（图标速记，语言无关）" },
 			statStyles: { icon: "纯图标", "icon+text": "图标+文字", text: "纯文字" },
 			workingModes: { line: "单 Working 行", border: "单边框信息", both: "Working 行+边框信息" },
+			inputModes: { off: "关闭", total: "总数", cache: "总数+缓存" },
 			collapseModes: { native: "原生", single: "每工具单行", "group-same": "同类归纳", "group-all": "整段归纳" },
 			collapseStyles: { compact: "紧凑", classic: "经典" },
 			toolOverrides: { default: "默认", single: "单行", "group-same": "同类归纳", expand: "原生" },
@@ -308,8 +312,9 @@ function buildWorkingItems(config: OpenTuiConfig, copy: SettingsCopy): SettingIt
 	if (config.workingStatus !== "border") {
 		const line = config.workingLine;
 		items.push(
+			{ id: "line.elapsed", label: copy.labels.workingLineElapsed, currentValue: flag(line.elapsed) },
 			{ id: "line.speed", label: copy.labels.workingLineSpeed, currentValue: flag(line.speed) },
-			{ id: "line.input", label: copy.labels.workingLineInput, currentValue: flag(line.input) },
+			{ id: "line.input", label: copy.labels.workingLineInput, currentValue: copy.values.inputModes[line.input] },
 			{ id: "line.output", label: copy.labels.workingLineOutput, currentValue: flag(line.output) },
 			{ id: "line.cacheHit", label: copy.labels.workingLineCacheHit, currentValue: flag(line.cacheHit) },
 			{ id: "line.tools", label: copy.labels.workingLineTools, currentValue: flag(line.tools) },
@@ -320,8 +325,8 @@ function buildWorkingItems(config: OpenTuiConfig, copy: SettingsCopy): SettingIt
 		items.push(
 			{ id: "border.elapsed", label: copy.labels.workingBorderElapsed, currentValue: flag(border.elapsed) },
 			{ id: "border.speed", label: copy.labels.workingBorderSpeed, currentValue: flag(border.speed) },
+			{ id: "border.input", label: copy.labels.workingBorderInput, currentValue: copy.values.inputModes[border.input] },
 			{ id: "border.output", label: copy.labels.workingBorderOutput, currentValue: flag(border.output) },
-			{ id: "border.input", label: copy.labels.workingBorderInput, currentValue: flag(border.input) },
 			{ id: "border.cacheHit", label: copy.labels.workingBorderCacheHit, currentValue: flag(border.cacheHit) },
 			{ id: "border.tools", label: copy.labels.workingBorderTools, currentValue: flag(border.tools) },
 		);
@@ -672,6 +677,13 @@ function handleSettingChange(
 	}
 	if (tab === "working") {
 		if (itemId === "mode") return cycleWorkingStatus(config);
+		if (itemId === "line.input" || itemId === "border.input") {
+			const group = itemId === "line.input" ? "workingLine" : "workingBorder";
+			const current = config[group].input;
+			const idx = WORKING_INPUT_MODES.indexOf(current);
+			const next = WORKING_INPUT_MODES[(idx + 1) % WORKING_INPUT_MODES.length]!;
+			return { ...config, [group]: { ...config[group], input: next } };
+		}
 		if (itemId.startsWith("line.")) {
 			const key = itemId.slice("line.".length) as keyof OpenTuiConfig["workingLine"];
 			return { ...config, workingLine: { ...config.workingLine, [key]: !config.workingLine[key] } };
