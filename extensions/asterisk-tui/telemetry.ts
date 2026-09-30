@@ -11,7 +11,7 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { IconGlyphs } from "./icons.ts";
-import type { IconMode, TelemetryConfig, WorkingBorderConfig, WorkingLineConfig } from "./config.ts";
+import type { IconMode, TelemetryConfig, WorkingBorderConfig, WorkingInputMode, WorkingLineConfig } from "./config.ts";
 import { resolveGlyphs } from "./icons.ts";
 import { cacheHitColor, estimateStreamedTokens, finiteOrZero, fmtTokens, formatDuration, formatInputBreakdown } from "./utils.ts";
 
@@ -45,6 +45,10 @@ interface MessageTiming {
 	inStall: boolean;
 	/** Largest output-token count reported by provider usage while streaming this message. */
 	liveUsageOutput: number;
+	/** Largest input+cacheWrite / cacheRead reported while streaming (anthropic
+	 *  message_start carries them, so the working segments light up immediately). */
+	liveUsageInput: number;
+	liveUsageCacheRead: number;
 	/** Delta-based token estimate for providers without mid-stream usage (anthropic protocol). */
 	streamedEstimate: number;
 	/** perf-clock start of the message; anchors thinking-duration measurement. */
@@ -82,6 +86,8 @@ export interface TurnSummary {
 export interface TurnTelemetry {
 	tps: number | null;
 	ttftMs: number;
+	/** Tool executions started during the run. */
+	toolCalls: number;
 	totalMs: number;
 	inputTokens: number;
 	outputTokens: number;
@@ -121,6 +127,8 @@ export class TurnTelemetryTracker {
 	private agentRunInputTokens = 0;
 	/** Cache-read tokens of completed messages in the current run. */
 	private agentRunCacheReadTokens = 0;
+	/** Cost (USD) of completed messages in the current run. */
+	private agentRunCostUsd = 0;
 	/** Streaming windows of completed messages; excludes tool time. */
 	private agentRunGenerationMs = 0;
 	/** Wall time spent inside tool executions this run (TTFT counts, tools don't). */
@@ -176,13 +184,24 @@ export class TurnTelemetryTracker {
 			: 0;
 		return this.agentRunOutputTokens + inFlight;
 	}
-	/** Input+cacheWrite+cacheRead of completed messages in the current run. */
+	/** Input+cacheWrite+cacheRead of the current run: completed messages plus
+	 *  the in-flight one's provider-reported usage (message_start on the
+	 *  anthropic protocol carries input/cacheRead, so the segments appear at
+	 *  message start instead of waiting for its end). */
 	getRunInputTokens(): number {
-		return this.agentRunInputTokens;
+		const current = this.turn?.currentMessage;
+		const live = current ? current.liveUsageInput + current.liveUsageCacheRead : 0;
+		return this.agentRunInputTokens + live;
 	}
 
 	getRunCacheReadTokens(): number {
-		return this.agentRunCacheReadTokens;
+		const current = this.turn?.currentMessage;
+		return this.agentRunCacheReadTokens + (current?.liveUsageCacheRead ?? 0);
+	}
+
+	/** Run-cumulative cost of completed messages, in USD. */
+	getRunCostUsd(): number {
+		return this.agentRunCostUsd;
 	}
 
 	/** Completed streaming windows plus the in-flight one; excludes tool time. */
@@ -192,11 +211,11 @@ export class TurnTelemetryTracker {
 		return this.agentRunGenerationMs + live;
 	}
 
-	/** Run cache hit rate over completed messages; null without cache tokens. */
+	/** Run cache hit rate (completed + in-flight usage); null without cache tokens. */
 	getRunCacheHitRate(): number | null {
-		return this.agentRunCacheReadTokens > 0 && this.agentRunInputTokens > 0
-			? round((this.agentRunCacheReadTokens / this.agentRunInputTokens) * 100, 1)
-			: null;
+		const input = this.getRunInputTokens();
+		const cacheRead = this.getRunCacheReadTokens();
+		return cacheRead > 0 && input > 0 ? round((cacheRead / input) * 100, 1) : null;
 	}
 
 	/** Wall time currently attributable to tool executions: finished windows
@@ -260,6 +279,7 @@ export class TurnTelemetryTracker {
 				this.agentRunGenerationMs = 0;
 				// stale speeds from the previous run must not leak into the new one
 				this.lastMessageTps = null;
+				this.agentRunCostUsd = 0;
 				this.toolBusyAccumMs = 0;
 				this.activeToolStarts = [];
 					this.agentSummaries = [];
@@ -320,6 +340,8 @@ export class TurnTelemetryTracker {
 			firstOutputMs: null,
 			inStall: false,
 			liveUsageOutput: finiteOrZero(message.usage?.output),
+			liveUsageInput: finiteOrZero(message.usage?.input) + finiteOrZero(message.usage?.cacheWrite),
+			liveUsageCacheRead: finiteOrZero(message.usage?.cacheRead),
 			streamedEstimate: 0,
 			startMs: now,
 			sawThinking: false,
@@ -338,6 +360,14 @@ export class TurnTelemetryTracker {
 		const reportedOutput = finiteOrZero(message.usage?.output);
 		if (reportedOutput > current.liveUsageOutput) {
 			current.liveUsageOutput = reportedOutput;
+		}
+		const reportedInput = finiteOrZero(message.usage?.input) + finiteOrZero(message.usage?.cacheWrite);
+		if (reportedInput > current.liveUsageInput) {
+			current.liveUsageInput = reportedInput;
+		}
+		const reportedCacheRead = finiteOrZero(message.usage?.cacheRead);
+		if (reportedCacheRead > current.liveUsageCacheRead) {
+			current.liveUsageCacheRead = reportedCacheRead;
 		}
 
 		const streamEvent = event.assistantMessageEvent;
@@ -413,6 +443,7 @@ export class TurnTelemetryTracker {
 			finiteOrZero(message.usage?.cacheWrite) +
 			finiteOrZero(message.usage?.cacheRead);
 		this.agentRunCacheReadTokens += finiteOrZero(message.usage?.cacheRead);
+		this.agentRunCostUsd += finiteOrZero(message.usage?.cost?.total);
 		turn.messages.push(message);
 	}
 
@@ -475,6 +506,7 @@ export class TurnTelemetryTracker {
 		return {
 			tps,
 			ttftMs: turn.firstTokenMs - turn.startMs,
+			toolCalls: sumMapValues(turn.toolCounts),
 			totalMs: endMs - turn.startMs,
 			inputTokens,
 			outputTokens,
@@ -528,6 +560,7 @@ export class TurnTelemetryTracker {
 		return {
 			tps,
 			ttftMs: turns[0]!.ttftMs,
+			toolCalls: turns.reduce((sum, turn) => sum + turn.toolCalls, 0),
 			totalMs: this.now() - startMs,
 			inputTokens,
 			outputTokens,
@@ -664,6 +697,10 @@ export function formatTurnTelemetry(
 	if (config.duration) {
 		parts.push(theme.fg("success", `${glyphs.done} ${formatTurnDuration(telemetry.totalMs)}`));
 	}
+	if (config.tools) {
+		const toolCalls = finiteOrZero(telemetry.toolCalls);
+		if (toolCalls > 0) parts.push(theme.fg("text", `${glyphs.tools} ${toolCalls}`));
+	}
 	if (config.tokens) {
 		parts.push(theme.fg("accent", `${glyphs.input} ${formatInputBreakdown(telemetry.inputTokens, telemetry.cacheReadTokens)}`));
 		parts.push(theme.fg("success", `${glyphs.output} ${fmtTokens(telemetry.outputTokens)}`));
@@ -676,8 +713,18 @@ export function formatTurnTelemetry(
 	if (config.stalls && telemetry.stallMs > 0) {
 		parts.push(theme.fg("warning", `${glyphs.stall} stall ${telemetry.stallCount}x / ${formatTurnDuration(telemetry.stallMs)}`));
 	}
-	if (config.cost && telemetry.rateUsdPerMTokens !== null) {
-		parts.push(theme.fg("warning", `${glyphs.cost} $${telemetry.rateUsdPerMTokens.toFixed(2)}/M`));
+	if (config.cost !== "off") {
+		// two dimensions: what this run actually cost, and the blended
+		// per-million rate (dominated by the cache-read share — see CONTEXT)
+		const costParts: string[] = [];
+		if (telemetry.costUsd > 0) {
+			const actual = telemetry.costUsd < 0.05 ? telemetry.costUsd.toFixed(4) : telemetry.costUsd.toFixed(2);
+			costParts.push(`$${actual}`);
+		}
+		if (config.cost === "cost+rate" && telemetry.rateUsdPerMTokens !== null) {
+			costParts.push(`$${telemetry.rateUsdPerMTokens.toFixed(2)}/M`);
+		}
+		if (costParts.length) parts.push(theme.fg("warning", `${glyphs.cost} ${costParts.join(" · ")}`));
 	}
 	return parts.join(` ${theme.fg("dim", "|")} `);
 }
@@ -688,8 +735,10 @@ export interface WorkingContentSource {
 	/** Run speed from submission to now; null until tokens exist. */
 	runTps: number | null;
 	runInputTokens: number;
+	runCacheReadTokens: number;
 	runOutputTokens: number;
 	runCacheHitRate: number | null;
+	runCostUsd: number;
 	toolCount: number;
 }
 
@@ -698,15 +747,22 @@ export interface WorkingContentSource {
 function workingSegments(
 	source: WorkingContentSource,
 	glyphs: IconGlyphs,
-	opts: { elapsed: boolean; speed: boolean; input: boolean; output: boolean; cacheHit: boolean; tools: boolean },
+	opts: { elapsed: boolean; speed: boolean; input: WorkingInputMode; output: boolean; cacheHit: boolean; cost: boolean; tools: boolean },
 ): string[] {
 	const parts: string[] = [];
 	if (opts.elapsed) parts.push(`${glyphs.working} ${source.elapsedText}`);
 	if (opts.speed && source.runTps !== null) parts.push(`${glyphs.speed} ${source.runTps.toFixed(1)} tok/s`);
-	if (opts.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
+	if (opts.input !== "off" && source.runInputTokens > 0) {
+		const total = fmtTokens(source.runInputTokens);
+		const cachePart = opts.input === "cache" && source.runCacheReadTokens > 0
+			? ` (R ${fmtTokens(source.runCacheReadTokens)})`
+			: "";
+		parts.push(`${glyphs.input} ${total}${cachePart}`);
+	}
 	if (opts.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
 	if (opts.cacheHit && source.runCacheHitRate !== null) parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
 	if (opts.tools && source.toolCount > 0) parts.push(`${glyphs.tools} ${source.toolCount}`);
+	if (opts.cost && source.runCostUsd > 0) parts.push(`${glyphs.cost} $${source.runCostUsd.toFixed(2)}`);
 	return parts;
 }
 
@@ -717,7 +773,7 @@ export function formatWorkingLineMessage(
 	source: WorkingContentSource,
 	glyphs: IconGlyphs,
 ): string {
-	const parts = workingSegments(source, glyphs, { elapsed: true, ...content });
+	const parts = workingSegments(source, glyphs, content);
 	return `Working… (${parts.join(" · ")})`;
 }
 

@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SelectionCopyMode, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES, WORKING_STATUS_MODES } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, COST_DISPLAY_MODES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES, WORKING_INPUT_MODES, WORKING_STATUS_MODES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -45,16 +45,19 @@ const COPY = {
 		capitalizeProviderName: "Provider capitalization",
 		inlineFooter: "Inline footer",
 		workingMode: "Display mode",
-		workingLineSpeed: "Working line · speed (per message)",
-		workingLineInput: "Working line · input tokens (incl. cache)",
+		workingLineElapsed: "Working line · elapsed",
+		workingLineSpeed: "Working line · speed",
+		workingLineInput: "Working line · input tokens",
 		workingLineOutput: "Working line · output tokens",
 		workingLineCacheHit: "Working line · cache hit",
+		workingLineCost: "Working line · cost",
 		workingLineTools: "Working line · tool count",
 		workingBorderElapsed: "Border · elapsed",
-		workingBorderSpeed: "Border · speed (per message)",
+		workingBorderSpeed: "Border · speed",
 		workingBorderOutput: "Border · output tokens",
-		workingBorderInput: "Border · input tokens (incl. cache)",
+		workingBorderInput: "Border · input tokens",
 		workingBorderCacheHit: "Border · cache hit",
+		workingBorderCost: "Border · cost",
 		workingBorderTools: "Border · tool count",
 			sessionName: "Session name",
 			gitBranch: "Git branch",
@@ -106,9 +109,10 @@ const COPY = {
 			hudDailyCost: "Daily cost",
 			hudPiVersion: "Pi version",
 			totalDuration: "Total duration",
+			toolCallCount: "Tool calls",
 			tokenCounts: "Token counts",
 			stallDetails: "Stall details",
-			costRate: "Cost rate",
+			costRate: "Cost",
 			telemetryPersist: "Persistence",
 		},
 		values: {
@@ -128,6 +132,8 @@ const COPY = {
 			tokenModes: { off: "Off", verbose: "Full (labels + cache detail)", compact: "Compact (icon shorthand)" },
 			statStyles: { icon: "Icons only", "icon+text": "Icons + text", text: "Text only" },
 			workingModes: { line: "Working line only", border: "Border only", both: "Working line + border" },
+			inputModes: { off: "Off", total: "Total", cache: "Total + cache" },
+			costModes: { off: "Off", cost: "Cost", "cost+rate": "Cost + rate" },
 			collapseModes: { native: "Native", single: "One per tool", "group-same": "Group same type", "group-all": "Group all" },
 			collapseStyles: { compact: "Compact", classic: "Classic" },
 			toolOverrides: { default: "Default", single: "One line", "group-same": "Group same type", expand: "Native box" },
@@ -156,16 +162,19 @@ const COPY = {
 		capitalizeProviderName: "Provider 大小写",
 		inlineFooter: "内嵌底栏",
 		workingMode: "显示模式",
-		workingLineSpeed: "Working 行 · 输出速度（单条消息）",
-		workingLineInput: "Working 行 · 输入 token（含缓存）",
+		workingLineElapsed: "Working 行 · 时长",
+		workingLineSpeed: "Working 行 · 输出速度",
+		workingLineInput: "Working 行 · 输入 token",
 		workingLineOutput: "Working 行 · 输出 token",
 		workingLineCacheHit: "Working 行 · 缓存命中",
+		workingLineCost: "Working 行 · 费用",
 		workingLineTools: "Working 行 · 工具计数",
 		workingBorderElapsed: "边框 · 时长",
-		workingBorderSpeed: "边框 · 输出速度（单条消息）",
+		workingBorderSpeed: "边框 · 输出速度",
 		workingBorderOutput: "边框 · 输出 token",
-		workingBorderInput: "边框 · 输入 token（含缓存）",
+		workingBorderInput: "边框 · 输入 token",
 		workingBorderCacheHit: "边框 · 缓存命中",
+		workingBorderCost: "边框 · 费用",
 		workingBorderTools: "边框 · 工具计数",
 			sessionName: "会话名",
 			gitBranch: "Git 分支",
@@ -217,9 +226,10 @@ const COPY = {
 			hudDailyCost: "今日费用",
 			hudPiVersion: "Pi 版本",
 			totalDuration: "总耗时",
+			toolCallCount: "工具调用",
 			tokenCounts: "Token 数量",
 			stallDetails: "停顿详情",
-			costRate: "费用速率",
+			costRate: "费用",
 			telemetryPersist: "持久化",
 		},
 		values: {
@@ -239,6 +249,8 @@ const COPY = {
 			tokenModes: { off: "关闭", verbose: "完整（文字标签＋缓存明细）", compact: "紧凑（图标速记，语言无关）" },
 			statStyles: { icon: "纯图标", "icon+text": "图标+文字", text: "纯文字" },
 			workingModes: { line: "单 Working 行", border: "单边框信息", both: "Working 行+边框信息" },
+			inputModes: { off: "关闭", total: "总数", cache: "总数+缓存" },
+			costModes: { off: "关闭", cost: "花费", "cost+rate": "花费+平均费率" },
 			collapseModes: { native: "原生", single: "每工具单行", "group-same": "同类归纳", "group-all": "整段归纳" },
 			collapseStyles: { compact: "紧凑", classic: "经典" },
 			toolOverrides: { default: "默认", single: "单行", "group-same": "同类归纳", expand: "原生" },
@@ -292,6 +304,16 @@ function cycleTokenMode(config: OpenTuiConfig): OpenTuiConfig {
 }
 
 /** Cycles the HUD stat-segment style: icon → icon+text → text → icon. */
+/** Cycles a cost display: off → cost → cost+rate → off. */
+function cycleCostMode(config: OpenTuiConfig, target: "telemetry" | "hud" | "segments"): OpenTuiConfig {
+	const current = target === "telemetry" ? config.telemetry.cost : target === "hud" ? config.hud.cost : config.footerSegments.cost;
+	const idx = COST_DISPLAY_MODES.indexOf(current);
+	const next = COST_DISPLAY_MODES[(idx + 1) % COST_DISPLAY_MODES.length]!;
+	if (target === "telemetry") return { ...config, telemetry: { ...config.telemetry, cost: next } };
+	if (target === "hud") return { ...config, hud: { ...config.hud, cost: next } };
+	return { ...config, footerSegments: { ...config.footerSegments, cost: next } };
+}
+
 /** Cycles the working-status mode: line → border → both → line. */
 function cycleWorkingStatus(config: OpenTuiConfig): OpenTuiConfig {
 	const idx = WORKING_STATUS_MODES.indexOf(config.workingStatus);
@@ -308,11 +330,13 @@ function buildWorkingItems(config: OpenTuiConfig, copy: SettingsCopy): SettingIt
 	if (config.workingStatus !== "border") {
 		const line = config.workingLine;
 		items.push(
+			{ id: "line.elapsed", label: copy.labels.workingLineElapsed, currentValue: flag(line.elapsed) },
 			{ id: "line.speed", label: copy.labels.workingLineSpeed, currentValue: flag(line.speed) },
-			{ id: "line.input", label: copy.labels.workingLineInput, currentValue: flag(line.input) },
+			{ id: "line.input", label: copy.labels.workingLineInput, currentValue: copy.values.inputModes[line.input] },
 			{ id: "line.output", label: copy.labels.workingLineOutput, currentValue: flag(line.output) },
 			{ id: "line.cacheHit", label: copy.labels.workingLineCacheHit, currentValue: flag(line.cacheHit) },
 			{ id: "line.tools", label: copy.labels.workingLineTools, currentValue: flag(line.tools) },
+			{ id: "line.cost", label: copy.labels.workingLineCost, currentValue: flag(line.cost) },
 		);
 	}
 	if (config.workingStatus !== "line") {
@@ -320,10 +344,11 @@ function buildWorkingItems(config: OpenTuiConfig, copy: SettingsCopy): SettingIt
 		items.push(
 			{ id: "border.elapsed", label: copy.labels.workingBorderElapsed, currentValue: flag(border.elapsed) },
 			{ id: "border.speed", label: copy.labels.workingBorderSpeed, currentValue: flag(border.speed) },
+			{ id: "border.input", label: copy.labels.workingBorderInput, currentValue: copy.values.inputModes[border.input] },
 			{ id: "border.output", label: copy.labels.workingBorderOutput, currentValue: flag(border.output) },
-			{ id: "border.input", label: copy.labels.workingBorderInput, currentValue: flag(border.input) },
 			{ id: "border.cacheHit", label: copy.labels.workingBorderCacheHit, currentValue: flag(border.cacheHit) },
 			{ id: "border.tools", label: copy.labels.workingBorderTools, currentValue: flag(border.tools) },
+			{ id: "border.cost", label: copy.labels.workingBorderCost, currentValue: flag(border.cost) },
 		);
 	}
 	return items;
@@ -489,7 +514,6 @@ const HUD_TOGGLE_ITEMS: Array<{ id: string; key: keyof HudConfig; label: string 
 	{ id: "sessionName", key: "sessionName", label: "hudSessionName" },
 	{ id: "hostname", key: "hostname", label: "hudHostname" },
 	{ id: "time", key: "time", label: "hudTime" },
-	{ id: "cost", key: "cost", label: "hudCost" },
 	{ id: "outputSpeed", key: "outputSpeed", label: "hudOutputSpeed" },
 	{ id: "contextBar", key: "contextBar", label: "hudContextBar" },
 	{ id: "contextPercent", key: "contextPercent", label: "hudContextPercent" },
@@ -530,7 +554,7 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 
 			{ id: "context", label: copy.labels.context, currentValue: flag(segs.context) },
 			{ id: "tokens", label: copy.labels.tokens, currentValue: flag(segs.tokens) },
-			{ id: "cost", label: copy.labels.cost, currentValue: flag(segs.cost) },
+			{ id: "cost", label: copy.labels.cost, currentValue: copy.values.costModes[segs.cost] },
 			{ id: "extensionStatuses", label: copy.labels.extensionStatuses, currentValue: flag(segs.extensionStatuses) },
 			{ id: "capitalizeProviderName", label: copy.labels.capitalizeProviderName, currentValue: flag(segs.capitalizeProviderName) },
 			{ id: "inlineFooter", label: copy.labels.inlineFooter, currentValue: flag(config.inlineFooter) },
@@ -543,6 +567,13 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 		label: labels[label],
 		currentValue: flag(hud[key] as boolean),
 	}));
+	// cost is a tri-state (off / spend / spend+rate), handled separately like tokens
+	const timeIdx = toggleItems.findIndex((item) => item.id === "time");
+	toggleItems.splice(timeIdx + 1, 0, {
+		id: "cost",
+		label: labels.hudCost,
+		currentValue: copy.values.costModes[hud.cost],
+	});
 	// token-stats presentation sits where it always did: right before the breakdown toggle;
 	// the stat style (icon / icon+text / text) follows immediately after
 	const breakdownIdx = toggleItems.findIndex((item) => item.id === "tokenBreakdown");
@@ -572,9 +603,10 @@ function buildTelemetryItems(config: OpenTuiConfig, copy: SettingsCopy): Setting
 		{ id: "tps", label: "TPS", currentValue: flag(telemetry.tps) },
 		{ id: "ttft", label: "TTFT", currentValue: flag(telemetry.ttft) },
 		{ id: "duration", label: copy.labels.totalDuration, currentValue: flag(telemetry.duration) },
+		{ id: "tools", label: copy.labels.toolCallCount, currentValue: flag(telemetry.tools) },
 		{ id: "tokens", label: copy.labels.tokenCounts, currentValue: flag(telemetry.tokens) },
 		{ id: "stalls", label: copy.labels.stallDetails, currentValue: flag(telemetry.stalls) },
-		{ id: "cost", label: copy.labels.costRate, currentValue: flag(telemetry.cost) },
+		{ id: "cost", label: copy.labels.costRate, currentValue: copy.values.costModes[telemetry.cost] },
 		{ id: "persist", label: copy.labels.telemetryPersist, currentValue: flag(telemetry.persist) },
 	];
 }
@@ -653,6 +685,8 @@ function handleSettingChange(
 			next = cycleTokenMode(config); // tri-state, not a boolean toggle
 		} else if (config.footerStyle === "hud" && itemId === "statStyle") {
 			next = cycleStatStyle(config); // tri-state, not a boolean toggle
+		} else if (itemId === "cost") {
+			next = cycleCostMode(config, config.footerStyle === "hud" ? "hud" : "segments");
 		} else if (config.footerStyle === "hud" && itemId in config.hud) {
 			next = toggleHud(config, itemId as keyof HudConfig);
 		} else {
@@ -672,6 +706,13 @@ function handleSettingChange(
 	}
 	if (tab === "working") {
 		if (itemId === "mode") return cycleWorkingStatus(config);
+		if (itemId === "line.input" || itemId === "border.input") {
+			const group = itemId === "line.input" ? "workingLine" : "workingBorder";
+			const current = config[group].input;
+			const idx = WORKING_INPUT_MODES.indexOf(current);
+			const next = WORKING_INPUT_MODES[(idx + 1) % WORKING_INPUT_MODES.length]!;
+			return { ...config, [group]: { ...config[group], input: next } };
+		}
 		if (itemId.startsWith("line.")) {
 			const key = itemId.slice("line.".length) as keyof OpenTuiConfig["workingLine"];
 			return { ...config, workingLine: { ...config.workingLine, [key]: !config.workingLine[key] } };
@@ -683,6 +724,7 @@ function handleSettingChange(
 		return config;
 	}
 	if (tab === "telemetry") {
+		if (itemId === "cost") return cycleCostMode(config, "telemetry");
 		return toggleTelemetry(config, itemId as keyof OpenTuiConfig["telemetry"]);
 	}
 	return config;

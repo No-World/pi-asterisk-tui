@@ -78,12 +78,34 @@ export type StylePreset = "hud" | "classic" | "custom";
 export type WorkingStatusMode = "line" | "border" | "both";
 export const WORKING_STATUS_MODES: readonly WorkingStatusMode[] = ["line", "border", "both"];
 
+/** Input-token segment presentation on the working surfaces: hidden, the
+ *  run total, or the total with its cache-read part spelled out. */
+export type WorkingInputMode = "off" | "total" | "cache";
+export const WORKING_INPUT_MODES: readonly WorkingInputMode[] = ["off", "total", "cache"];
+
+/** Cost-segment presentation: hidden, actual spend, or spend plus the blended
+ *  $/M rate (total cost over total tokens). */
+export type CostDisplayMode = "off" | "cost" | "cost+rate";
+export const COST_DISPLAY_MODES: readonly CostDisplayMode[] = ["off", "cost", "cost+rate"];
+
+/** Folds legacy boolean cost toggles into the tri-state. */
+function normalizeCostMode(raw: unknown, whenOn: CostDisplayMode): CostDisplayMode {
+	if (raw === true) return whenOn;
+	if (raw === false) return "off";
+	if (typeof raw === "string" && COST_DISPLAY_MODES.includes(raw as CostDisplayMode)) return raw as CostDisplayMode;
+	return whenOn;
+}
+
 /** Working-line content toggles; elapsed time is always shown. */
 export interface WorkingLineConfig {
 	/** Input tokens incl. cache read (updated at message boundaries). */
-	input: boolean;
+	/** Elapsed is always shown when everything else is off. */
+	elapsed: boolean;
+	input: WorkingInputMode;
 	output: boolean;
 	cacheHit: boolean;
+	/** Run-cumulative cost of completed messages. */
+	cost: boolean;
 	/** Per-message output speed (the footer shows the run-average speed). */
 	speed: boolean;
 	tools: boolean;
@@ -95,8 +117,9 @@ export interface WorkingBorderConfig {
 	/** Per-message output speed, shown only while width allows. */
 	speed: boolean;
 	output: boolean;
-	input: boolean;
-	cacheHit: boolean;	tools: boolean;
+	input: WorkingInputMode;
+	cacheHit: boolean;
+	cost: boolean;	tools: boolean;
 }
 
 /** Transcript compression mode: how finished non-body activity renders. */
@@ -231,7 +254,7 @@ export interface HudConfig {
 	/** Opt-in short host name on the status line (first label of os.hostname()). */
 	hostname: boolean;
 	time: boolean;
-	cost: boolean;
+	cost: CostDisplayMode;
 	contextBar: boolean;
 	contextPercent: boolean;
 	contextTokens: boolean;
@@ -269,7 +292,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
 	sessionName: true,
 	hostname: false,
 	time: true,
-	cost: true,
+	cost: "cost+rate",
 	contextBar: true,
 	contextPercent: true,
 	contextTokens: true,
@@ -324,7 +347,7 @@ export interface FooterSegments {
 
 	context: boolean;
 	tokens: boolean;
-	cost: boolean;
+	cost: CostDisplayMode;
 	extensionStatuses: boolean;
 	/** Uppercase the provider name's first letter (default); false keeps the
 	 * raw provider id casing (e.g. proxy-style ids like cc-switch-zhipu-glm). */
@@ -333,6 +356,10 @@ export interface FooterSegments {
 
 export interface TelemetryConfig {
 	enabled: boolean;
+	/** Tool-call count segment on the post-run line. */
+	tools: boolean;
+	/** Cost segment: off / actual spend / spend + blended rate. */
+	cost: CostDisplayMode;
 	/** Store each run's summary as a session custom entry and replay the last
 	 *  one on session resume (the live notify itself is transcript-transient). */
 	persist: boolean;
@@ -341,7 +368,6 @@ export interface TelemetryConfig {
 	duration: boolean;
 	tokens: boolean;
 	stalls: boolean;
-	cost: boolean;
 }
 
 export interface FullscreenConfig {
@@ -409,25 +435,26 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 
 		context: true,
 		tokens: true,
-		cost: true,
+		cost: "cost",
 		extensionStatuses: true,
 		capitalizeProviderName: true,
 	},
 	workingStatus: "both",
-	workingLine: { input: true, output: true, cacheHit: true, speed: true, tools: true },
-	workingBorder: { elapsed: true, speed: true, output: false, input: false, cacheHit: false, tools: true },
+	workingLine: { elapsed: true, input: "cache", output: true, cacheHit: true, cost: true, speed: true, tools: true },
+	workingBorder: { elapsed: true, speed: true, output: false, input: "off", cacheHit: false, cost: false, tools: true },
 	inlineFooter: false,
 	hud: structuredClone(DEFAULT_HUD_CONFIG),
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
 	telemetry: {
 		enabled: true,
 		persist: true,
+		tools: true,
+		cost: "cost+rate",
 		tps: true,
 		ttft: true,
 		duration: true,
 		tokens: true,
 		stalls: true,
-		cost: true,
 	},
 };
 
@@ -580,6 +607,11 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 			config.footerStyle = DEFAULT_CONFIG.footerStyle;
 		}
 		config.turnCollapse = normalizeTurnCollapse(config.turnCollapse);
+		// legacy boolean cost toggles fold into the tri-state; telemetry kept
+		// showing spend+rate, the footers showed spend only
+		config.telemetry.cost = normalizeCostMode(config.telemetry.cost, "cost+rate");
+		config.hud.cost = normalizeCostMode(config.hud.cost, "cost+rate");
+		config.footerSegments.cost = normalizeCostMode(config.footerSegments.cost, "cost");
 		config.selection = normalizeSelectionConfig(config.selection);
 		if (!["hud", "classic", "custom"].includes(config.stylePreset)) {
 			config.stylePreset = "custom";
@@ -587,6 +619,16 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		config.hud = normalizeHudConfig(deepMerge(DEFAULT_HUD_CONFIG, config.hud));
 		if (!WORKING_STATUS_MODES.includes(config.workingStatus)) {
 			config.workingStatus = "both";
+		}
+		// legacy boolean input toggles fold into the tri-state (true showed the
+		// plain total; the cache breakdown is the upgrade default)
+		for (const group of ["workingLine", "workingBorder"] as const) {
+			const rawInput: unknown = (config[group] as unknown as Record<string, unknown>).input;
+			if (rawInput === true) (config[group] as unknown as Record<string, unknown>).input = "cache";
+			else if (rawInput === false) (config[group] as unknown as Record<string, unknown>).input = "off";
+			else if (typeof rawInput !== "string" || !WORKING_INPUT_MODES.includes(rawInput as WorkingInputMode)) {
+				(config[group] as unknown as Record<string, unknown>).input = DEFAULT_CONFIG[group].input;
+			}
 		}
 		config.stylePreset = deriveStylePreset(config);
 		config.fullscreen.wheelScrollLines = normalizeFullscreenWheelScrollLines(

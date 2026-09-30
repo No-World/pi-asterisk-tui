@@ -97,6 +97,7 @@ test("uses total output over full generation time", () => {
 	assert.deepEqual(telemetry, {
 		tps: 4,
 		ttftMs: 4_000,
+		toolCalls: 0,
 		totalMs: 5_000,
 		inputTokens: 50,
 		outputTokens: 20,
@@ -111,7 +112,7 @@ test("uses total output over full generation time", () => {
 	});
 	assert.equal(
 		formatTurnTelemetry(telemetry!, theme, DEFAULT_CONFIG.telemetry, "ascii"),
-		"> TPS 4.0 tok/s | ~ TTFT 4.0s | + 5.0s | ↑ 50 | ↓ 20 | $ $4.00/M",
+		"> TPS 4.0 tok/s | ~ TTFT 4.0s | + 5.0s | ↑ 50 | ↓ 20 | $ $0.0003 · $4.00/M",
 	);
 });
 
@@ -167,6 +168,7 @@ test("uses footer semantics and respects telemetry segment settings", () => {
 	const telemetry = {
 		tps: 50,
 		ttftMs: 200,
+		toolCalls: 3,
 		totalMs: 900,
 		inputTokens: 50,
 		outputTokens: 20,
@@ -182,21 +184,31 @@ test("uses footer semantics and respects telemetry segment settings", () => {
 
 	assert.match(
 		formatTurnTelemetry(telemetry, styledTheme, DEFAULT_CONFIG.telemetry, "ascii"),
-		/^> TPS 50\.0 tok\/s \| ~ TTFT 0\.2s.*↑ 5\.0k \(U 50 \+ R 5\.0k\) \| ↓ 20.*! stall 1x \/ 0\.8s \| \$ \$4\.00\/M$/,
+		/^> TPS 50\.0 tok\/s \| ~ TTFT 0\.2s \| \+ 0\.9s \| t 3 \| ↑ 5\.0k \(U 50 \+ R 5\.0k\) \| ↓ 20.*! stall 1x \/ 0\.8s \| \$ \$0.0003 \u00b7 \$4.00\/M$/,
 	);
-	assert.deepEqual(colors, ["accent", "text", "success", "accent", "success", "warning", "warning", "dim"]);
+	assert.deepEqual(colors, ["accent", "text", "success", "text", "accent", "success", "warning", "warning", "dim"]);
 
 	const hidden: typeof DEFAULT_CONFIG.telemetry = {
 		enabled: false,
 		persist: false,
+		tools: false,
 		tps: false,
 		ttft: false,
 		duration: false,
 		tokens: false,
 		stalls: false,
-		cost: false,
+		cost: "off",
 	};
 	assert.equal(formatTurnTelemetry(telemetry, theme, hidden, "ascii"), "");
+
+	// cost-only mode drops the rate dimension
+	const spendOnly = formatTurnTelemetry(
+		telemetry,
+		styledTheme as unknown as Theme,
+		{ ...DEFAULT_CONFIG.telemetry, cost: "cost" },
+		"ascii",
+	);
+	assert.ok(spendOnly.includes("$0.0003") && !spendOnly.includes("/M"), spendOnly);
 });
 
 test("returns no TPS without output or generation time", () => {
@@ -693,7 +705,7 @@ test("loadLastTelemetryEntry replays the newest valid persisted run", () => {
 		type: "custom",
 		customType: TELEMETRY_ENTRY_TYPE,
 		data: {
-			tps: 47.8, ttftMs: 5100, totalMs: 1_241_000, inputTokens: 135_000, outputTokens: 52_000,
+			tps: 47.8, ttftMs: 5100, toolCalls: 2, totalMs: 1_241_000, inputTokens: 135_000, outputTokens: 52_000,
 			cacheReadTokens: 3_600_000, stallMs: 8600, stallCount: 4, rateUsdPerMTokens: 0.36,
 			generationMs: 900_000, totalTokens: 3_787_000, cacheHitRate: 96.4, costUsd: 0.36,
 			measurementMs: 900_000,
@@ -755,30 +767,32 @@ test("working line and border compose from config toggles", () => {
 		elapsedText: "2m 3s",
 		runTps: 12.5 as number | null,
 		runInputTokens: 3_400_000,
+		runCacheReadTokens: 3_300_000,
 		runOutputTokens: 5_300,
 		runCacheHitRate: 96.4 as number | null,
+		runCostUsd: 0.42,
 		toolCount: 3,
 	};
 	assert.equal(
 		formatWorkingLineMessage(
-			{ input: true, output: true, cacheHit: true, speed: true, tools: true },
+			{ elapsed: true, input: "cache", output: true, cacheHit: true, cost: true, speed: true, tools: true },
 			source,
 			glyphs,
 		),
-		"Working\u2026 (o 2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 t 3)",
+		"Working\u2026 (o 2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M (R 3.3M) \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 t 3 \u00b7 $ $0.42)",
 	);
 	assert.equal(
 		formatWorkingBorderText(
-			{ elapsed: true, speed: true, output: false, input: false, cacheHit: false, tools: true },
+			{ elapsed: false, speed: true, output: false, input: "total", cacheHit: false, cost: false, tools: true },
 			source,
 			glyphs,
 		),
-		"o 2m 3s \u00b7 > 12.5 tok/s \u00b7 t 3",
+		"> 12.5 tok/s \u00b7 \u2191 3.4M \u00b7 t 3",
 	);
 	// everything off (or speed not yet credible) still shows the elapsed time
 	assert.equal(
 		formatWorkingBorderText(
-			{ elapsed: false, speed: true, output: false, input: false, cacheHit: false, tools: false },
+			{ elapsed: false, speed: true, output: false, input: "off", cacheHit: false, cost: false, tools: false },
 			{ ...source, runTps: null },
 			glyphs,
 		),
@@ -855,16 +869,18 @@ test("working surfaces hide zero token segments", () => {
 		elapsedText: "5s",
 		runTps: null as number | null,
 		runInputTokens: 0,
+		runCacheReadTokens: 0,
 		runOutputTokens: 0,
 		runCacheHitRate: null as number | null,
+		runCostUsd: 0,
 		toolCount: 0,
 	};
 	assert.equal(
-		formatWorkingLineMessage({ input: true, output: true, cacheHit: true, speed: true, tools: true }, source, glyphs),
+		formatWorkingLineMessage({ elapsed: true, input: "cache", output: true, cacheHit: true, cost: true, speed: true, tools: true }, source, glyphs),
 		"Working\u2026 (o 5s)",
 	);
 	assert.equal(
-		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: true, cacheHit: true, tools: true }, source, glyphs),
+		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: "cache", cacheHit: true, cost: true, tools: true }, source, glyphs),
 		"o 5s",
 	);
 });
@@ -892,4 +908,22 @@ test("sumSessionTelemetry seeds the session speed across restarts", () => {
 	tracker.handle(update(message));
 	tracker.handle({ type: "message_end", message: { ...message, usage: { ...message.usage, output: 30 } } });
 	assert.equal(tracker.getSessionTps(), 36); // 180 tokens / 5s
+});
+
+test("input and cache-read light up at message start (anthropic message_start usage)", () => {
+	const tracker = new TurnTelemetryTracker(() => 0);
+	tracker.handle({ type: "agent_start" });
+	const message = makeMessage(0, 0, 0, 0);
+	// anthropic message_start carries input/cacheRead before any output
+	tracker.handle({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
+	tracker.handle({
+		type: "message_start",
+		message: { ...message, usage: { ...message.usage, input: 42_000, cacheRead: 3_600_000 } },
+	});
+	assert.equal(tracker.getRunInputTokens(), 42_000 + 3_600_000);
+	assert.equal(tracker.getRunCacheReadTokens(), 3_600_000);
+	assert.equal(tracker.getRunCacheHitRate(), 98.8);
+	// usage growing mid-stream keeps the max
+	tracker.handle(update({ ...message, usage: { ...message.usage, input: 50_000, cacheRead: 3_700_000 } }));
+	assert.equal(tracker.getRunInputTokens(), 50_000 + 3_700_000);
 });

@@ -69,8 +69,7 @@ pi install git:github.com/No-World/pi-asterisk-tui
 - **Working 指示器**：每段自带图标——时长（时钟）、速度、输入、输出、缓存命中、工具计数（扳手）：`Working… ( 34s · 󰓅 61.8 tok/s · ↑ 1.2k · ↓ 3.4k ·  96.0% ·  3)`——
   时长始终开头，其余各段均为工作状态页的独立开关（`workingLine.*`）。输出 token 按运行
   累计（流式期间增量估算、完成回填精确值，工具执行不清零）；这里的速度是从提交到当前帧的运行平均——HUD 底栏的速度段用整个 session 的平均值。
-- **单轮遥测**：每次运行结束显示 TPS、TTFT、耗时、停顿次数/时长、输入/输出 token
-  明细（含缓存读/写）、缓存命中率、模型标价 $/M 速率。
+- **单轮遥测**：每次运行结束显示 TPS、TTFT、耗时、工具调用次数、输入/输出 token 明细（含缓存读/写）、缓存命中率、停顿次数/时长、实际花费与混合 $/M 费率（受缓存读占比主导）。
 - **持久化**：每轮遥测以 session 自定义条目存储（扩展私有，不进模型上下文），并通过条目渲染器直接画成转录行——刚跑完和重进会话看到的是同一行、同一位置，按当前图标/语言设置格式化；回退剪枝时连同所属轮次一起剪掉。`telemetry.persist` 可关（默认开）；关闭时退回旧的一次性状态行，仅当前会话可见。
 - **工具/摘要侧花费**：挂在工具结果（工具自身的 LLM 调用，如子代理）与压缩/分支摘要上的
   token 用量是真实会话成本，但不属于主上下文记账——对齐 pi 自身的 `Tools/summaries` 桶，
@@ -99,7 +98,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 ## 编辑器与设置
 
 - 带边框编辑器，块状 / 竖线 / 下划线三种光标样式。
-- **工作状态**（`/*tui` → 工作状态页，`workingStatus`）：运行中状态显示在哪——`line`（仅 pi 的 Working 行）、`border`（仅编辑器上边框）或 `both`（默认，两者）。两个展示面信息对等，各自有独立的内容开关（仅在对应模式启用时出现）：单条消息输出速度、输入 token（含缓存读，按消息边界更新）、输出 token、缓存命中率、工具计数；Working 行始终以时长开头，边框按宽度退化（各段 → 时长 → 图标）。速度口径：工作展示面用「响应时间」运行平均——运行输出 token ÷（提交至今墙钟时长 − 工具执行时间），TTFT 计入响应时间、工具等待不计，与旁边的时长、token 段肉眼可对账；两面共用同一份 500ms 快照（边框随流式重绘但只画缓存文本，永远不会比 Working 行快一拍）。HUD 底栏的速度段用整个 session 的平均速度——本 session 全部消息的输出 token 除以流式窗口合计，跨运行不清零，重进会话时由持久化的遥测条目重新播种，重启不丢。边框状态随边框着色（与思考级别 / bash 模式变色同源），窄边框退化为仅图标，滚动提示（`↑ 3 more`）保持居中槽位。旧 `borderWorkingStatus` 自动迁移（`true`→`both`、`false`→`line`）。
+- **工作状态**（`/*tui` → 工作状态页，`workingStatus`）：运行中状态显示在哪——`line`（仅 pi 的 Working 行）、`border`（仅编辑器上边框）或 `both`（默认，两者）。两个展示面信息对等，内容选项同序（时长、速度、输入、输出、命中、费用、工具），仅在对应模式启用时出现。费用段按运行计——本次输入至今的花费，非 session 总花销（总花销在底栏费用段）。输入 token 为三态——关闭 / 运行总数 / 总数+缓存读（`↑ 348k (R 298k)`，按消息边界更新）。任一面全关时兜底显示时长；边框按宽度退化（各段 → 时长 → 图标）。速度口径：工作展示面用「响应时间」运行平均——运行输出 token ÷（提交至今墙钟时长 − 工具执行时间），TTFT 计入响应时间、工具等待不计，与旁边的时长、token 段肉眼可对账；两面共用同一份 500ms 快照（边框随流式重绘但只画缓存文本，永远不会比 Working 行快一拍）。HUD 底栏的速度段用整个 session 的平均速度——本 session 全部消息的输出 token 除以流式窗口合计，跨运行不清零，重进会话时由持久化的遥测条目重新播种，重启不丢。边框状态随边框着色（与思考级别 / bash 模式变色同源），窄边框退化为仅图标，滚动提示（`↑ 3 more`）保持居中槽位。旧 `borderWorkingStatus` 自动迁移（`true`→`both`、`false`→`line`）。
 - **内嵌底栏**（`inlineFooter`，默认关，仅 classic 风格）：把 classic 底栏的两行主内容
   画进编辑器边框——上边框左侧是位置段（cwd · 主机 · 会话 · git）、右侧是模型块；下边框
   左侧是轮末摘要、右侧是统计行（紧凑上下文 · token · 费用）。扩展状态行仍留在编辑器
@@ -169,15 +168,15 @@ VS Code、Windows Terminal 等应用必须设在终端配置文件里，只装�
 | `turnCollapse.tools` | `{}` | 每工具 `default` / `single` / `group-same` / `expand`；`*` 通配 |
 | `icons.mode` | `"auto"` | nerd / ascii / auto 图标集；auto = 交互式 UTF-8 TTY 用 nerd（ADR-0006），首次解析为 nerd 时有一次提示 |
 | `cursorStyle` | `"block"` | 编辑器光标样式 |
-| `telemetry.*` | 开 | Working 指示器与轮末遥测字段；`telemetry.persist`（开）把每轮遥测存为 session 条目并画成转录行（重进不丢） |
+| `telemetry.*` | 开 | Working 指示器与轮末遥测字段；`telemetry.cost` 三态（`off` / `cost` / `cost+rate`）；`telemetry.persist`（开）把每轮遥测存为 session 条目并画成转录行（重进不丢） |
 | `footerSegments.*` | 混合 | classic 底栏段落开关 |
 | `footerSegments.hostname` | `false` | 可选主机名段（取主机名的首个标签）——多机 SSH 时一眼区分所在主机；HUD 侧同款开关为 `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | 首字母大写 provider 名；`false` 保留原始 id 大小写（适配 `cc-switch-zhipu-glm` 这类代理 id） |
 | `workingStatus` | `"both"` | 运行状态显示在 Working 行 / 编辑器上边框 / 两者；旧 `borderWorkingStatus` 自动迁移（true→both、false→line） |
-| `workingLine.*` / `workingBorder.*` | 混合 | 各展示面的内容开关（单条速度、输入/输出 token、缓存命中、工具计数），按模式条件生效 |
+| `workingLine.*` / `workingBorder.*` | 混合 | 各展示面的内容选项（时长、速度、输入/输出 token、缓存命中、工具计数）；`*.input` 为三态（关闭/总数/总数+缓存）；按模式条件生效 |
 | `workingBorder.elapsed` | `true` | 边框窄时始终退化为时长 → 图标 |
 | `inlineFooter` | `false` | classic 底栏两行主内容改画进编辑器边框；`footerStyle: "hud"` 下无效 |
-| `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`；`hud.statStyle`：`icon` / `icon+text` / `text`——统计段显示纯图标、图标+文字还是纯文字） |
+| `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`；`hud.statStyle`：`icon` / `icon+text` / `text`；`hud.cost`：`off` / `cost` / `cost+rate` 三态） |
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
 | `selection.copy` | `"unwrapped"` | 选区复制：`plain`（视觉内容）/ `unwrapped`（逻辑内容，默认）/ `raw`（原始内容）；依赖 pi-tui 内部结构，pi 升级后可能静默回退原生 |
 | `selection.trimPadding` | `true` | 选区边距裁剪：高亮不覆盖补齐空白、视觉内容复制不含前后边距空格 |

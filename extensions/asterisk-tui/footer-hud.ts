@@ -627,12 +627,16 @@ export function installHudFooter(
 					// clock glyph (U+F017) — single-width, unlike the old ⏱️ emoji
 					right1.push(theme.fg("muted", statSegment(hud.statStyle, glyphs.working, strings.timeLabel, formatDuration(workingMs))));
 				}
-				if (hud.cost) {
+				if (hud.cost !== "off") {
 					let costValue = `$${totals.cost.toFixed(2)}`;
 					// Side-spend (tools/summaries) rides the same segment: zero
 					// side-spend renders exactly as before.
 					if (totals.tools.cost > 0) {
 						costValue += strings.toolsSuffix(totals.tools.cost.toFixed(2));
+					}
+					if (hud.cost === "cost+rate" && totals.totalTokens > 0) {
+						const rate = totals.cost / (totals.totalTokens / 1_000_000);
+						costValue += ` · $${rate.toFixed(2)}/M`;
 					}
 					right1.push(theme.fg("muted", statSegment(hud.statStyle, glyphs.cost, strings.costLabel, costValue)));
 				}

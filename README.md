@@ -85,8 +85,8 @@ compresses is the **compression mode** (`/*tui` → Collapse):
   elapsed always leads; every other segment is a per-surface toggle on the Working tab
   (`workingLine.*`). Output tokens are run-cumulative (stream-estimated while streaming,
   exact on message completion, kept across tool calls); the speed shown here is the run average from submission to now — the HUD footer's speed segment is the session average.
-- **Turn telemetry** after each run: TPS, TTFT, duration, stall count/time, input/output
-  token breakdown with cache-read and cache-write, cache hit rate, and list-price $/M rate.
+- **Turn telemetry** after each run: TPS, TTFT, duration, tool-call count, input/output token
+  breakdown with cache-read and cache-write, cache hit rate, stall count/time, actual run cost and the blended $/M rate (cache-read dominated).
 - **Persistence**: each run's telemetry is stored as a session custom entry (extension-owned,
   never sent to the model) and rendered as a transcript line in place — the same line at the
   same position whether the run just finished or the session was resumed, re-formatted with
@@ -124,7 +124,7 @@ powerline-styled git segment, ahead/behind indicators, and full subdirectory git
 ## Editor & settings
 
 - Framed editor with block / bar / underline cursor styles.
-- **Working status** (`/*tui` → Working tab, `workingStatus`): where the live run status renders — `line` (pi's working line only), `border` (editor top border only), or `both` (default). The two surfaces are information peers, each with its own content toggles shown only when that surface is active: per-message output speed, input tokens (incl. cache read, updated at message boundaries), output tokens, cache hit rate, and tool count; the line always leads with the elapsed time, the border degrades by width (segments → elapsed → glyph). Speed semantics: the working surfaces show the run average over response time — run tokens over wall-clock elapsed since submission minus tool-execution time (TTFT counts as response time, tool waits do not), reconciling by eye with the elapsed and token segments beside it; both surfaces draw from one 500ms snapshot (the border renders on every streaming repaint but only shows the cached text, so it can never run a beat ahead of the line). The HUD footer's speed segment is the session average — every message this session over its summed streaming windows, never reset across runs, and re-seeded on resume from the persisted run telemetry so it survives restarts. The border status is painted with the frame color, recoloring with thinking-level and bash-mode borders; narrow frames degrade to a glyph-only rung and the scroll hint (`↑ 3 more`) keeps its centered slot. Legacy `borderWorkingStatus` configs migrate (`true`→`both`, `false`→`line`).
+- **Working status** (`/*tui` → Working tab, `workingStatus`): where the live run status renders — `line` (pi's working line only), `border` (editor top border only), or `both` (default). The two surfaces are information peers, each with its own content options in the same order (elapsed, speed, input, output, cache hit, run cost, tools), shown only while the mode includes that surface. The cost segment is run-scoped — the spend of the current submission so far, not the session total (the footer keeps that). Input tokens are a tri-state — off, run total, or total with its cache-read part (`↑ 348k (R 298k)`, updated at message boundaries). Either surface falls back to the elapsed time when everything else is off; the border degrades by width (segments → elapsed → glyph). Speed semantics: the working surfaces show the run average over response time — run tokens over wall-clock elapsed since submission minus tool-execution time (TTFT counts as response time, tool waits do not), reconciling by eye with the elapsed and token segments beside it; both surfaces draw from one 500ms snapshot (the border renders on every streaming repaint but only shows the cached text, so it can never run a beat ahead of the line). The HUD footer's speed segment is the session average — every message this session over its summed streaming windows, never reset across runs, and re-seeded on resume from the persisted run telemetry so it survives restarts. The border status is painted with the frame color, recoloring with thinking-level and bash-mode borders; narrow frames degrade to a glyph-only rung and the scroll hint (`↑ 3 more`) keeps its centered slot. Legacy `borderWorkingStatus` configs migrate (`true`→`both`, `false`→`line`).
 - **Inline footer** (`inlineFooter`, default off, classic style only): moves the classic
   footer's two main rows into the editor frame borders — top carries the location
   segments (cwd · host · session · git) left and the model block right; bottom carries
@@ -208,16 +208,16 @@ Notable keys:
 | `turnCollapse.tools` | `{}` | per-tool `default` / `single` / `group-same` / `expand`; `*` wildcard |
 | `icons.mode` | `"auto"` | nerd / ascii / auto icon set; auto = nerd in interactive UTF-8 TTYs (ADR-0006), one-time hint on first nerd resolution |
 | `cursorStyle` | `"block"` | editor cursor style |
-| `telemetry.*` | on | working-indicator and post-turn telemetry fields; `telemetry.persist` (on) stores each run as a session entry rendered as a transcript line (survives resume) |
+| `telemetry.*` | on | working-indicator and post-turn telemetry fields; `telemetry.cost` is a tri-state (`off` / `cost` / `cost+rate`); `telemetry.persist` (on) stores each run as a session entry rendered as a transcript line (survives resume) |
 | `footerSegments.*` | mixed | classic footer segment toggles |
 | `footerSegments.hostname` | `false` | opt-in short host name segment (first label of the machine's host name) — for telling SSH targets apart at a glance; same toggle exists as `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | uppercase the provider name's first letter; `false` keeps the raw provider id casing (proxy-style ids like `cc-switch-zhipu-glm`) |
 | `footerSegments.capitalizeProviderName` | `true` | uppercase the provider name's first letter; `false` keeps the raw provider id casing (proxy-style ids like `cc-switch-zhipu-glm`) |
 | `workingStatus` | `"both"` | live run status on pi's working line, the editor top border, or both; legacy `borderWorkingStatus` migrates (true→both, false→line) |
-| `workingLine.*` / `workingBorder.*` | mixed | per-surface content toggles (per-message speed, input/output tokens, cache hit, tools); shown per the active mode |
+| `workingLine.*` / `workingBorder.*` | mixed | per-surface content options (elapsed, speed, input/output tokens, cache hit, tools); `*.input` is a tri-state (off / total / total+cache); shown per the active mode |
 | `workingBorder.elapsed` | `true` | border always degrades to elapsed → glyph when narrow |
 | `inlineFooter` | `false` | classic footer rows render inside the editor frame borders instead of dedicated rows; inert under `footerStyle: "hud"` |
-| `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`; `hud.statStyle`: `icon` / `icon+text` / `text` — whether stat segments show glyphs, labels, or both) |
+| `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`; `hud.statStyle`: `icon` / `icon+text` / `text`; `hud.cost`: `off` / `cost` / `cost+rate`) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
 | `selection.copy` | `"unwrapped"` | selection copy: `plain` (visual content) / `unwrapped` (logical content, default) / `raw` (source content); depends on pi-tui internals, may silently fall back to stock after a pi upgrade |
 | `selection.trimPadding` | `true` | trim selection margins: highlight skips padded blanks; visual-content copies carry no margin spaces |

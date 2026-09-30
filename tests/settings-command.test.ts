@@ -366,8 +366,9 @@ test("configures telemetry from its own tab", async () => {
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().telemetry.tps, false);
-	// Persistence rides at the end of the telemetry tab (after the field toggles)
-	for (let i = 0; i < 6; i++) settings.component.handleInput("\x1b[B");
+	// Persistence rides at the end of the telemetry tab (after the field toggles,
+	// which now include the tool-call count)
+	for (let i = 0; i < 7; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Persistence/);
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().telemetry.persist, false);
@@ -541,8 +542,29 @@ test("working status tab cycles modes and gates content options", async () => {
 	settings.component.handleInput("\r"); // border → both (round trip)
 	assert.equal(settings.getConfig().workingStatus, "both");
 
-	// content options toggle their nested flags (mode stays selected after cycling)
+	// content options toggle their nested flags (mode stays selected after cycling);
+	// two downs from the mode item: elapsed, then speed
+	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().workingLine.speed, false);
+
+	// input tokens cycle a tri-state: cache → off → total → cache
+	settings.component.handleInput("\x1b[B");
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().workingLine.input, "off");
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().workingLine.input, "total");
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().workingLine.input, "cache");
+
+	// the two groups list their options in the same order (elapsed, speed, input, output, cacheHit, tools);
+	// scroll down first so the border tail (11th item) is on screen
+	for (let i = 0; i < 6; i++) settings.component.handleInput("\x1b[B");
+	const full = settings.component.render(100).join("\n");
+	const lineInput = full.indexOf("Working line · input tokens");
+	const lineOutput = full.indexOf("Working line · output tokens");
+	const borderInput = full.indexOf("Border · input tokens");
+	const borderOutput = full.indexOf("Border · output tokens");
+	assert.ok(lineInput < lineOutput && borderInput < borderOutput, "input precedes output in both groups");
 });

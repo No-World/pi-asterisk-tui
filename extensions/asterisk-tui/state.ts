@@ -22,6 +22,8 @@ export interface UsageTotals {
 	cacheRead: number;
 	cacheWrite: number;
 	cost: number;
+	/** Provider-reported total tokens (rate denominator for the blended $/M). */
+	totalTokens: number;
 	/** Cumulative cache hit rate: cacheRead / (input + cacheWrite + cacheRead). */
 	cacheHitRate: number | undefined;
 	/** Side-spend, mirroring pi's own "Tools/summaries" bucket in
@@ -51,7 +53,7 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 	if (usageCache && usageCache.key === key) return usageCache.totals;
 
 	const totals: UsageTotals = {
-		input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0,
+		input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, totalTokens: 0,
 		cacheHitRate: undefined,
 		tools: { input: 0, output: 0, cost: 0 },
 	};
@@ -78,6 +80,7 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 			totals.cacheRead += cacheRead;
 			totals.cacheWrite += cacheWrite;
 			totals.cost += finiteOrZero(u.cost?.total);
+			totals.totalTokens += finiteOrZero(u.totalTokens);
 		} else if (entry.type === "message" && entry.message?.role === "toolResult") {
 			addSideSpend((entry.message as ToolResultMessage).usage);
 		} else if (entry.type === "branch_summary" || entry.type === "compaction") {
