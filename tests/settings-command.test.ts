@@ -7,6 +7,7 @@ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-c
 import { CURSOR_MARKER, visibleWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, loadConfig, type OpenTuiConfig } from "../extensions/asterisk-tui/config.ts";
 import { installEditor } from "../extensions/asterisk-tui/editor.ts";
+import { hasNativeFullscreenWheelScroll } from "../extensions/asterisk-tui/fullscreen-scroll.ts";
 import { getPendingUiChange } from "../extensions/asterisk-tui/index.ts";
 import { registerSettingsCommand } from "../extensions/asterisk-tui/settings-command.ts";
 
@@ -110,7 +111,8 @@ test("closes cleanly after enabling or disabling the UI", async () => {
 	}
 });
 
-test("updates fullscreen mouse wheel speed by typing a number", async () => {
+test("updates fullscreen mouse wheel speed by typing a number", async (t) => {
+	if (hasNativeFullscreenWheelScroll()) return t.skip("pi ≥0.99 owns the wheel knob natively");
 	const applied: number[] = [];
 	const settings = await openSettings(undefined, (config) => {
 		applied.push(config.fullscreen.wheelScrollLines);
@@ -589,4 +591,26 @@ test("working status tab cycles modes and gates content options", async () => {
 	const borderInput = full.indexOf("Border · input tokens");
 	const borderOutput = full.indexOf("Border · output tokens");
 	assert.ok(lineInput < lineOutput && borderInput < borderOutput, "input precedes output in both groups");
+});
+
+test("wheel speed entry defers to pi's native setting on 0.99+", async () => {
+	if (!hasNativeFullscreenWheelScroll()) return; // native gate: pi < 0.99 keeps the number prompt
+	const applied: number[] = [];
+	const settings = await openSettings(undefined, (config) => {
+		applied.push(config.fullscreen.wheelScrollLines);
+	});
+
+	settings.component.handleInput("\x1b[B");
+	settings.component.handleInput("\x1b[B");
+	assert.match(selectedLine(settings.component), /Mouse wheel speed/);
+	// The value shows the native takeover hint instead of our number.
+	assert.match(settings.component.render(80).join("\n"), /pi ≥0\.99/);
+
+	// Enter and Space stay inert: no prompt, no config change.
+	settings.component.handleInput("\r");
+	settings.component.handleInput(" ");
+	const rendered = settings.component.render(80).join("\n");
+	assert.ok(!rendered.includes("Wheel scroll lines per notch"), `prompt opened: ${rendered}`);
+	assert.equal(settings.getConfig().fullscreen.wheelScrollLines, 4);
+	assert.deepEqual(applied, []);
 });

@@ -13,6 +13,7 @@ import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, Sele
 import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, COST_DISPLAY_MODES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES, WORKING_INPUT_MODES, WORKING_STATUS_MODES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
+	hasNativeFullscreenWheelScroll,
 	normalizeFullscreenWheelScrollLines,
 } from "./fullscreen-scroll.ts";
 
@@ -120,6 +121,7 @@ const COPY = {
 			off: "Off",
 			languages: { en: "English", zh: "简体中文" },
 			wheelLines: (count: number) => `${count} ${count === 1 ? "line" : "lines"} / notch`,
+			wheelNative: "pi ≥0.99 · use /settings → fullscreenWheelScrollLines",
 			wheelPrompt: (count: number) => `Wheel scroll lines per notch, 1-10 (current: ${count}). Enter: apply · Esc: cancel`,
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
 			selectionCopyModes: { plain: "Visual content", unwrapped: "Logical content", raw: "Source content" },
@@ -237,6 +239,7 @@ const COPY = {
 			off: "关闭",
 			languages: { en: "English", zh: "简体中文" },
 			wheelLines: (count: number) => `每格 ${count} 行`,
+			wheelNative: "pi ≥0.99 原生接管 · 请用 /settings 的滚轮速度项",
 			wheelPrompt: (count: number) => `滚轮每格滚动行数（当前 ${count}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
 			selectionCopyModes: { plain: "按视觉内容复制", unwrapped: "按逻辑内容复制", raw: "按原始内容复制" },
@@ -473,7 +476,9 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 		{
 			id: "wheelScrollLines",
 			label: copy.labels.wheelScrollLines,
-			currentValue: copy.values.wheelLines(config.fullscreen.wheelScrollLines),
+			currentValue: hasNativeFullscreenWheelScroll()
+				? copy.values.wheelNative
+				: copy.values.wheelLines(config.fullscreen.wheelScrollLines),
 		},
 		{ id: "selectionCopy", label: copy.labels.selectionCopy, currentValue: copy.values.selectionCopyModes[config.selection.copy] },
 		{
@@ -780,6 +785,7 @@ class SettingsUi implements SettingsUiHandle {
 
 	private applySetting(itemId: string): void {
 		this.selectedItemByTab[this.tab] = itemId;
+		if (itemId === "wheelScrollLines" && hasNativeFullscreenWheelScroll()) return; // native knob
 		const numericItem =
 			(this.tab === "features" && (itemId === "wheelScrollLines" || itemId === "selectionTabWidth")) ||
 			(this.tab === "segments" && (itemId === "toolsMax" || itemId === "filesMax"));

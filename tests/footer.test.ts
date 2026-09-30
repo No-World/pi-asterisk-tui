@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type {
 	ExtensionContext,
@@ -8,11 +11,11 @@ import type {
 import { visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
 import { installClassicFooter as installFooter } from "../extensions/asterisk-tui/footer-classic.ts";
-import { installHudFooter, statSegment } from "../extensions/asterisk-tui/footer-hud.ts";
+import { collectEnvInfo, installHudFooter, statSegment } from "../extensions/asterisk-tui/footer-hud.ts";
 import { emptyGitStatus } from "../extensions/asterisk-tui/git.ts";
 import { autoIconHintText, resolveGlyphs, resolveIconMode, shouldShowAutoIconHint } from "../extensions/asterisk-tui/icons.ts";
 import { getModelMeta, getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/asterisk-tui/state.ts";
-import { effortColor, fitSegmentsByPriority, formatProviderLabel, shortHostname, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
+import { effortColor, fitSegmentsByPriority, formatProviderLabel, piVersionAtLeast, shortHostname, truncateBranch, truncatePath } from "../extensions/asterisk-tui/utils.ts";
 import { hostname as osHostname } from "node:os";
 
 const theme = {
@@ -1634,5 +1637,105 @@ test("hud context bar carries the compaction suffix once compacted", () => {
 	} finally {
 		handle.cleanup();
 		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();
+	}
+});
+
+test("piVersionAtLeast compares core triples with prerelease sorting below release", () => {
+	assert.equal(piVersionAtLeast("0.99.0", "0.87.1"), false);
+	assert.equal(piVersionAtLeast("0.99.0", "0.99.0"), true);
+	assert.equal(piVersionAtLeast("0.99.0", "0.99.1"), true);
+	assert.equal(piVersionAtLeast("0.99.0", "0.99.0-beta.1"), false);
+	assert.equal(piVersionAtLeast("0.99.0", "1.0.0"), true);
+	assert.equal(piVersionAtLeast("0.99", "0.99.0"), true);
+});
+
+test("collectEnvInfo counts native MCP servers from global, trusted project, and registrations", () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-asterisk-tui-mcp-"));
+	const projectDir = mkdtempSync(join(tmpdir(), "pi-asterisk-tui-cwd-"));
+	const homeDir = mkdtempSync(join(tmpdir(), "pi-asterisk-tui-home-"));
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const previousHome = process.env.HOME;
+	const native = (trusted: boolean, registered: { name: string; enabled: boolean }[]) => ({
+		enabled: () => true,
+		projectTrusted: () => trusted,
+		registeredServers: () => registered,
+	});
+	try {
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		process.env.HOME = homeDir;
+		writeFileSync(
+			join(agentDir, "mcp.json"),
+			JSON.stringify({ mcpServers: { alpha: { command: "x" }, beta: { command: "x", enabled: false } } }),
+			"utf8",
+		);
+		mkdirSync(join(projectDir, ".pi"), { recursive: true });
+		writeFileSync(
+			join(projectDir, ".pi", "mcp.json"),
+			JSON.stringify({ mcpServers: { gamma: { url: "https://example.com" } } }),
+			"utf8",
+		);
+
+		// Trusted project file counts; disabled and unregistered-off entries do not.
+		let info = collectEnvInfo(projectDir, native(true, [{ name: "delta", enabled: true }, { name: "eps", enabled: false }]));
+		assert.equal(info.mcp, 3, `alpha+gamma+delta, got ${info.mcp}`);
+
+		// Untrusted project: .pi/mcp.json stays unread.
+		info = collectEnvInfo(projectDir, native(false, []));
+		assert.equal(info.mcp, 1, `alpha only, got ${info.mcp}`);
+
+		// Native disabled: nothing native is read even though files exist.
+		info = collectEnvInfo(projectDir, { enabled: () => false, projectTrusted: () => true, registeredServers: () => [] });
+		assert.equal(info.mcp, 0);
+	} finally {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		if (previousHome === undefined) delete process.env.HOME;
+		else process.env.HOME = previousHome;
+		rmSync(agentDir, { recursive: true, force: true });
+		rmSync(projectDir, { recursive: true, force: true });
+		rmSync(homeDir, { recursive: true, force: true });
+	}
+});
+
+test("collectEnvInfo keeps the pi-mcp-adapter chain and lets native entries override by name", () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-asterisk-tui-mcp-"));
+	const homeDir = mkdtempSync(join(tmpdir(), "pi-asterisk-tui-home-"));
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const previousHome = process.env.HOME;
+	const native = {
+		enabled: () => true,
+		projectTrusted: () => false,
+		registeredServers: () => [],
+	};
+	try {
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		process.env.HOME = homeDir;
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:pi-mcp-adapter"] }), "utf8");
+		mkdirSync(join(homeDir, ".config", "mcp"), { recursive: true });
+		writeFileSync(
+			join(homeDir, ".config", "mcp", "mcp.json"),
+			JSON.stringify({ mcpServers: { adapterOne: { command: "x" }, adapterOff: { command: "x", disabled: true } } }),
+			"utf8",
+		);
+
+		// Adapter-only counting still works with native present but file-less.
+		let info = collectEnvInfo("/tmp", native);
+		assert.equal(info.mcp, 1, `adapterOne only, got ${info.mcp}`);
+
+		// Native entry with the same name re-enables it; disabled native stays off.
+		writeFileSync(
+			join(agentDir, "mcp.json"),
+			JSON.stringify({ mcpServers: { adapterOne: { command: "y" }, nativeOff: { command: "y", enabled: false } } }),
+			"utf8",
+		);
+		info = collectEnvInfo("/tmp", native);
+		assert.equal(info.mcp, 1, `adapterOne (native re-asserted), got ${info.mcp}`);
+	} finally {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		if (previousHome === undefined) delete process.env.HOME;
+		else process.env.HOME = previousHome;
+		rmSync(agentDir, { recursive: true, force: true });
+		rmSync(homeDir, { recursive: true, force: true });
 	}
 });

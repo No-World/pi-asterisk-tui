@@ -1,9 +1,29 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
-import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { VERSION, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 export { truncateToWidth, visibleWidth };
+
+/** Compare the hosting pi-coding-agent's VERSION against "major.minor.patch".
+ * Prerelease suffixes sort before their release. Used for version-conditional
+ * adaptations where pi absorbed a feature natively (ADR-0009). `current` is
+ * injectable for tests. */
+export function piVersionAtLeast(version: string, current: string = VERSION): boolean {
+	const parse = (v: string): number[] => {
+		const [core, pre] = v.split("-");
+		const parts = core!.split(".").map((p) => Number.parseInt(p, 10) || 0);
+		while (parts.length < 3) parts.push(0);
+		parts.push(pre === undefined ? 1 : 0);
+		return parts;
+	};
+	const ours = parse(current);
+	const theirs = parse(version);
+	for (let i = 0; i < 4; i++) {
+		if (ours[i]! !== theirs[i]!) return (ours[i] ?? 0) > (theirs[i] ?? 0);
+	}
+	return true;
+}
 
 export function stripAnsi(text: string): string {
 	return text
