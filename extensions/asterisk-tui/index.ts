@@ -156,12 +156,7 @@ export default function (pi: ExtensionAPI) {
 			if (config.workingStatus === "line") return "";
 			if (!sessionLifecycle.isCurrent() || !active) return "";
 			if (state.workingSince === undefined) return "";
-			const glyphs = resolveGlyphs(config.icons.mode);
-			return truncateToWidth(
-				formatWorkingBorderText(config.workingBorder, workingSource(), glyphs),
-				Math.max(0, width),
-				"",
-			);
+			return truncateToWidth(workingBorderSnapshot, Math.max(0, width), "");
 		},
 		renderSpinnerInBorder: (width) => {
 			if (config.workingStatus === "line") return "";
@@ -319,17 +314,22 @@ export default function (pi: ExtensionAPI) {
 	// "⠴ Working… (7m 57s · ↓ 14.8k tokens · 3 tools)" — per-turn timer, output tokens, and
 	// live tool count on the working indicator.
 	// setWorkingMessage only swaps the label; pi's spinner frames stay untouched.
+	// One 500ms snapshot drives BOTH working surfaces: the border renders on
+	// every streaming repaint, so computing its text per render would put it a
+	// beat ahead of the working line. The tick composes both strings once;
+	// renderInBorder only truncates the cached text.
+	let workingBorderSnapshot = "";
 	const updateWorkingLabel = () => {
 		const ctx = lastCtx;
-		if (!ctx?.ui?.setWorkingMessage) return;
 		if (state.workingSince === undefined) return;
+		const source = workingSource();
+		const glyphs = resolveGlyphs(config.icons.mode);
+		workingBorderSnapshot = formatWorkingBorderText(config.workingBorder, source, glyphs);
 		// the HUD speed segment is session-average: refresh it on this tick
 		const sessionTps = turnTelemetry.getSessionTps();
 		if (sessionTps !== null) state.outputTps = sessionTps;
-		if (config.workingStatus === "border") return; // hidden, visibility owned below
-		ctx.ui.setWorkingMessage(
-			formatWorkingLineMessage(config.workingLine, workingSource(), resolveGlyphs(config.icons.mode)),
-		);
+		if (config.workingStatus === "border" || !ctx?.ui?.setWorkingMessage) return;
+		ctx.ui.setWorkingMessage(formatWorkingLineMessage(config.workingLine, source, glyphs));
 	};
 	const stopWorkingLabel = () => {
 		lastCtx?.ui?.setWorkingMessage?.(); // restore default "Working..."
