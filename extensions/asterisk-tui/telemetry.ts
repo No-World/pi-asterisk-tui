@@ -632,48 +632,42 @@ export interface WorkingContentSource {
 	toolCount: number;
 }
 
-/** pi working-line message: "Working… (1m 23s · 󰓅 62.2 tok/s · …)". Elapsed
+/** Glyph-prefixed segments shared by both working surfaces — every segment
+ *  carries its own icon (clock/wrench included) so the two never disagree. */
+function workingSegments(
+	source: WorkingContentSource,
+	glyphs: IconGlyphs,
+	opts: { elapsed: boolean; speed: boolean; input: boolean; output: boolean; cacheHit: boolean; tools: boolean },
+): string[] {
+	const parts: string[] = [];
+	if (opts.elapsed) parts.push(`${glyphs.working} ${source.elapsedText}`);
+	if (opts.speed && source.runTps !== null) parts.push(`${glyphs.speed} ${source.runTps.toFixed(1)} tok/s`);
+	if (opts.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
+	if (opts.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
+	if (opts.cacheHit && source.runCacheHitRate !== null) parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
+	if (opts.tools && source.toolCount > 0) parts.push(`${glyphs.tools} ${source.toolCount}`);
+	return parts;
+}
+
+/** pi working-line message: "Working… ( 1m 23s · 󰓅 62.2 tok/s · …)". Elapsed
  *  always leads; every other segment is gated by the workingLine config. */
 export function formatWorkingLineMessage(
 	content: WorkingLineConfig,
 	source: WorkingContentSource,
 	glyphs: IconGlyphs,
 ): string {
-	const parts: string[] = [source.elapsedText];
-	if (content.speed && source.runTps !== null) {
-		parts.push(`${glyphs.speed} ${source.runTps.toFixed(1)} tok/s`);
-	}
-	if (content.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
-	if (content.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
-	if (content.cacheHit && source.runCacheHitRate !== null) {
-		parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
-	}
-	if (content.tools && source.toolCount > 0) {
-		parts.push(`${source.toolCount} tool${source.toolCount > 1 ? "s" : ""}`);
-	}
+	const parts = workingSegments(source, glyphs, { elapsed: true, ...content });
 	return `Working… (${parts.join(" · ")})`;
 }
 
-/** Border status text: leading working glyph then the enabled segments. The
+/** Border status text: the same glyph-prefixed segments, joined directly. The
  *  editor truncates by width and degrades to the glyph alone when narrow. */
 export function formatWorkingBorderText(
 	content: WorkingBorderConfig,
 	source: WorkingContentSource,
 	glyphs: IconGlyphs,
 ): string {
-	const parts: string[] = [];
-	if (content.elapsed) parts.push(source.elapsedText);
-	if (content.speed && source.runTps !== null) {
-		parts.push(`${source.runTps.toFixed(1)} tok/s`);
-	}
-	if (content.input && source.runInputTokens > 0) parts.push(`${glyphs.input} ${fmtTokens(source.runInputTokens)}`);
-	if (content.output && source.runOutputTokens > 0) parts.push(`${glyphs.output} ${fmtTokens(source.runOutputTokens)}`);
-	if (content.cacheHit && source.runCacheHitRate !== null) {
-		parts.push(`${glyphs.cacheHit} ${source.runCacheHitRate.toFixed(1)}%`);
-	}
-	if (content.tools && source.toolCount > 0) {
-		parts.push(`${source.toolCount} tool${source.toolCount > 1 ? "s" : ""}`);
-	}
-	if (parts.length === 0) parts.push(source.elapsedText);
-	return `${glyphs.working} ${parts.join(" · ")}`;
+	const parts = workingSegments(source, glyphs, content);
+	if (parts.length === 0) parts.push(`${glyphs.working} ${source.elapsedText}`);
+	return parts.join(" · ");
 }

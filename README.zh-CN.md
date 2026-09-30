@@ -66,7 +66,7 @@ pi install git:github.com/No-World/pi-asterisk-tui
 
 ## 遥测
 
-- **Working 指示器**：`Working… (34s · 󰓅 61.8 tok/s · ↑ 1.2k · ↓ 3.4k ·  96.0% · 3 tools)`——
+- **Working 指示器**：每段自带图标——时长（时钟）、速度、输入、输出、缓存命中、工具计数（扳手）：`Working… ( 34s · 󰓅 61.8 tok/s · ↑ 1.2k · ↓ 3.4k ·  96.0% ·  3)`——
   时长始终开头，其余各段均为工作状态页的独立开关（`workingLine.*`）。输出 token 按运行
   累计（流式期间增量估算、完成回填精确值，工具执行不清零）；这里的速度是从提交到当前帧的运行平均——HUD 底栏的速度段用整个 session 的平均值。
 - **单轮遥测**：每次运行结束显示 TPS、TTFT、耗时、停顿次数/时长、输入/输出 token

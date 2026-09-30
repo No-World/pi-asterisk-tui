@@ -80,7 +80,8 @@ compresses is the **compression mode** (`/*tui` → Collapse):
 
 ## Telemetry
 
-- **Working indicator**: `Working… (34s · 󰓅 61.8 tok/s · ↑ 1.2k · ↓ 3.4k ·  96.0% · 3 tools)` —
+- **Working indicator**: every segment carries its own glyph — elapsed (clock), speed, input,
+  output, cache hit, tool count (wrench): `Working… ( 34s · 󰓅 61.8 tok/s · ↑ 1.2k · ↓ 3.4k ·  96.0% ·  3)` —
   elapsed always leads; every other segment is a per-surface toggle on the Working tab
   (`workingLine.*`). Output tokens are run-cumulative (stream-estimated while streaming,
   exact on message completion, kept across tool calls); the speed shown here is the run average from submission to now — the HUD footer's speed segment is the session average.

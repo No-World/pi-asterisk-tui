@@ -19,6 +19,8 @@ export interface IconGlyphs {
 	speed: string;
 	latency: string;
 	stall: string;
+	/** Wrench — working-display tool count. */
+	tools: string;
 	extensions: string;
 	ahead: string;
 	behind: string;
@@ -53,6 +55,7 @@ const NERD_GLYPHS: IconGlyphs = {
 	speed: "󰓅",
 	latency: "",
 	stall: "",
+	tools: "\u{f0ad}", // U+F0AD nf-fa-wrench
 	extensions: "",
 	ahead: "↑",
 	behind: "↓",
@@ -87,6 +90,7 @@ const ASCII_GLYPHS: IconGlyphs = {
 	speed: ">",
 	latency: "~",
 	stall: "!",
+	tools: "t",
 	extensions: "&",
 	ahead: "^",
 	behind: "v",

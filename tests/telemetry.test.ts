@@ -764,7 +764,7 @@ test("working line and border compose from config toggles", () => {
 			source,
 			glyphs,
 		),
-		"Working\u2026 (2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 3 tools)",
+		"Working\u2026 (o 2m 3s \u00b7 > 12.5 tok/s \u00b7 \u2191 3.4M \u00b7 \u2193 5.3k \u00b7 c 96.4% \u00b7 t 3)",
 	);
 	assert.equal(
 		formatWorkingBorderText(
@@ -772,7 +772,7 @@ test("working line and border compose from config toggles", () => {
 			source,
 			glyphs,
 		),
-		"o 2m 3s \u00b7 12.5 tok/s \u00b7 3 tools",
+		"o 2m 3s \u00b7 > 12.5 tok/s \u00b7 t 3",
 	);
 	// everything off (or speed not yet credible) still shows the elapsed time
 	assert.equal(
@@ -830,7 +830,7 @@ test("working surfaces hide zero token segments", () => {
 	};
 	assert.equal(
 		formatWorkingLineMessage({ input: true, output: true, cacheHit: true, speed: true, tools: true }, source, glyphs),
-		"Working\u2026 (5s)",
+		"Working\u2026 (o 5s)",
 	);
 	assert.equal(
 		formatWorkingBorderText({ elapsed: true, speed: true, output: true, input: true, cacheHit: true, tools: true }, source, glyphs),
