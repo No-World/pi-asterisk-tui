@@ -206,7 +206,7 @@ Notable keys:
 | `turnCollapse.tools` | `{}` | per-tool `default` / `single` / `group-same` / `expand`; `*` wildcard |
 | `icons.mode` | `"auto"` | nerd / ascii / auto icon set; auto = nerd in interactive UTF-8 TTYs (ADR-0006), one-time hint on first nerd resolution |
 | `cursorStyle` | `"block"` | editor cursor style |
-| `telemetry.*` | on | working-indicator and post-turn telemetry fields; `telemetry.persist` (on) stores each run as a session entry rendered as a transcript line (survives resume) |
+| `telemetry.*` | on | working-indicator and post-turn telemetry fields; `telemetry.cost` is a tri-state (`off` / `cost` / `cost+rate`); `telemetry.persist` (on) stores each run as a session entry rendered as a transcript line (survives resume) |
 | `footerSegments.*` | mixed | classic footer segment toggles |
 | `footerSegments.hostname` | `false` | opt-in short host name segment (first label of the machine's host name) — for telling SSH targets apart at a glance; same toggle exists as `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | uppercase the provider name's first letter; `false` keeps the raw provider id casing (proxy-style ids like `cc-switch-zhipu-glm`) |
@@ -215,7 +215,7 @@ Notable keys:
 | `workingLine.*` / `workingBorder.*` | mixed | per-surface content options (elapsed, speed, input/output tokens, cache hit, tools); `*.input` is a tri-state (off / total / total+cache); shown per the active mode |
 | `workingBorder.elapsed` | `true` | border always degrades to elapsed → glyph when narrow |
 | `inlineFooter` | `false` | classic footer rows render inside the editor frame borders instead of dedicated rows; inert under `footerStyle: "hud"` |
-| `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`; `hud.statStyle`: `icon` / `icon+text` / `text` — whether stat segments show glyphs, labels, or both) |
+| `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`; `hud.statStyle`: `icon` / `icon+text` / `text`; `hud.cost`: `off` / `cost` / `cost+rate`) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
 | `selection.copy` | `"unwrapped"` | selection copy: `plain` (visual content) / `unwrapped` (logical content, default) / `raw` (source content); depends on pi-tui internals, may silently fall back to stock after a pi upgrade |
 | `selection.trimPadding` | `true` | trim selection margins: highlight skips padded blanks; visual-content copies carry no margin spaces |

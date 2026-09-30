@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { CursorStyle, FooterStyle, HudConfig, IconMode, OpenTuiConfig, SelectionCopyMode, SettingsLanguage, StylePreset } from "./config.ts";
-import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES, WORKING_INPUT_MODES, WORKING_STATUS_MODES } from "./config.ts";
+import { applyStylePreset, BUILTIN_TOOLS, COLLAPSE_MODES, COLLAPSE_STYLES, COST_DISPLAY_MODES, deriveStylePreset, HUD_STAT_STYLES, parseSelectionTabWidth, SELECTION_COPY_MODES, TOKEN_DISPLAY_MODES, TOOL_OVERRIDES, WORKING_INPUT_MODES, WORKING_STATUS_MODES } from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -133,6 +133,7 @@ const COPY = {
 			statStyles: { icon: "Icons only", "icon+text": "Icons + text", text: "Text only" },
 			workingModes: { line: "Working line only", border: "Border only", both: "Working line + border" },
 			inputModes: { off: "Off", total: "Total", cache: "Total + cache" },
+			costModes: { off: "Off", cost: "Cost", "cost+rate": "Cost + rate" },
 			collapseModes: { native: "Native", single: "One per tool", "group-same": "Group same type", "group-all": "Group all" },
 			collapseStyles: { compact: "Compact", classic: "Classic" },
 			toolOverrides: { default: "Default", single: "One line", "group-same": "Group same type", expand: "Native box" },
@@ -249,6 +250,7 @@ const COPY = {
 			statStyles: { icon: "纯图标", "icon+text": "图标+文字", text: "纯文字" },
 			workingModes: { line: "单 Working 行", border: "单边框信息", both: "Working 行+边框信息" },
 			inputModes: { off: "关闭", total: "总数", cache: "总数+缓存" },
+			costModes: { off: "关闭", cost: "花费", "cost+rate": "花费+平均费率" },
 			collapseModes: { native: "原生", single: "每工具单行", "group-same": "同类归纳", "group-all": "整段归纳" },
 			collapseStyles: { compact: "紧凑", classic: "经典" },
 			toolOverrides: { default: "默认", single: "单行", "group-same": "同类归纳", expand: "原生" },
@@ -302,6 +304,16 @@ function cycleTokenMode(config: OpenTuiConfig): OpenTuiConfig {
 }
 
 /** Cycles the HUD stat-segment style: icon → icon+text → text → icon. */
+/** Cycles a cost display: off → cost → cost+rate → off. */
+function cycleCostMode(config: OpenTuiConfig, target: "telemetry" | "hud" | "segments"): OpenTuiConfig {
+	const current = target === "telemetry" ? config.telemetry.cost : target === "hud" ? config.hud.cost : config.footerSegments.cost;
+	const idx = COST_DISPLAY_MODES.indexOf(current);
+	const next = COST_DISPLAY_MODES[(idx + 1) % COST_DISPLAY_MODES.length]!;
+	if (target === "telemetry") return { ...config, telemetry: { ...config.telemetry, cost: next } };
+	if (target === "hud") return { ...config, hud: { ...config.hud, cost: next } };
+	return { ...config, footerSegments: { ...config.footerSegments, cost: next } };
+}
+
 /** Cycles the working-status mode: line → border → both → line. */
 function cycleWorkingStatus(config: OpenTuiConfig): OpenTuiConfig {
 	const idx = WORKING_STATUS_MODES.indexOf(config.workingStatus);
@@ -502,7 +514,6 @@ const HUD_TOGGLE_ITEMS: Array<{ id: string; key: keyof HudConfig; label: string 
 	{ id: "sessionName", key: "sessionName", label: "hudSessionName" },
 	{ id: "hostname", key: "hostname", label: "hudHostname" },
 	{ id: "time", key: "time", label: "hudTime" },
-	{ id: "cost", key: "cost", label: "hudCost" },
 	{ id: "outputSpeed", key: "outputSpeed", label: "hudOutputSpeed" },
 	{ id: "contextBar", key: "contextBar", label: "hudContextBar" },
 	{ id: "contextPercent", key: "contextPercent", label: "hudContextPercent" },
@@ -543,7 +554,7 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 
 			{ id: "context", label: copy.labels.context, currentValue: flag(segs.context) },
 			{ id: "tokens", label: copy.labels.tokens, currentValue: flag(segs.tokens) },
-			{ id: "cost", label: copy.labels.cost, currentValue: flag(segs.cost) },
+			{ id: "cost", label: copy.labels.cost, currentValue: copy.values.costModes[segs.cost] },
 			{ id: "extensionStatuses", label: copy.labels.extensionStatuses, currentValue: flag(segs.extensionStatuses) },
 			{ id: "capitalizeProviderName", label: copy.labels.capitalizeProviderName, currentValue: flag(segs.capitalizeProviderName) },
 			{ id: "inlineFooter", label: copy.labels.inlineFooter, currentValue: flag(config.inlineFooter) },
@@ -556,6 +567,13 @@ function buildSegmentsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 		label: labels[label],
 		currentValue: flag(hud[key] as boolean),
 	}));
+	// cost is a tri-state (off / spend / spend+rate), handled separately like tokens
+	const timeIdx = toggleItems.findIndex((item) => item.id === "time");
+	toggleItems.splice(timeIdx + 1, 0, {
+		id: "cost",
+		label: labels.hudCost,
+		currentValue: copy.values.costModes[hud.cost],
+	});
 	// token-stats presentation sits where it always did: right before the breakdown toggle;
 	// the stat style (icon / icon+text / text) follows immediately after
 	const breakdownIdx = toggleItems.findIndex((item) => item.id === "tokenBreakdown");
@@ -588,7 +606,7 @@ function buildTelemetryItems(config: OpenTuiConfig, copy: SettingsCopy): Setting
 		{ id: "tools", label: copy.labels.toolCallCount, currentValue: flag(telemetry.tools) },
 		{ id: "tokens", label: copy.labels.tokenCounts, currentValue: flag(telemetry.tokens) },
 		{ id: "stalls", label: copy.labels.stallDetails, currentValue: flag(telemetry.stalls) },
-		{ id: "cost", label: copy.labels.costRate, currentValue: flag(telemetry.cost) },
+		{ id: "cost", label: copy.labels.costRate, currentValue: copy.values.costModes[telemetry.cost] },
 		{ id: "persist", label: copy.labels.telemetryPersist, currentValue: flag(telemetry.persist) },
 	];
 }
@@ -667,6 +685,8 @@ function handleSettingChange(
 			next = cycleTokenMode(config); // tri-state, not a boolean toggle
 		} else if (config.footerStyle === "hud" && itemId === "statStyle") {
 			next = cycleStatStyle(config); // tri-state, not a boolean toggle
+		} else if (itemId === "cost") {
+			next = cycleCostMode(config, config.footerStyle === "hud" ? "hud" : "segments");
 		} else if (config.footerStyle === "hud" && itemId in config.hud) {
 			next = toggleHud(config, itemId as keyof HudConfig);
 		} else {
@@ -704,6 +724,7 @@ function handleSettingChange(
 		return config;
 	}
 	if (tab === "telemetry") {
+		if (itemId === "cost") return cycleCostMode(config, "telemetry");
 		return toggleTelemetry(config, itemId as keyof OpenTuiConfig["telemetry"]);
 	}
 	return config;

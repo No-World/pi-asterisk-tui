@@ -171,8 +171,11 @@ function renderStatsBlock(
 			stats.push(theme.fg(cacheHitColor(totals.cacheHitRate), `${glyphs.cacheHit} ${totals.cacheHitRate.toFixed(1)}%`));
 		}
 	}
-	if (segments.cost) {
+	if (segments.cost !== "off") {
 		let costText = `${glyphs.cost} $${totals.cost.toFixed(3)}`;
+		if (segments.cost === "cost+rate" && totals.totalTokens > 0) {
+			costText += ` · $${(totals.cost / (totals.totalTokens / 1_000_000)).toFixed(2)}/M`;
+		}
 		// Side-spend (tools/summaries) rides the same segment, dimmed: zero
 		// side-spend renders exactly as before.
 		if (totals.tools.cost > 0) {

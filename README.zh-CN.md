@@ -167,7 +167,7 @@ VS Code、Windows Terminal 等应用必须设在终端配置文件里，只装�
 | `turnCollapse.tools` | `{}` | 每工具 `default` / `single` / `group-same` / `expand`；`*` 通配 |
 | `icons.mode` | `"auto"` | nerd / ascii / auto 图标集；auto = 交互式 UTF-8 TTY 用 nerd（ADR-0006），首次解析为 nerd 时有一次提示 |
 | `cursorStyle` | `"block"` | 编辑器光标样式 |
-| `telemetry.*` | 开 | Working 指示器与轮末遥测字段；`telemetry.persist`（开）把每轮遥测存为 session 条目并画成转录行（重进不丢） |
+| `telemetry.*` | 开 | Working 指示器与轮末遥测字段；`telemetry.cost` 三态（`off` / `cost` / `cost+rate`）；`telemetry.persist`（开）把每轮遥测存为 session 条目并画成转录行（重进不丢） |
 | `footerSegments.*` | 混合 | classic 底栏段落开关 |
 | `footerSegments.hostname` | `false` | 可选主机名段（取主机名的首个标签）——多机 SSH 时一眼区分所在主机；HUD 侧同款开关为 `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | 首字母大写 provider 名；`false` 保留原始 id 大小写（适配 `cc-switch-zhipu-glm` 这类代理 id） |
@@ -175,7 +175,7 @@ VS Code、Windows Terminal 等应用必须设在终端配置文件里，只装�
 | `workingLine.*` / `workingBorder.*` | 混合 | 各展示面的内容选项（时长、速度、输入/输出 token、缓存命中、工具计数）；`*.input` 为三态（关闭/总数/总数+缓存）；按模式条件生效 |
 | `workingBorder.elapsed` | `true` | 边框窄时始终退化为时长 → 图标 |
 | `inlineFooter` | `false` | classic 底栏两行主内容改画进编辑器边框；`footerStyle: "hud"` 下无效 |
-| `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`；`hud.statStyle`：`icon` / `icon+text` / `text`——统计段显示纯图标、图标+文字还是纯文字） |
+| `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`；`hud.statStyle`：`icon` / `icon+text` / `text`；`hud.cost`：`off` / `cost` / `cost+rate` 三态） |
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
 | `selection.copy` | `"unwrapped"` | 选区复制：`plain`（视觉内容）/ `unwrapped`（逻辑内容，默认）/ `raw`（原始内容）；依赖 pi-tui 内部结构，pi 升级后可能静默回退原生 |
 | `selection.trimPadding` | `true` | 选区边距裁剪：高亮不覆盖补齐空白、视觉内容复制不含前后边距空格 |

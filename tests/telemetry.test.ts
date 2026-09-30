@@ -197,9 +197,18 @@ test("uses footer semantics and respects telemetry segment settings", () => {
 		duration: false,
 		tokens: false,
 		stalls: false,
-		cost: false,
+		cost: "off",
 	};
 	assert.equal(formatTurnTelemetry(telemetry, theme, hidden, "ascii"), "");
+
+	// cost-only mode drops the rate dimension
+	const spendOnly = formatTurnTelemetry(
+		telemetry,
+		styledTheme as unknown as Theme,
+		{ ...DEFAULT_CONFIG.telemetry, cost: "cost" },
+		"ascii",
+	);
+	assert.ok(spendOnly.includes("$0.0003") && !spendOnly.includes("/M"), spendOnly);
 });
 
 test("returns no TPS without output or generation time", () => {
