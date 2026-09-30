@@ -102,10 +102,7 @@ A claude-hud style four-line dashboard (a starship-style classic preset is also 
    cumulative working time, cost, today's cost, live output speed (tok/s; only
    updated when the message streamed for at least 1s — burst-flushed responses
    are not measurable and keep the last credible speed).
-2. **Context line** — usage bar with percent and token counts, cache hit rate.
-   Token stats have three presentations (`hud.tokens`): localized `verbose`
-   labels (`↑in 77M ·cache 77M`), language-independent `compact` shorthand
-   (`↑ 77M (U 855k + R 77M) │ ↓ 266k │ C 98.9%`), or `off`.
+2. **Context line** — usage bar with percent and token counts, cache hit rate. Token stats have three presentations (`hud.tokens`): localized `verbose` labels, language-independent `compact` shorthand (icon + value, e.g. `77M (U 855k + R 77M) │ 266k │ 98.9%`), or `off`. The stat segments (time, cost, today's cost, output speed, tokens, cache hit) render per `hud.statStyle`: `icon` (glyphs only), `icon+text` (default), or `text`; glyphs come from the same set as the telemetry line and classic footer, with ASCII fallback under `icons.mode: "ascii"`.
 3. **Tools line** — per-tool usage counts with ✓, running tool labels.
 4. **Environment line** — MCP server count (only when pi-mcp-adapter is actually
    installed), memory usage, compaction count, pi version.
@@ -213,7 +210,7 @@ Notable keys:
 | `footerSegments.capitalizeProviderName` | `true` | uppercase the provider name's first letter; `false` keeps the raw provider id casing (proxy-style ids like `cc-switch-zhipu-glm`) |
 | `borderWorkingStatus` | `true` | working status embedded in the editor's top border; both footer styles |
 | `inlineFooter` | `false` | classic footer rows render inside the editor frame borders instead of dedicated rows; inert under `footerStyle: "hud"` |
-| `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`) |
+| `hud.*` | on | every HUD segment individually toggleable (`hud.tokens`: `verbose` / `compact` / `off`; `hud.statStyle`: `icon` / `icon+text` / `text` — whether stat segments show glyphs, labels, or both) |
 | `fullscreen.wheelScrollLines` | `4` | mouse wheel lines per tick |
 | `selection.copy` | `"unwrapped"` | selection copy: `plain` (visual content) / `unwrapped` (logical content, default) / `raw` (source content); depends on pi-tui internals, may silently fall back to stock after a pi upgrade |
 | `selection.trimPadding` | `true` | trim selection margins: highlight skips padded blanks; visual-content copies carry no margin spaces |

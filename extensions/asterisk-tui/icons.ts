@@ -14,6 +14,8 @@ export interface IconGlyphs {
 	output: string;
 	cacheHit: string;
 	cost: string;
+	/** Calendar — HUD daily-cost segment (distinct from session cost in icon-only mode). */
+	daily: string;
 	speed: string;
 	latency: string;
 	stall: string;
@@ -45,6 +47,9 @@ const NERD_GLYPHS: IconGlyphs = {
 	output: "",
 	cacheHit: "",
 	cost: "",
+	// Written as an escape on purpose: PUA literals are fragile through
+	// editor/agent transport; the codepoint is the contract.
+	daily: "\u{f133}", // U+F133 nf-fa-calendar-o
 	speed: "󰓅",
 	latency: "",
 	stall: "",
@@ -78,6 +83,7 @@ const ASCII_GLYPHS: IconGlyphs = {
 	output: "↓",
 	cacheHit: "c",
 	cost: "$",
+	daily: "d",
 	speed: ">",
 	latency: "~",
 	stall: "!",

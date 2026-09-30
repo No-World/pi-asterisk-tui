@@ -84,9 +84,7 @@ claude-hud 风格四行面板（同时内置 starship 风格 classic 预设）�
    ahead/behind、逐文件增删统计 `[+71 -5]`、会话名、累计工作时长、费用、今日费用、
    实时输出速度（tok/s；仅在该条消息流式传输满 1 秒后才更新——瞬发式爆发的响应
    无法测速，保留上一条可信速度）。
-2. **上下文行**——用量进度条、百分比与 token 数、缓存命中率。Token 统计有三种呈现
-   （`hud.tokens`）：本地化完整标签 `verbose`（`↑输入 77M ·缓存 77M`）、语言无关的紧凑
-   缩写 `compact`（`↑ 77M (U 855k + R 77M) │ ↓ 266k │ C 98.9%`）、或 `off`。
+2. **上下文行**——用量进度条、百分比与 token 数、缓存命中率。Token 统计有三种呈现（`hud.tokens`）：本地化完整标签 `verbose`、语言无关的紧凑速记 `compact`（图标+数值，如 `77M (U 855k + R 77M) │ 266k │ 98.9%`）、或 `off`。统计段（时长、费用、今日费用、输出速度、token、缓存命中）的呈现由 `hud.statStyle` 控制：`icon`（纯图标）/ `icon+text`（图标+文字，默认）/ `text`（纯文字）；图标与遥测行、classic 底栏共用同一 glyph 集，`icons.mode: "ascii"` 下有符号回退。
 3. **工具行**——按工具的调用计数（✓ 标记）、运行中的工具标签。
 4. **环境行**——MCP 服务器计数（仅当实际安装了 pi-mcp-adapter 时统计）、内存占用、
    压缩次数、pi 版本。
@@ -177,7 +175,7 @@ VS Code、Windows Terminal 等应用必须设在终端配置文件里，只装�
 | `footerSegments.capitalizeProviderName` | `true` | 首字母大写 provider 名；`false` 保留原始 id 大小写（适配 `cc-switch-zhipu-glm` 这类代理 id） |
 | `borderWorkingStatus` | `true` | 编辑器上边框内嵌工作状态；两种底栏风格均适用 |
 | `inlineFooter` | `false` | classic 底栏两行主内容改画进编辑器边框；`footerStyle: "hud"` 下无效 |
-| `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`） |
+| `hud.*` | 开 | HUD 每个段落均可单独开关（`hud.tokens`：`verbose` / `compact` / `off`；`hud.statStyle`：`icon` / `icon+text` / `text`——统计段显示纯图标、图标+文字还是纯文字） |
 | `fullscreen.wheelScrollLines` | `4` | 滚轮每格行数 |
 | `selection.copy` | `"unwrapped"` | 选区复制：`plain`（视觉内容）/ `unwrapped`（逻辑内容，默认）/ `raw`（原始内容）；依赖 pi-tui 内部结构，pi 升级后可能静默回退原生 |
 | `selection.trimPadding` | `true` | 选区边距裁剪：高亮不覆盖补齐空白、视觉内容复制不含前后边距空格 |

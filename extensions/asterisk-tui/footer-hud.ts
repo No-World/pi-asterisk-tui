@@ -14,9 +14,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { OpenTuiConfig, HudConfig, SettingsLanguage } from "./config.ts";
+import type { OpenTuiConfig, HudConfig, HudStatStyle, SettingsLanguage } from "./config.ts";
 import type { FooterHandle } from "./footer.ts";
 import type { GitStatus } from "./git.ts";
+import type { IconGlyphs } from "./icons.ts";
+import { resolveGlyphs } from "./icons.ts";
 import {
 	alignRight,
 	basenamePath,
@@ -48,11 +50,14 @@ const THINKING_ICONS: Record<string, string> = {
 	max: "●",
 };
 
-// HUD labels follow the /*tui panel language (settingsLanguage).
+// HUD labels follow the /*tui panel language (settingsLanguage). Icon
+// presence is governed by hud.statStyle; glyphs come from resolveGlyphs
+// like every other surface (telemetry line, classic footer).
 interface HudStrings {
 	contextLabel: string;
 	costLabel: string;
 	todayLabel: string;
+	timeLabel: string;
 	speedLabel: string;
 	cacheLabel: string;
 	inputLabel: string;
@@ -71,10 +76,11 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 		contextLabel: "ctx ",
 		costLabel: "cost ",
 		todayLabel: "today ",
+		timeLabel: "time ",
 		speedLabel: "out ",
 		cacheLabel: "·cache ",
-		inputLabel: "↑in ",
-		outputLabel: "↓out ",
+		inputLabel: "in ",
+		outputLabel: "out ",
 		hitLabel: "hit ",
 		compactionLabel: "compact ",
 		memoryLabel: "mem ",
@@ -86,10 +92,11 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 		contextLabel: "上下文 ",
 		costLabel: "费用 ",
 		todayLabel: "今日 ",
-		speedLabel: "输出: ",
+		timeLabel: "时长 ",
+		speedLabel: "输出 ",
 		cacheLabel: "·缓存 ",
-		inputLabel: "↑输入 ",
-		outputLabel: "↓输出 ",
+		inputLabel: "输入 ",
+		outputLabel: "输出 ",
 		hitLabel: "缓存命中 ",
 		compactionLabel: "压实 ",
 		memoryLabel: "内存 ",
@@ -389,6 +396,20 @@ function toolCallLabel(name: string, args: unknown): string {
 	return truncateLabel(v, mode);
 }
 
+/** Formats one HUD stat segment (time, cost, speed, …) per hud.statStyle.
+ *  Labels carry their own trailing space; an empty label renders the value
+ *  bare (the time segment is self-explanatory without one). */
+export function statSegment(
+	style: HudStatStyle,
+	glyph: string,
+	label: string,
+	value: string,
+): string {
+	if (style === "icon") return `${glyph} ${value}`;
+	if (style === "text") return `${label}${value}`;
+	return `${glyph} ${label}${value}`;
+}
+
 function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig, strings: HudStrings): string {
 	const usage = ctx.getContextUsage();
 	const ctxWin = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
@@ -480,6 +501,7 @@ export function installHudFooter(
 				const config = getConfig();
 				const hud = config.hud;
 				const strings = HUD_STRINGS[config.settingsLanguage] ?? HUD_STRINGS.en;
+				const glyphs = resolveGlyphs(config.icons.mode);
 				const meta = getModelMeta();
 				const sep = theme.fg("dim", " │ ");
 
@@ -592,29 +614,31 @@ export function installHudFooter(
 				let hostStr = "";
 				if (hud.hostname) {
 					const shortHost = shortHostname(os.hostname());
+					// plain muted text — the host segment has no glyph counterpart
 					if (shortHost) {
-						// HUD is icon-mode agnostic (⏱️/moon icons are hardcoded):
-						// plain muted text, no glyph plumbing.
 						hostStr = theme.fg("muted", shortHost);
 					}
 				}
 
 				const right1: string[] = [];
 				if (hud.time) {
-					right1.push(theme.fg("muted", `⏱️ ${formatDuration(workingMs)}`));
+					// clock glyph (U+F017) — single-width, unlike the old ⏱️ emoji
+					right1.push(theme.fg("muted", statSegment(hud.statStyle, glyphs.working, strings.timeLabel, formatDuration(workingMs))));
 				}
 				if (hud.cost) {
-					let costText = `${strings.costLabel}$${totals.cost.toFixed(2)}`;
+					let costValue = `$${totals.cost.toFixed(2)}`;
 					// Side-spend (tools/summaries) rides the same segment: zero
 					// side-spend renders exactly as before.
 					if (totals.tools.cost > 0) {
-						costText += strings.toolsSuffix(totals.tools.cost.toFixed(2));
+						costValue += strings.toolsSuffix(totals.tools.cost.toFixed(2));
 					}
-					right1.push(theme.fg("muted", costText));
+					right1.push(theme.fg("muted", statSegment(hud.statStyle, glyphs.cost, strings.costLabel, costValue)));
 				}
-				if (hud.dailyCost) right1.push(theme.fg("muted", `${strings.todayLabel}$${dailyCost.toFixed(2)}`));
+				if (hud.dailyCost) {
+					right1.push(theme.fg("muted", statSegment(hud.statStyle, glyphs.daily, strings.todayLabel, `$${dailyCost.toFixed(2)}`)));
+				}
 				if (hud.outputSpeed && state.outputTps !== null && state.outputTps > 0) {
-					right1.push(theme.fg("accent", `${strings.speedLabel}${state.outputTps.toFixed(1)} tok/s`));
+					right1.push(theme.fg("accent", statSegment(hud.statStyle, glyphs.speed, strings.speedLabel, `${state.outputTps.toFixed(1)} tok/s`)));
 				}
 				// First try the full branch name, then shrink it by exactly the amount
 				// line 1 is over budget; alignRight's tail truncation stays as the last
@@ -643,43 +667,64 @@ export function installHudFooter(
 				if (hud.contextBar) line2 = renderContextBar(theme, ctx, hud, strings);
 				const right2: string[] = [];
 				if (hud.tokens === "compact") {
-					// language-independent shorthand: ↑ 77M (U 855k + R 77M) │ ↓ 266k │ C 98.9%
+					// language-independent shorthand; compact is inherently icon-style,
+					// so statStyle does not apply (labels would defeat its purpose)
 					const input = hud.tokenBreakdown && totals.cacheRead > 0
 						? formatInputBreakdown(totals.input, totals.cacheRead)
 						: fmtTokens(totals.input + totals.cacheRead);
-					right2.push(theme.fg("accent", `↑ ${input}`));
-					right2.push(theme.fg("success", `↓ ${fmtTokens(totals.output)}`));
+					right2.push(theme.fg("accent", `${glyphs.input} ${input}`));
+					right2.push(theme.fg("success", `${glyphs.output} ${fmtTokens(totals.output)}`));
 					if (hud.cacheHit && totals.cacheHitRate !== undefined) {
 						right2.push(
 							theme.fg(
 								cacheHitColor(totals.cacheHitRate),
-								`C ${totals.cacheHitRate.toFixed(1)}%`,
+								`${glyphs.cacheHit} ${totals.cacheHitRate.toFixed(1)}%`,
 							),
 						);
 					}
 				} else if (hud.tokens === "verbose") {
-					const cachedPart =
-						hud.tokenBreakdown && totals.cacheRead > 0
-							? theme.fg("dim", `${strings.cacheLabel}${fmtTokens(totals.cacheRead)}`)
+					if (hud.statStyle === "icon") {
+						// telemetry-line look: inline U/R breakdown, language-free
+						const input = hud.tokenBreakdown && totals.cacheRead > 0
+							? formatInputBreakdown(totals.input, totals.cacheRead)
+							: fmtTokens(totals.input + totals.cacheRead);
+						right2.push(theme.fg("accent", `${glyphs.input} ${input}`));
+						const writePart = hud.tokenBreakdown && totals.cacheWrite > 0
+							? theme.fg("dim", ` +W ${fmtTokens(totals.cacheWrite)}`)
 							: "";
-					right2.push(
-						theme.fg("accent", `${strings.inputLabel}${fmtTokens(totals.input + totals.cacheRead)}`) +
-						cachedPart
-					);
-					const cacheWritePart =
-						hud.tokenBreakdown && totals.cacheWrite > 0
-							? theme.fg("dim", `${strings.cacheLabel}${fmtTokens(totals.cacheWrite)}`)
-							: "";
-					right2.push(
-						theme.fg("success", `${strings.outputLabel}${fmtTokens(totals.output)}`) + cacheWritePart
-					);
-					if (hud.cacheHit && totals.cacheHitRate !== undefined) {
+						right2.push(theme.fg("success", `${glyphs.output} ${fmtTokens(totals.output)}`) + writePart);
+						if (hud.cacheHit && totals.cacheHitRate !== undefined) {
+							right2.push(
+								theme.fg(cacheHitColor(totals.cacheHitRate), `${glyphs.cacheHit} ${totals.cacheHitRate.toFixed(1)}%`),
+							);
+						}
+					} else {
+						const inPrefix = hud.statStyle === "icon+text" ? `${glyphs.input} ` : "";
+						const outPrefix = hud.statStyle === "icon+text" ? `${glyphs.output} ` : "";
+						const hitPrefix = hud.statStyle === "icon+text" ? `${glyphs.cacheHit} ` : "";
+						const cachedPart =
+							hud.tokenBreakdown && totals.cacheRead > 0
+								? theme.fg("dim", ` ${strings.cacheLabel}${fmtTokens(totals.cacheRead)}`)
+								: "";
 						right2.push(
-							theme.fg(
-								cacheHitColor(totals.cacheHitRate),
-								`${strings.hitLabel}${totals.cacheHitRate.toFixed(1)}%`
-							)
+								theme.fg("accent", `${inPrefix}${strings.inputLabel}${fmtTokens(totals.input + totals.cacheRead)}`) +
+								cachedPart
 						);
+						const cacheWritePart =
+							hud.tokenBreakdown && totals.cacheWrite > 0
+								? theme.fg("dim", ` ${strings.cacheLabel}${fmtTokens(totals.cacheWrite)}`)
+								: "";
+						right2.push(
+								theme.fg("success", `${outPrefix}${strings.outputLabel}${fmtTokens(totals.output)}`) + cacheWritePart
+						);
+						if (hud.cacheHit && totals.cacheHitRate !== undefined) {
+							right2.push(
+								theme.fg(
+									cacheHitColor(totals.cacheHitRate),
+									`${hitPrefix}${strings.hitLabel}${totals.cacheHitRate.toFixed(1)}%`
+								)
+							);
+						}
 					}
 				}
 				if (hud.compactions && compactions > 0) {

@@ -57,7 +57,7 @@ _Avoid_: ✻ 行（工具完成后即并入 ✻ 行）
 _Avoid_: 运行指示器（一个是过程中的实时行，一个是事后的总结块）
 
 **输出速度（HUD）**：
-状态行的 `输出: N tok/s`——最近一条流式满 1 秒的消息的 tok/s；瞬发式爆发的响应不参与更新，保留上一条可信值。
+状态行的 `输出 N tok/s`（hud.statStyle 图标+文字档）——最近一条流式满 1 秒的消息的 tok/s；瞬发式爆发的响应不参与更新，保留上一条可信值。
 _Avoid_: 单轮遥测的 TPS（分母含 TTFT，是请求吞吐而非生成速度）
 
 **侧花费（tools/summaries）**：
@@ -95,8 +95,12 @@ _Avoid_: pi 的 `/settings`（那是宿主的设置；本扩展的配置都在�
 `icons.mode` = nerd / ascii / auto。
 
 **Token 显示模式**：
-HUD Token 统计的呈现方式（`hud.tokens`）= verbose（本地化完整标签）/ compact（语言无关缩写 `↑ 77M (U 855k + R 77M) │ ↓ 266k │ C 98.9%`）/ off。
+HUD Token 统计的呈现方式（`hud.tokens`）= verbose（本地化完整标签）/ compact（语言无关速记，图标+数值，如 `77M (U 855k + R 77M) │ 266k │ 98.9%`）/ off。
 _Avoid_: Token 开关（已是三态，不是布尔）
+
+**统计样式（HUD）**：
+`hud.statStyle` = icon（纯图标）/ icon+text（图标+文字，默认）/ text（纯文字），作用于时长、费用、今日费用、输出速度、token、缓存命中段；图标与遥测行/classic 底栏共用同一 glyph 集（icons.mode，含 ascii 回退），compact token 速记固定图标+数值不受此项影响。
+_Avoid_: 图标模式（icons.mode 决定用哪套字形/字体回退；statStyle 决定图标是否出现）
 
 **全屏滚动**：
 fullscreen TUI 模式下的滚轮滚动（`fullscreen.wheelScrollLines`）。

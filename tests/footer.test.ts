@@ -8,7 +8,7 @@ import type {
 import { visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
 import { installClassicFooter as installFooter } from "../extensions/asterisk-tui/footer-classic.ts";
-import { installHudFooter } from "../extensions/asterisk-tui/footer-hud.ts";
+import { installHudFooter, statSegment } from "../extensions/asterisk-tui/footer-hud.ts";
 import { emptyGitStatus } from "../extensions/asterisk-tui/git.ts";
 import { autoIconHintText, resolveGlyphs, resolveIconMode, shouldShowAutoIconHint } from "../extensions/asterisk-tui/icons.ts";
 import { getModelMeta, getUsageTotals, invalidateUsageCache, type FooterState } from "../extensions/asterisk-tui/state.ts";
@@ -1021,14 +1021,14 @@ test("hud compact token mode renders language-independent shorthand", () => {
 			footerData,
 		) as Component;
 
-		// compact: ↑ 7.8M (U 855k + R 6.9M) │ ↓ 266k │ C 89.0% — same in both languages
+		// compact (ascii icons): ↑ 7.8M (U 855k + R 6.9M) │ ↓ 266k │ c 89.0% — same in both languages
 		invalidateUsageCache();
 		config.hud.tokens = "compact";
 		config.settingsLanguage = "en";
 		const en = component.render(120).join("\n");
 		assert.ok(en.includes("↑ 7.8M (U 855k + R 6.9M)"), `compact input breakdown missing\n${en}`);
 		assert.ok(en.includes("↓ 266k"), `compact output missing\n${en}`);
-		assert.ok(en.includes("C 89.0%"), `compact cache-hit missing\n${en}`);
+		assert.ok(en.includes("c 89.0%"), `compact cache-hit missing\n${en}`);
 		assert.ok(!en.includes("↑in "), `verbose input label leaked\n${en}`);
 		assert.ok(!en.includes("hit "), `verbose hit label leaked\n${en}`);
 
@@ -1046,15 +1046,16 @@ test("hud compact token mode renders language-independent shorthand", () => {
 		config.hud.tokenBreakdown = true;
 		config.hud.cacheHit = false;
 		const noHit = component.render(120).join("\n");
-		assert.ok(!noHit.includes("C 89"), `cache-hit leaked while disabled\n${noHit}`);
+		assert.ok(!noHit.includes("c 89"), `cache-hit leaked while disabled\n${noHit}`);
 
-		// verbose keeps the localized labels
+		// verbose keeps the localized labels (icon+text default: glyph + space + label)
 		invalidateUsageCache();
 		config.hud.cacheHit = true;
 		config.hud.tokens = "verbose";
 		const verbose = component.render(120).join("\n");
-		assert.ok(verbose.includes("↑in 7.8M"), `verbose input missing\n${verbose}`);
-		assert.ok(verbose.includes("↓out 266k"), `verbose output missing\n${verbose}`);
+		assert.ok(verbose.includes("↑ in 7.8M"), `verbose input missing\n${verbose}`);
+		assert.ok(verbose.includes("·cache 6.9M"), `verbose cache-read suffix missing\n${verbose}`);
+		assert.ok(verbose.includes("↓ out 266k"), `verbose output missing\n${verbose}`);
 
 		// off hides the whole token block
 		config.hud.tokens = "off";
@@ -1422,4 +1423,16 @@ test("tofu hint fires once only for auto-resolved nerd (ADR-0006)", () => {
 			Reflect.deleteProperty(process.stdout, "isTTY");
 		}
 	}
+});
+
+test("hud stat segments follow the statStyle tri-state", () => {
+	// icon: glyph + value; icon+text: glyph + label + value; text: label + value.
+	// The ascii cost glyph is "$" itself, so that mode renders "$ $0.16" —
+	// matching the nerd dollar glyph, which also pairs with the value's "$".
+	assert.equal(statSegment("icon", "\u{f155}", "cost ", "$0.16"), "\u{f155} $0.16");
+	assert.equal(statSegment("icon+text", "\u{f155}", "cost ", "$0.16"), "\u{f155} cost $0.16");
+	assert.equal(statSegment("text", "\u{f155}", "cost ", "$0.16"), "cost $0.16");
+	assert.equal(statSegment("icon", "$", "cost ", "$0.16"), "$ $0.16");
+	// empty label (time segment) renders the bare duration in every style
+	assert.equal(statSegment("text", "\u{f017}", "", "2m 43s"), "2m 43s");
 });
