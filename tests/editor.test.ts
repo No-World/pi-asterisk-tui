@@ -252,6 +252,125 @@ test("drops the working status when the indicator goes empty", () => {
 	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /^╭─+╮$/);
 });
 
+test("routes pi's own indicators only when embed routing is on", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	// Default off: pi's duck-typed detection (embedWorkingStatus === true)
+	// sees a stock editor and keeps its status lines.
+	assert.equal(editor.embedWorkingStatus, false);
+	editor.setWorkingStatusIndicator({
+		renderInBorder: () => "◐ working",
+		renderSpinnerInBorder: () => "◐",
+	});
+	// Feeding our own indicator must not flip the routing flag outside render.
+	assert.equal(editor.embedWorkingStatus, false);
+	editor.setEmbeddedWorkingStatusRouting(true);
+	assert.equal(editor.embedWorkingStatus, true);
+	editor.setEmbeddedWorkingStatusRouting(false);
+	assert.equal(editor.embedWorkingStatus, false);
+});
+
+test("keeps the native ladder on while pi's embed routing stays off (both mode)", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setEmbeddedWorkingStatusRouting(false);
+	editor.setWorkingStatusIndicator({
+		renderInBorder: () => "◐ working",
+		renderSpinnerInBorder: () => "◐",
+	});
+
+	assert.equal(editor.embedWorkingStatus, false);
+	assert.match(stripAnsi(editor.render(40)[0] ?? ""), /◐ working/);
+});
+
+test("derives scroll borders from hiddenLineCount instead of scraped lines", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setText(Array.from({ length: 10 }, (_, index) => `line ${index}`).join("\n"));
+
+	// Cursor on the last line: three lines hidden above, none below.
+	let lines = editor.render(40).map(stripAnsi);
+	assert.match(lines[0] ?? "", /↑ 3 more/);
+	assert.doesNotMatch(lines.at(-1) ?? "", /more/);
+
+	// Walk the cursor up: scroll offset follows, leaving lines hidden on both
+	// sides (↑ above, ↓ below) — both labels must come from hiddenLineCount.
+	for (let i = 0; i < 8; i++) editor.handleInput("\x1b[A");
+	lines = editor.render(40).map(stripAnsi);
+	assert.match(lines[0] ?? "", /↑ 1 more/);
+	const bottom = lines.at(-1) ?? "";
+	assert.match(bottom, /↓ 2 more/);
+	assert.ok(bottom.startsWith("╰"), `framed bottom from the hook: ${bottom}`);
+	assert.equal(visibleWidth(bottom), 40);
+});
+
+test("keeps user-typed dash lines instead of blanking them", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setText("────────");
+
+	const content = stripAnsi(editor.render(40)[1] ?? "");
+	assert.match(content, /─{4}/, `dash content survived: ${content}`);
+});
+
+test("paints the border status with the current border color at render time", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		{ ...editorTheme, borderColor: (s: string) => `\x1b[36m${s}\x1b[0m` } as EditorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setWorkingStatusIndicator({
+		renderInBorder: () => "◐ working",
+		renderSpinnerInBorder: () => "◐",
+	});
+
+	const top = editor.render(40)[0] ?? "";
+	assert.ok(top.includes("\x1b[36m◐ working\x1b[0m"), `status painted via borderColor: ${top}`);
+});
+
+test("inline border keeps the status run beside the scroll label", () => {
+	const editor = new OpenTuiEditor(
+		tui,
+		editorTheme,
+		{ matches: () => false } as unknown as KeybindingsManager,
+	);
+	editor.setText(Array.from({ length: 10 }, (_, index) => `line ${index}`).join("\n"));
+	editor.setWorkingStatusIndicator({
+		renderInBorder: () => "◐ working",
+		renderSpinnerInBorder: () => "◐",
+	});
+	editor.setInlineBorderContent({
+		enabled: () => true,
+		render: (kind) =>
+			kind === "top"
+				? { left: "cwd", right: "model" }
+				: { left: "done", right: "stats" },
+	});
+
+	const lines = editor.render(40).map(stripAnsi);
+	const top = lines[0] ?? "";
+	assert.match(top, /◐ working/);
+	assert.match(top, /cwd.*↑ 3 more/);
+	assert.ok(top.startsWith("╭") && top.endsWith("╮"), `framed shape: ${top}`);
+	assert.equal(visibleWidth(top), 40);
+	// Cursor sits on the last line: nothing hidden below, bottom keeps only
+	// the inline footer cells.
+	assert.match(lines.at(-1) ?? "", /done/);
+	assert.doesNotMatch(lines.at(-1) ?? "", /more/);
+});
+
 test("renders inline footer lines in the editor frame", () => {
 	const editor = new OpenTuiEditor(
 		tui,

@@ -11,17 +11,23 @@ import {
 	applyFullscreenWheelScrollLines,
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 } from "./fullscreen-scroll.ts";
-import { findBottomBorderIndex, isEditorBorderLine, stripAnsi } from "./utils.ts";
 
-/** Plain-text working status embedded in the editor's top border. Returned
- * strings are painted with the frame's border color (ponytail routing), so
- * the status recolors together with thinking-level / bash-mode borders.
- * Width is the display-column budget; empty string means "nothing to show". */
+/** Plain-text working status embedded in the editor's top border. The editor
+ * wraps the indicator before handing it to pi's native ladder, which paints
+ * the returned strings with the frame's border color at render time (ponytail
+ * routing), so the status recolors together with thinking-level / bash-mode
+ * borders. Width is the display-column budget; empty string means "nothing
+ * to show". */
 export interface WorkingStatusIndicator {
 	renderInBorder(width: number): string;
 	/** Degraded form for narrow borders (e.g. spinner glyph only). */
 	renderSpinnerInBorder(width: number): string;
 }
+
+/** pi's parameter type for CustomEditor.setWorkingStatusIndicator. Structurally
+ * we only ever rely on the two render methods, so plain-object indicators are
+ * sound at runtime; the cast lives at the super call. */
+type PiStatusIndicator = Parameters<CustomEditor["setWorkingStatusIndicator"]>[0];
 
 /** One border line of inline footer content: left/right cells around the fill. */
 export interface InlineFooterLine {
@@ -68,103 +74,51 @@ function configureCursor(tui: TUI, cursorStyle: CursorStyle): void {
 	if (sequence) tui.terminal.write(sequence);
 }
 
-function roundedBorder(
-	width: number,
-	kind: "top" | "bottom",
-	paint: (s: string) => string,
-	sourceLine?: string,
-	indicator?: WorkingStatusIndicator,
-): string {
-	if (width < 2) return paint(truncateToWidth(kind === "top" ? "╭╮" : "╰╯", width, ""));
-	const corners = kind === "top" ? (["╭", "╮"] as const) : (["╰", "╯"] as const);
-
-	if (kind === "top" && indicator) {
-		const plain = sourceLine ? stripAnsi(sourceLine) : "";
-		const scrollMatch = plain.match(/([↑↓]\s+\d+\s+more)/);
-		const contentWidth = width - 2;
-		let status = indicator.renderInBorder(Math.max(1, contentWidth - 5));
-		let statusWidth = visibleWidth(status);
-		if (statusWidth > 0) {
-			const overflowLabel = scrollMatch ? ` ${scrollMatch[1]} ` : undefined;
-			const overflowLabelWidth = overflowLabel ? visibleWidth(overflowLabel) : 0;
-			const overflowStart = Math.floor((contentWidth - overflowLabelWidth) / 2);
-			const canFitOverflow = () => overflowLabel !== undefined
-				&& overflowLabelWidth + 2 <= contentWidth
-				&& overflowStart - (3 + statusWidth + 1) >= 1;
-			if (overflowLabel && !canFitOverflow()) {
-				status = indicator.renderSpinnerInBorder(contentWidth);
-				statusWidth = visibleWidth(status);
-			}
-			if (canFitOverflow()) {
-				const leftBlockWidth = 3 + statusWidth + 1;
-				return `${paint(`${corners[0]}── `)}${paint(status)}${paint(` ${"─".repeat(overflowStart - leftBlockWidth)}${overflowLabel}${"─".repeat(contentWidth - overflowStart - overflowLabelWidth)}${corners[1]}`)}`;
-			}
-			if (contentWidth >= statusWidth + 5) {
-				return `${paint(`${corners[0]}── `)}${paint(status)}${paint(` ${"─".repeat(contentWidth - statusWidth - 4)}${corners[1]}`)}`;
-			}
-			status = indicator.renderSpinnerInBorder(contentWidth);
-			statusWidth = visibleWidth(status);
-			const prefixWidth = Math.min(3, Math.max(0, contentWidth - statusWidth));
-			return `${paint(`${corners[0]}${"─".repeat(prefixWidth)}`)}${paint(status)}${paint(`${"─".repeat(Math.max(0, contentWidth - prefixWidth - statusWidth))}${corners[1]}`)}`;
-		}
-	}
-
-	if (sourceLine) {
-		const plain = stripAnsi(sourceLine);
-		const scrollMatch = plain.match(/([↑↓]\s+\d+\s+more)/);
-		if (scrollMatch) {
-			const label = `─── ${scrollMatch[1]} `;
-			const fill = Math.max(0, width - 2 - visibleWidth(label));
-			return paint(`${corners[0]}${label}${"─".repeat(fill)}${corners[1]}`);
-		}
-	}
-
-	return paint(`${corners[0]}${"─".repeat(Math.max(0, width - 2))}${corners[1]}`);
-}
-
 function trimTrailingSpaces(text: string): string {
 	return text.replace(/\s+$/g, "");
 }
 
-function inlineBorder(
+/** Inner content of an inline-footer border line, without corners: status
+ * run (top only), optional left/right cells, fill, and the scroll label on
+ * the right. `width` is the column budget between the corners. Returns
+ * undefined when there is no inline content, so the caller falls back to the
+ * native border. */
+function inlineBorderCore(
 	width: number,
 	kind: "top" | "bottom",
 	paint: (s: string) => string,
 	renderLine: (width: number) => InlineFooterLine | undefined,
-	sourceLine?: string,
+	hiddenLineCount: number,
 	indicator?: WorkingStatusIndicator,
-): string {
-	if (width < 2) return paint(truncateToWidth(kind === "top" ? "╭╮" : "╰╯", width, ""));
+): string | undefined {
+	if (width < 2) return undefined;
 
-	const corners = kind === "top" ? (["╭", "╮"] as const) : (["╰", "╯"] as const);
-	const contentWidth = width - 2;
-	const plain = sourceLine ? stripAnsi(sourceLine) : "";
-	const scrollMatch = plain.match(/([↑↓]\s+\d+\s+more)/);
-	const right = scrollMatch ? paint(` ${scrollMatch[1]} `) : "";
+	const direction = kind === "top" ? "↑" : "↓";
+	const right = hiddenLineCount > 0 ? paint(` ${direction} ${hiddenLineCount} more `) : "";
 	let left = paint("─");
 
 	if (kind === "top" && indicator) {
-		const statusBudget = Math.max(1, contentWidth - visibleWidth(right) - 7);
+		const statusBudget = Math.max(1, width - visibleWidth(right) - 7);
 		let status = indicator.renderInBorder(statusBudget);
 		if (visibleWidth(status) > statusBudget) status = indicator.renderSpinnerInBorder(statusBudget);
-		const leftBudget = Math.max(0, contentWidth - visibleWidth(right) - 1);
+		const leftBudget = Math.max(0, width - visibleWidth(right) - 1);
 		status = truncateToWidth(status, Math.max(0, leftBudget - 4), "");
 		if (visibleWidth(status) > 0) left = `${paint("── ")}${paint(status)}${paint(" ")}`;
 	}
 
-	const lineBudget = Math.max(0, contentWidth - visibleWidth(left) - visibleWidth(right) - 6);
+	const lineBudget = Math.max(0, width - visibleWidth(left) - visibleWidth(right) - 6);
 	const line = renderLine(lineBudget);
-	if (!line) return roundedBorder(width, kind, paint, sourceLine, indicator);
+	if (!line) return undefined;
 	const leftContent = trimTrailingSpaces(line.left);
 	const rightContent = trimTrailingSpaces(line.right);
 	if (visibleWidth(leftContent) === 0 && visibleWidth(rightContent) === 0) {
-		return roundedBorder(width, kind, paint, sourceLine, indicator);
+		return undefined;
 	}
 
 	const leftCell = leftContent ? ` ${leftContent} ` : "";
 	const rightCell = rightContent ? ` ${rightContent} ` : "";
-	const fill = Math.max(1, contentWidth - visibleWidth(left) - visibleWidth(leftCell) - visibleWidth(rightCell) - visibleWidth(right) - 1);
-	return `${paint(corners[0])}${left}${leftCell}${paint("─".repeat(fill))}${rightCell}${right}${paint("─")}${paint(corners[1])}`;
+	const fill = Math.max(1, width - visibleWidth(left) - visibleWidth(leftCell) - visibleWidth(rightCell) - visibleWidth(right) - 1);
+	return `${left}${leftCell}${paint("─".repeat(fill))}${rightCell}${right}${paint("─")}`;
 }
 
 export class OpenTuiEditor extends CustomEditor {
@@ -172,11 +126,17 @@ export class OpenTuiEditor extends CustomEditor {
 	private readonly getBorder: (s: string) => string;
 	private cursorStyle: CursorStyle;
 	private previewHardwareCursor = false;
-	// Named to avoid colliding with pi 0.87's native (private)
-	// workingStatusIndicator on CustomEditor — pi absorbed the border-status
-	// feature upstream; see the follow-up issue on adopting it natively.
+	// Mirror of the indicator handed to pi's private field: the inline-border
+	// path needs direct access (pi's native ladder only reads its own copy).
+	// Still named to avoid colliding with pi's private workingStatusIndicator.
 	private frameStatusIndicator: WorkingStatusIndicator | undefined;
 	private inlineBorderContent: InlineBorderContent | undefined;
+	// True only while our render() drives the base render, so the border hooks
+	// know whether to emit the framed (cornered) form or pi's plain one.
+	private framedPass = false;
+	// Bottom border emitted by the latest framed pass — the structural marker
+	// render() matches to split content lines from trailing autocomplete rows.
+	private lastFrameBottomBorder: string | undefined;
 
 	constructor(
 		tui: TUI,
@@ -184,7 +144,10 @@ export class OpenTuiEditor extends CustomEditor {
 		keybindings: KeybindingsManager,
 		cursorStyle: CursorStyle = "block",
 	) {
-		super(tui, editorTheme, keybindings, { paddingX: 0 });
+		// embedWorkingStatus starts false: pi's duck-typed embed routing must
+		// stay off until the workingStatus mode opts in (ADR-0008). The native
+		// ladder is opened per render instead — see render().
+		super(tui, editorTheme, keybindings, { paddingX: 0, embedWorkingStatus: false });
 		this.cursorStyle = cursorStyle;
 		configureCursor(tui, cursorStyle);
 		// ponytail: route the frame through this.borderColor so Pi can recolor it
@@ -214,8 +177,27 @@ export class OpenTuiEditor extends CustomEditor {
 		this.tui.requestRender();
 	}
 
-	setWorkingStatusIndicator(indicator: WorkingStatusIndicator | undefined): void {
+	override setWorkingStatusIndicator(indicator: WorkingStatusIndicator | undefined): void {
 		this.frameStatusIndicator = indicator;
+		// Wrap before storing into pi's field: the native ladder inserts the
+		// status raw between borderColor runs, but our indicators return plain
+		// text — painting at render time keeps the status following bash-mode /
+		// thinking-level recolors. pi's own ANSI-colored indicators pass through
+		// unchanged in effect (their inner SGR wins over the outer wrap).
+		const wrapped = indicator && {
+			renderInBorder: (width: number) => this.getBorder(indicator.renderInBorder(width)),
+			renderSpinnerInBorder: (width: number) => this.getBorder(indicator.renderSpinnerInBorder(width)),
+		};
+		super.setWorkingStatusIndicator(wrapped as PiStatusIndicator);
+		this.tui.requestRender();
+	}
+
+	/** Let pi embed its own working/retry/compaction indicators into the border
+	 * (workingStatus "border"); "line"/"both" keep pi's status lines stock.
+	 * Flips pi's duck-typed embedWorkingStatus flag, which is readonly only at
+	 * the type level — see ADR-0008 for why routing and the ladder are split. */
+	setEmbeddedWorkingStatusRouting(enabled: boolean): void {
+		(this as { embedWorkingStatus: boolean }).embedWorkingStatus = enabled;
 		this.tui.requestRender();
 	}
 
@@ -236,6 +218,32 @@ export class OpenTuiEditor extends CustomEditor {
 			x: event.x - EDITOR_FRAME_LEFT_INSET,
 			width: event.width - EDITOR_FRAME_HORIZONTAL_CHROME,
 		});
+	}
+
+	protected override renderTopBorder(width: number, hiddenLineCount: number): string {
+		// Narrow unframed renders keep pi's plain border.
+		if (!this.framedPass) return super.renderTopBorder(width, hiddenLineCount);
+		// The hook width is the content width between the frame gaps; the
+		// framed border spans four more columns in total, so the ladder and
+		// scroll label budget over width + 2 and the corners finish the line.
+		const span = width + 2;
+		const inline = this.inlineBorderContent?.enabled() ? this.inlineBorderContent : undefined;
+		const inner = (inline &&
+			inlineBorderCore(span, "top", this.getBorder, (budget) => inline.render("top", budget), hiddenLineCount, this.frameStatusIndicator)) ??
+			super.renderTopBorder(span, hiddenLineCount);
+		return `${this.getBorder("╭")}${inner}${this.getBorder("╮")}`;
+	}
+
+	protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
+		if (!this.framedPass) return super.renderBottomBorder(width, hiddenLineCount);
+		const span = width + 2;
+		const inline = this.inlineBorderContent?.enabled() ? this.inlineBorderContent : undefined;
+		const inner = (inline &&
+			inlineBorderCore(span, "bottom", this.getBorder, (budget) => inline.render("bottom", budget), hiddenLineCount)) ??
+			super.renderBottomBorder(span, hiddenLineCount);
+		const line = `${this.getBorder("╰")}${inner}${this.getBorder("╯")}`;
+		this.lastFrameBottomBorder = line;
+		return line;
 	}
 
 	private renderBase(width: number): string[] {
@@ -263,37 +271,42 @@ export class OpenTuiEditor extends CustomEditor {
 		if (width < 4) return this.renderBase(width);
 
 		const rail = this.getRail();
-		const borderPaint = this.getBorder;
 		// ponytail: 1-char rail + 1-char gap on each side = 4 chars of chrome.
 		const innerWidth = Math.max(0, width - 4);
-		const baseLines = this.renderBase(innerWidth);
-		const bottomIdx = findBottomBorderIndex(baseLines);
-
-		const result: string[] = [];
-		const inline = this.inlineBorderContent?.enabled() ? this.inlineBorderContent : undefined;
-		result.push(
-			inline
-				? inlineBorder(width, "top", borderPaint, (budget) => inline.render("top", budget), baseLines[0], this.frameStatusIndicator)
-				: roundedBorder(width, "top", borderPaint, baseLines[0], this.frameStatusIndicator),
-		);
-
-		for (let i = 1; i < bottomIdx; i++) {
-			const line = baseLines[i] ?? "";
-			if (isEditorBorderLine(line)) {
-				result.push(`${rail} ${fillLine("", innerWidth)} ${rail}`);
-			} else {
-				result.push(`${rail} ${fillLine(line, innerWidth)} ${rail}`);
-			}
+		// Render-phase gate flip (ADR-0008): pi's duck-typed embed routing and
+		// the native ladder read the same embedWorkingStatus field. Outside
+		// render() the field carries the routing mode (set via
+		// setEmbeddedWorkingStatusRouting); while rendering it additionally
+		// opens for our own indicator, so "both" mode keeps pi's status line
+		// beside our border status. Readonly only at the type level.
+		const gate = this as { embedWorkingStatus: boolean };
+		this.framedPass = true;
+		const savedEmbed = gate.embedWorkingStatus;
+		gate.embedWorkingStatus = savedEmbed || this.frameStatusIndicator !== undefined;
+		let baseLines: string[];
+		try {
+			baseLines = this.renderBase(innerWidth);
+		} finally {
+			gate.embedWorkingStatus = savedEmbed;
+			this.framedPass = false;
 		}
 
-		result.push(
-			inline
-				? inlineBorder(width, "bottom", borderPaint, (budget) => inline.render("bottom", budget), baseLines[bottomIdx])
-				: roundedBorder(width, "bottom", borderPaint, baseLines[bottomIdx]),
-		);
+		// The hooks already emitted fully framed borders at full width; rail-wrap
+		// only the content lines between them. The bottom border is located by
+		// structural match on the recorded hook output — no border-shape
+		// scraping of base render lines.
+		const marker = this.lastFrameBottomBorder;
+		let bottomIdx = marker === undefined ? -1 : baseLines.lastIndexOf(marker);
+		if (bottomIdx < 1) bottomIdx = baseLines.length - 1;
 
+		const result: string[] = [];
+		result.push(baseLines[0] ?? "");
+		for (let i = 1; i < bottomIdx; i++) {
+			result.push(`${rail} ${fillLine(baseLines[i] ?? "", innerWidth)} ${rail}`);
+		}
+		result.push(baseLines[bottomIdx] ?? "");
 		for (let i = bottomIdx + 1; i < baseLines.length; i++) {
-			result.push(baseLines[i]!);
+			result.push(baseLines[i] ?? "");
 		}
 
 		return result.map((line) => truncateToWidth(line, width, ""));
@@ -313,6 +326,7 @@ export function installEditor(
 	let currentWheelScrollLines = wheelScrollLines;
 	let workingStatusIndicator: WorkingStatusIndicator | undefined;
 	let inlineBorderContent: InlineBorderContent | undefined;
+	let embeddedWorkingStatusRouting = false;
 
 	ctx.ui.setEditorComponent((tui, editorTheme, keybindings) => {
 		activeTui = tui;
@@ -320,6 +334,7 @@ export function installEditor(
 		previousHardwareCursor = tui.getShowHardwareCursor();
 		activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle);
 		activeEditor.setWorkingStatusIndicator(workingStatusIndicator);
+		activeEditor.setEmbeddedWorkingStatusRouting(embeddedWorkingStatusRouting);
 		activeEditor.setInlineBorderContent(inlineBorderContent);
 		return activeEditor;
 	});
@@ -335,6 +350,10 @@ export function installEditor(
 		setWorkingStatusIndicator(indicator: WorkingStatusIndicator | undefined): void {
 			workingStatusIndicator = indicator;
 			activeEditor?.setWorkingStatusIndicator(indicator);
+		},
+		setEmbeddedWorkingStatusRouting(enabled: boolean): void {
+			embeddedWorkingStatusRouting = enabled;
+			activeEditor?.setEmbeddedWorkingStatusRouting(enabled);
 		},
 		setInlineBorderContent(content: InlineBorderContent | undefined): void {
 			inlineBorderContent = content;

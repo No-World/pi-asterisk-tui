@@ -170,6 +170,9 @@ export default function (pi: ExtensionAPI) {
 	};
 	const applyWorkingStatusMode = () => {
 		editor?.setWorkingStatusIndicator(config.workingStatus === "line" ? undefined : borderWorkingIndicator);
+		// "border" hands pi's own retry/compaction indicators to the frame too;
+		// "line"/"both" keep pi's status lines stock (ADR-0008).
+		editor?.setEmbeddedWorkingStatusRouting(config.workingStatus === "border");
 	};
 
 	// "border" mode hands the live status to the frame: pi's working line is
@@ -182,6 +185,10 @@ export default function (pi: ExtensionAPI) {
 		if (shouldHide) {
 			hidWorkingLine = true;
 			setWorkingVisible(false);
+			// Hiding pi's line clears the embedded indicator it may have re-fed
+			// since our last sync (setWorkingVisible → clearStatusIndicator) —
+			// re-assert ours so the border status survives the whole run.
+			editor?.setWorkingStatusIndicator(config.workingStatus === "line" ? undefined : borderWorkingIndicator);
 		} else if (hidWorkingLine) {
 			hidWorkingLine = false;
 			setWorkingVisible(true);
