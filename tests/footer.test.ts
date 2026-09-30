@@ -1625,12 +1625,12 @@ test("hud context bar carries the compaction suffix once compacted", () => {
 		config.hud.compactions = false;
 		invalidateUsageCache();
 		let lines = component.render(120).join("\n");
-		assert.ok(!lines.includes("z 1"), `suffix leaked while off\n${lines}`);
+		assert.ok(!lines.includes("z compact"), `suffix leaked while off\n${lines}`);
 
 		config.hud.compactions = true;
 		invalidateUsageCache();
 		lines = component.render(120).join("\n");
-		assert.ok(lines.includes("(420k/1.0M) · z 1"), `suffix missing\n${lines}`);
+		assert.ok(lines.includes("(420k/1.0M) · z compact 1"), `suffix missing\n${lines}`);
 	} finally {
 		handle.cleanup();
 		(component as unknown as { dispose?: () => void } | undefined)?.dispose?.();

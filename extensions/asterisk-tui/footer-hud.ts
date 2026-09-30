@@ -55,6 +55,7 @@ const THINKING_ICONS: Record<string, string> = {
 // like every other surface (telemetry line, classic footer).
 interface HudStrings {
 	contextLabel: string;
+	compactionLabel: string;
 	costLabel: string;
 	todayLabel: string;
 	timeLabel: string;
@@ -73,6 +74,7 @@ interface HudStrings {
 const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 	en: {
 		contextLabel: "ctx ",
+		compactionLabel: "compact ",
 		costLabel: "cost ",
 		todayLabel: "today ",
 		timeLabel: "time ",
@@ -88,6 +90,7 @@ const HUD_STRINGS: Record<SettingsLanguage, HudStrings> = {
 	},
 	zh: {
 		contextLabel: "上下文 ",
+		compactionLabel: "压缩 ",
 		costLabel: "费用 ",
 		todayLabel: "今日 ",
 		timeLabel: "时长 ",
@@ -424,7 +427,7 @@ function renderContextBar(theme: Theme, ctx: ExtensionContext, hud: HudConfig, s
 	}
 	// compaction suffix: opt-in, appears once the session has compacted
 	if (hud.compactions && compactions > 0) {
-		bar += theme.fg("dim", ` · ${glyphs.compaction} ${compactions}`);
+		bar += theme.fg("dim", ` · ${glyphs.compaction} ${strings.compactionLabel}${compactions}`);
 	}
 	return bar;
 }
