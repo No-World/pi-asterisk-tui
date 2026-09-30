@@ -119,11 +119,16 @@ const RENDER_CACHE_TTL_MS = 250;
 function bustRenderCache(): void {
 	renderCache = undefined;
 }
-/** Spinner frames for running tool lines. */
+/** Spinner frames for running tool lines — same braille sequence as pi-tui's Loader. */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+/** Frame period matches pi-tui's Loader default (80ms) so the transcript
+ *  spinner and the footer "Working…" spinner spin at the same rate: the
+ *  loader's tick re-renders the tree, and each tick advances exactly one frame. */
+const SPINNER_FRAME_MS = 80;
+
 function spinnerFrame(): string {
-	return SPINNER_FRAMES[Math.floor(Date.now() / 120) % SPINNER_FRAMES.length]!;
+	return SPINNER_FRAMES[Math.floor(Date.now() / SPINNER_FRAME_MS) % SPINNER_FRAMES.length]!;
 }
 
 function isToolRunning(child: unknown): boolean {
