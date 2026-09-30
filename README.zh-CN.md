@@ -137,6 +137,22 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
   （`/settings` → TUI mode，或 `~/.pi/agent/settings.json` 里 `"tuiMode":
   "fullscreen"`）。
 
+## 字体与图标
+
+默认的 `auto` 模式检查终端环境而非字体文件——字体选择权在终端模拟器，没有任何环境
+变量能证实 Nerd Font 生效（ADR-0006）。auto 在交互式 UTF-8 TTY 下使用 Nerd Font 图标
+（含 SSH 场景——终端名单嗅探在 SSH 下永不透传），非交互输出、`TERM=dumb`、显式非
+UTF-8 locale 时退回 ASCII。auto 首次解析为 nerd 时会发一条一次性提示，告知图标变方框
+时的处置路径。`/*tui` → 外观 可选：
+
+- `nerd`：在终端配置 Nerd Font 后强制使用 Nerd Font 图标
+- `ascii`：纯文本图标，无需补丁字体
+- `auto`：交互式 UTF-8 TTY 用 nerd；dumb / 非交互 / 非 UTF-8 用 ASCII
+
+图标显示为方框时，要么改设 `ascii`，要么安装
+[Nerd Font](https://www.nerdfonts.com/font-downloads) 并在终端配置文件里选中——
+VS Code、Windows Terminal 等应用必须设在终端配置文件里，只装到操作系统不算。
+
 ## 配置
 
 `/*tui` 打开设置面板，或直接编辑 `~/.pi/agent/asterisk-tui.json`（首次运行会自动把旧
@@ -153,7 +169,7 @@ ahead/behind 指示，以及完整的仓库子目录 git 检测（pi 原本在�
 | `turnCollapse.liveTools` | `true` | 运行中在 spinner 行下方渲染实时输出盒 |
 | `turnCollapse.expandAllKey` | `"ctrl+\\"` | 普通模式全部展开/收起快捷键（pi KeyId；空串禁用；重启/重载后生效） |
 | `turnCollapse.tools` | `{}` | 每工具 `default` / `single` / `group-same` / `expand`；`*` 通配 |
-| `icons.mode` | `"auto"` | nerd / ascii / auto 图标集 |
+| `icons.mode` | `"auto"` | nerd / ascii / auto 图标集；auto = 交互式 UTF-8 TTY 用 nerd（ADR-0006），首次解析为 nerd 时有一次提示 |
 | `cursorStyle` | `"block"` | 编辑器光标样式 |
 | `telemetry.*` | 开 | Working 指示器与轮末遥测字段 |
 | `footerSegments.*` | 混合 | classic 底栏段落开关 |

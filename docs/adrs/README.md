@@ -48,3 +48,4 @@ Date: YYYY-MM-DD
 | [0003](./0003-transcript-collapse-contract.md) | 转录压缩契约：四档模式 × 每工具覆盖 × 间隔风格（含 Thought 代理 pi 原生设置） | 2026-09-06 | Accepted |
 | [0004](./0004-regular-mode-collapse-and-expand-all.md) | 压缩行适配 regular 模式：TuiMainScreen 发现 + 全部展开快捷键（ctrl+\ 默认，单一事实源标注） | 2026-09-08 | Accepted |
 | [0005](./0005-selection-copy-modes.md) | 选区复制：换行感知与三级模式（plain / unwrapped / raw，默认 unwrapped） | 2026-09-28 | Accepted |
+| [0006](./0006-optimistic-auto-icon-detection.md) | 图标 auto 检测乐观策略 + 一次性豆腐块提示（ADR-0006） | 2026-09-29 | Accepted |

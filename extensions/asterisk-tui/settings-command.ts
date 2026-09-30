@@ -265,7 +265,7 @@ function cycleIconMode(config: OpenTuiConfig): OpenTuiConfig {
 	const order: IconMode[] = ["auto", "nerd", "ascii"];
 	const currentIdx = order.indexOf(config.icons.mode);
 	const next = order[(currentIdx + 1) % order.length]!;
-	return { ...config, icons: { mode: next } };
+	return { ...config, icons: { mode: next, autoHintShown: config.icons.autoHintShown } };
 }
 
 function toggleEnabled(config: OpenTuiConfig): OpenTuiConfig {

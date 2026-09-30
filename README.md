@@ -168,6 +168,25 @@ overridden) so the ✻ experience works out of the box.
   (`/settings` → TUI mode, or `"tuiMode": "fullscreen"` in
   `~/.pi/agent/settings.json`).
 
+## Font and icons
+
+The default `auto` mode checks the terminal environment, not the installed font file —
+the emulator owns font selection and no environment variable can prove a Nerd Font is
+active (ADR-0006). Auto uses Nerd Font icons in interactive UTF-8 TTYs (including over
+SSH, where terminal-name sniffing never propagates), and falls back to ASCII for
+non-interactive output, `TERM=dumb`, or an explicitly non-UTF-8 locale. The first time
+auto resolves to nerd, a one-time hint notes the remediation path in case icons render
+as boxes. Modes under `/*tui` → Appearance:
+
+- `nerd`: force Nerd Font icons after configuring a Nerd Font in the terminal profile
+- `ascii`: plain-text icons, no patched font required
+- `auto`: nerd in interactive UTF-8 TTYs; ASCII for dumb/non-TTY/non-UTF-8
+
+If icons appear as boxes, either set `ascii` or install a
+[Nerd Font](https://www.nerdfonts.com/font-downloads) and select it in the terminal
+profile — in VS Code, Windows Terminal, and similar apps the font must be set in the
+terminal profile, not only installed on the OS.
+
 ## Configuration
 
 Run `/*tui`, or edit `~/.pi/agent/asterisk-tui.json`. Settings from a legacy
@@ -185,7 +204,7 @@ Notable keys:
 | `turnCollapse.liveTools` | `true` | render running tool output boxes below the spinner line |
 | `turnCollapse.expandAllKey` | `"ctrl+\\"` | expand-all shortcut in regular mode (pi KeyId; empty disables; applies after restart/reload) |
 | `turnCollapse.tools` | `{}` | per-tool `default` / `single` / `group-same` / `expand`; `*` wildcard |
-| `icons.mode` | `"auto"` | nerd / ascii / auto icon set |
+| `icons.mode` | `"auto"` | nerd / ascii / auto icon set; auto = nerd in interactive UTF-8 TTYs (ADR-0006), one-time hint on first nerd resolution |
 | `cursorStyle` | `"block"` | editor cursor style |
 | `telemetry.*` | on | working-indicator and post-turn telemetry fields |
 | `footerSegments.*` | mixed | classic footer segment toggles |

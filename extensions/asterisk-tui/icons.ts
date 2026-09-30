@@ -93,34 +93,34 @@ const ASCII_GLYPHS: IconGlyphs = {
 	renamed: "r",
 	deleted: "x",
 };
-
-const NERD_FONT_TERMINALS = new Set([
-	"iTerm.app",
-	"Ghostty",
-	"WezTerm",
-	"kitty",
-	"rio",
-	"tabby",
-	"WindowsTerminal",
-	"vscode",
-]);
+// (The old NERD_FONT_TERMINALS allowlist was removed with the optimistic auto
+// policy — see detectNerdFont and ADR-0006.)
 
 export function detectNerdFont(): boolean {
-	const termProgram = process.env.TERM_PROGRAM;
-	if (termProgram && NERD_FONT_TERMINALS.has(termProgram)) return true;
+	// The terminal emulator owns font selection, and no environment variable
+	// can prove a Nerd Font is active — the old terminal allowlist guessed and
+	// guessed wrong in both directions (iTerm2/WezTerm/VS Code/WT don't bundle
+	// nerd glyphs; SSH never propagates TERM_PROGRAM). Auto mode is therefore
+	// optimistic: nerd glyphs once output is an interactive UTF-8 TTY, ASCII for
+	// non-TTY output, TERM=dumb, or an explicitly non-UTF-8 locale (ADR-0006).
+	// The tofu failure mode is made self-diagnosing by a one-time hint — see
+	// autoIconHintText below.
+	if (process.env.TERM === "dumb" || process.stdout.isTTY !== true) return false;
+	const locale = [process.env.LC_ALL, process.env.LC_CTYPE, process.env.LANG].find(Boolean);
+	return locale === undefined || /utf-?8/i.test(locale);
+}
 
-	const lcTerminal = process.env.LC_TERMINAL;
-	if (lcTerminal && NERD_FONT_TERMINALS.has(lcTerminal)) return true;
+/** Whether the one-time tofu hint should fire: auto mode resolved to nerd and
+ * the hint has not been shown (and persisted) yet. Silent downgrades to ASCII
+ * stay silent — nothing looks broken there, so there is nothing to diagnose. */
+export function shouldShowAutoIconHint(mode: IconMode, autoHintShown: boolean): boolean {
+	return mode === "auto" && !autoHintShown && resolveIconMode("auto") === "nerd";
+}
 
-	if (process.env.TERM === "xterm-kitty") return true;
-
-	// Windows Terminal sets WT_SESSION (not TERM_PROGRAM)
-	if (process.env.WT_SESSION) return true;
-
-	// VS Code integrated terminal
-	if (process.env.TERM_PROGRAM === "vscode") return true;
-
-	return false;
+export function autoIconHintText(language: "en" | "zh"): string {
+	return language === "zh"
+		? "图标显示为方框？在 /*tui → 外观 中把图标模式设为 ascii（或为终端配置 Nerd Font）"
+		: "Icons showing as boxes? Set icons.mode=ascii in /*tui → Appearance (or configure a Nerd Font for your terminal)";
 }
 
 export function resolveIconMode(mode: IconMode): "nerd" | "ascii" {
