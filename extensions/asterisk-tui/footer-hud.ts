@@ -554,18 +554,20 @@ export function installHudFooter(
 				const ctxWin = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
 				let modelBlock = "";
 				if (hud.model) {
+					// Model name and level text share the effort color so the whole
+					// block reads as one thinking-level indicator, matching the
+					// editor border (pi maps levels to the thinking* theme colors).
+					const effort =
+						hud.modelThinking && meta.effort && meta.effort !== "off" ? meta.effort : undefined;
 					modelBlock =
 						theme.fg("dim", "[") +
-						theme.fg("accent", meta.model) +
+						theme.fg(effort ? effortColor(effort) : "accent", meta.model) +
 						(hud.modelContextWindow && ctxWin > 0
 							? theme.fg("dim", "[") + theme.fg("muted", fmtTokens(ctxWin)) + theme.fg("dim", "]")
 							: "");
-					if (hud.modelThinking && meta.effort && meta.effort !== "off") {
-						const icon = THINKING_ICONS[meta.effort] ?? "○";
-						modelBlock +=
-							" " +
-							theme.fg(effortColor(meta.effort), icon) +
-							theme.fg("muted", ` ${meta.effort}`);
+					if (effort) {
+						const icon = THINKING_ICONS[effort] ?? "○";
+						modelBlock += " " + theme.fg(effortColor(effort), `${icon} ${effort}`);
 					}
 					modelBlock += theme.fg("dim", "]");
 				}

@@ -289,6 +289,8 @@ export function effortColor(level: ThinkingLevel | string | undefined): ThemeCol
 			return "thinkingHigh";
 		case "xhigh":
 			return "thinkingXhigh";
+		case "max":
+			return "thinkingMax";
 		default:
 			return "thinkingMedium";
 	}
