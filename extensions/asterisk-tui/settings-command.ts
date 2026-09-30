@@ -112,7 +112,7 @@ const COPY = {
 			toolCallCount: "Tool calls",
 			tokenCounts: "Token counts",
 			stallDetails: "Stall details",
-			costRate: "Cost rate",
+			costRate: "Cost",
 			telemetryPersist: "Persistence",
 		},
 		values: {
@@ -228,7 +228,7 @@ const COPY = {
 			toolCallCount: "工具调用",
 			tokenCounts: "Token 数量",
 			stallDetails: "停顿详情",
-			costRate: "费用速率",
+			costRate: "费用",
 			telemetryPersist: "持久化",
 		},
 		values: {

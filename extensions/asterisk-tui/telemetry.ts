@@ -713,8 +713,18 @@ export function formatTurnTelemetry(
 	if (config.stalls && telemetry.stallMs > 0) {
 		parts.push(theme.fg("warning", `${glyphs.stall} stall ${telemetry.stallCount}x / ${formatTurnDuration(telemetry.stallMs)}`));
 	}
-	if (config.cost && telemetry.rateUsdPerMTokens !== null) {
-		parts.push(theme.fg("warning", `${glyphs.cost} $${telemetry.rateUsdPerMTokens.toFixed(2)}/M`));
+	if (config.cost) {
+		// two dimensions: what this run actually cost, and the blended
+		// per-million rate (dominated by the cache-read share — see CONTEXT)
+		const costParts: string[] = [];
+		if (telemetry.costUsd > 0) {
+			const actual = telemetry.costUsd < 0.05 ? telemetry.costUsd.toFixed(4) : telemetry.costUsd.toFixed(2);
+			costParts.push(`$${actual}`);
+		}
+		if (telemetry.rateUsdPerMTokens !== null) {
+			costParts.push(`$${telemetry.rateUsdPerMTokens.toFixed(2)}/M`);
+		}
+		if (costParts.length) parts.push(theme.fg("warning", `${glyphs.cost} ${costParts.join(" · ")}`));
 	}
 	return parts.join(` ${theme.fg("dim", "|")} `);
 }

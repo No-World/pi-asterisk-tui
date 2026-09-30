@@ -86,7 +86,7 @@ compresses is the **compression mode** (`/*tui` → Collapse):
   (`workingLine.*`). Output tokens are run-cumulative (stream-estimated while streaming,
   exact on message completion, kept across tool calls); the speed shown here is the run average from submission to now — the HUD footer's speed segment is the session average.
 - **Turn telemetry** after each run: TPS, TTFT, duration, tool-call count, input/output token
-  breakdown with cache-read and cache-write, cache hit rate, stall count/time, and list-price $/M rate.
+  breakdown with cache-read and cache-write, cache hit rate, stall count/time, actual run cost and the blended $/M rate (cache-read dominated).
 - **Persistence**: each run's telemetry is stored as a session custom entry (extension-owned,
   never sent to the model) and rendered as a transcript line in place — the same line at the
   same position whether the run just finished or the session was resumed, re-formatted with
