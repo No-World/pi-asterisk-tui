@@ -70,6 +70,7 @@ pi install git:github.com/No-World/pi-asterisk-tui
   输出 token（流式期间增量估算、完成回填精确值，工具执行不清零）、实时工具计数。
 - **单轮遥测**：每次运行结束显示 TPS、TTFT、耗时、停顿次数/时长、输入/输出 token
   明细（含缓存读/写）、缓存命中率、模型标价 $/M 速率。
+- **持久化**：每轮遥测以 session 自定义条目存储（扩展私有，不进模型上下文），重进会话时回显一次最近一轮，并按当前图标/语言设置重新格式化；回退剪枝时连同所属轮次一起剪掉。`telemetry.persist` 可关（默认开）。
 - **工具/摘要侧花费**：挂在工具结果（工具自身的 LLM 调用，如子代理）与压缩/分支摘要上的
   token 用量是真实会话成本，但不属于主上下文记账——对齐 pi 自身的 `Tools/summaries` 桶，
   单独累计并以暗色后缀附在费用段上（`$0.012+$9.500 tools` / `费用 $0.01+$9.50 工具`），
@@ -169,7 +170,7 @@ VS Code、Windows Terminal 等应用必须设在终端配置文件里，只装�
 | `turnCollapse.tools` | `{}` | 每工具 `default` / `single` / `group-same` / `expand`；`*` 通配 |
 | `icons.mode` | `"auto"` | nerd / ascii / auto 图标集；auto = 交互式 UTF-8 TTY 用 nerd（ADR-0006），首次解析为 nerd 时有一次提示 |
 | `cursorStyle` | `"block"` | 编辑器光标样式 |
-| `telemetry.*` | 开 | Working 指示器与轮末遥测字段 |
+| `telemetry.*` | 开 | Working 指示器与轮末遥测字段；`telemetry.persist`（开）重进会话时回显最近一轮的遥测行 |
 | `footerSegments.*` | 混合 | classic 底栏段落开关 |
 | `footerSegments.hostname` | `false` | 可选主机名段（取主机名的首个标签）——多机 SSH 时一眼区分所在主机；HUD 侧同款开关为 `hud.hostname` |
 | `footerSegments.capitalizeProviderName` | `true` | 首字母大写 provider 名；`false` 保留原始 id 大小写（适配 `cc-switch-zhipu-glm` 这类代理 id） |

@@ -307,6 +307,9 @@ export interface FooterSegments {
 
 export interface TelemetryConfig {
 	enabled: boolean;
+	/** Store each run's summary as a session custom entry and replay the last
+	 *  one on session resume (the live notify itself is transcript-transient). */
+	persist: boolean;
 	tps: boolean;
 	ttft: boolean;
 	duration: boolean;
@@ -385,6 +388,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	selection: structuredClone(DEFAULT_SELECTION_CONFIG),
 	telemetry: {
 		enabled: true,
+		persist: true,
 		tps: true,
 		ttft: true,
 		duration: true,

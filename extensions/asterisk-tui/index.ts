@@ -20,7 +20,7 @@ import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
 import { installSelectionCopy, setSelectionCopyMode, setSelectionTabWidth, setSelectionTrimPadding } from "./selection-copy.ts";
 import { installThinkingClickExpand } from "./thinking-click.ts";
-import { formatTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
+import { formatTurnTelemetry, loadLastTelemetryEntry, persistTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
 import {
 	createInitialState,
 	getModelMeta,
@@ -373,6 +373,17 @@ export default function (pi: ExtensionAPI) {
 		setThinkingLabel(ctx, "✻ Thought…");
 
 		refreshInteractiveState(ctx, true);
+
+		// Resume replay: the live telemetry notify is transcript-transient, so
+		// re-render the persisted line of the last run (fresh sessions have no
+		// entry and skip this silently).
+		if (config.enabled && config.telemetry.enabled && config.telemetry.persist && isTuiContext(ctx)) {
+			const persisted = loadLastTelemetryEntry(ctx.sessionManager.getBranch());
+			if (persisted) {
+				const message = formatTurnTelemetry(persisted, ctx.ui.theme, config.telemetry, config.icons.mode);
+				if (message) ctx.ui.notify(message, "info");
+			}
+		}
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
@@ -436,10 +447,17 @@ export default function (pi: ExtensionAPI) {
 		setThinkingDurations(turnTelemetry.getLastRunThinkingDurations());
 		state.lastTurnSummary = turnTelemetry.getLastTurnSummary();
 		requestFooterRender?.();
-		if (telemetry && config.enabled && config.telemetry.enabled && isTuiContext(ctx)) {
-			const message = formatTurnTelemetry(telemetry, ctx.ui.theme, config.telemetry, config.icons.mode);
-			if (message) ctx.ui.notify(message, "info");
-		}
+		if (telemetry && config.enabled && config.telemetry.enabled) {
+			// Persist for resume replay: custom entries never join LLM context and
+			// are pruned together with their run when the user rewinds past them.
+			if (config.telemetry.persist) {
+				persistTurnTelemetry(ctx.sessionManager, telemetry);
+			}
+			if (isTuiContext(ctx)) {
+					const message = formatTurnTelemetry(telemetry, ctx.ui.theme, config.telemetry, config.icons.mode);
+					if (message) ctx.ui.notify(message, "info");
+			}
+			}
 	});
 
 	pi.on("model_select", (_event, ctx) => {

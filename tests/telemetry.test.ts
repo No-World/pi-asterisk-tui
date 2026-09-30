@@ -10,7 +10,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "../extensions/asterisk-tui/config.ts";
 import openTui from "../extensions/asterisk-tui/index.ts";
-import { formatTurnTelemetry, TurnTelemetryTracker } from "../extensions/asterisk-tui/telemetry.ts";
+import { formatTurnTelemetry, loadLastTelemetryEntry, TELEMETRY_ENTRY_TYPE, TurnTelemetryTracker } from "../extensions/asterisk-tui/telemetry.ts";
 import { estimateStreamedTokens } from "../extensions/asterisk-tui/utils.ts";
 
 const theme = {
@@ -179,6 +179,7 @@ test("uses footer semantics and respects telemetry segment settings", () => {
 
 	const hidden: typeof DEFAULT_CONFIG.telemetry = {
 		enabled: false,
+		persist: false,
 		tps: false,
 		ttft: false,
 		duration: false,
@@ -653,4 +654,28 @@ test("turn summary tracks thinking time and tool counts across a run", () => {
 	// Live counter resets when the next run starts.
 	tracker.handle({ type: "agent_start" });
 	assert.equal(tracker.getLiveToolCalls(), 0);
+});
+
+test("loadLastTelemetryEntry replays the newest valid persisted run", () => {
+	const run = (over: Record<string, unknown>) => ({
+		type: "custom",
+		customType: TELEMETRY_ENTRY_TYPE,
+		data: {
+			tps: 47.8, ttftMs: 5100, totalMs: 1_241_000, inputTokens: 135_000, outputTokens: 52_000,
+			cacheReadTokens: 3_600_000, stallMs: 8600, stallCount: 4, rateUsdPerMTokens: 0.36,
+			generationMs: 900_000, totalTokens: 3_787_000, cacheHitRate: 96.4, costUsd: 0.36,
+			measurementMs: 900_000,
+			...over,
+		},
+	});
+	// newest valid entry wins
+	const newest = run({ outputTokens: 99 });
+	assert.equal(loadLastTelemetryEntry([run({}), newest])?.outputTokens, 99);
+	// empty branch, foreign custom entries, and malformed payloads are skipped
+	assert.equal(loadLastTelemetryEntry([]), undefined);
+	assert.equal(loadLastTelemetryEntry([{ type: "custom", customType: "pi.share", data: {} }]), undefined);
+	assert.equal(loadLastTelemetryEntry([run({ ttftMs: "corrupted" })]), undefined);
+	assert.equal(loadLastTelemetryEntry([run({ totalMs: Number.NaN })]), undefined);
+	// invalid entries do not shadow an older valid one
+	assert.equal(loadLastTelemetryEntry([run({ outputTokens: 7 }), run({ costUsd: null })])?.outputTokens, 7);
 });
