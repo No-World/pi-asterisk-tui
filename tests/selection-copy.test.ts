@@ -982,3 +982,80 @@ test("partial code selection disambiguates tab vs space lines with tabWidth set"
 		cleanupInstall();
 	}
 });
+
+// ---------------------------------------------------------------------------
+// pi ≥1.5 adaptations: in-component paddingY rows + block-memo reuse merges
+// ---------------------------------------------------------------------------
+
+test("origins: leading paddingY rows are structural and do not shift content mapping", () => {
+	const record = makeParagraphRecord("alpha bravo charlie delta echo foxtrot golf hotel india", 40, 1);
+	record.paddingY = 1;
+	record.lines = [" ".repeat(record.width), ...record.lines, " ".repeat(record.width)];
+	const origins = buildMarkdownOrigins(deps, record);
+	assert.equal(origins.origins[0], -1, "leading padding row is opaque");
+	const contentRows = origins.origins.slice(1, -1);
+	assert.ok(contentRows.every((o) => o >= 0), `all content rows mapped: ${JSON.stringify(origins.origins)}`);
+	assert.equal(origins.origins[origins.origins.length - 1], -1, "trailing padding row is opaque");
+});
+
+test("integration: real Markdown rendered with paddingY=1 maps content rows through the wrapper", () => {
+	const cleanup = installSelectionCopy({
+		Markdown: { prototype: Markdown.prototype },
+		// biome-ignore lint: partial module is fine — only Markdown is exercised
+	} as unknown as Parameters<typeof installSelectionCopy>[0]);
+	try {
+		const md = new Markdown("alpha bravo charlie delta echo foxtrot golf hotel india", 1, 1, identityTheme as never, undefined, undefined);
+		const lines = md.render(40);
+		const record = __testing.markdownRecords.get(md as never);
+		assert.ok(record, "recording captured");
+		assert.equal(record.paddingY, 1, "paddingY captured from the component");
+		assert.equal(lines.length, record.lines.length);
+		const origins = buildMarkdownOrigins(deps, record);
+		assert.equal(origins.origins[0], -1, "padding blank row opaque");
+		assert.equal(origins.origins[origins.origins.length - 1], -1, "padding blank row opaque");
+		const mid = origins.origins.slice(1, -1);
+		assert.ok(mid.every((o) => o >= 0), `content mapped: ${JSON.stringify(origins.origins)}`);
+	} finally {
+		cleanup();
+	}
+});
+
+const rawCall = (raw: string): TokenCallRecord => ({
+	token: { type: "paragraph", raw },
+	width: 40,
+	outputs: [raw],
+	children: [],
+	cells: [],
+});
+
+test("mergeReusedCalls: same-text re-set (zero fresh calls) carries the prior tree while line counts match", () => {
+	const p1 = rawCall("para one\n");
+	const p2 = rawCall("code block\n");
+	const prior: MarkdownRecord = { ...makeParagraphRecord("para one", 40), topCalls: [p1, p2] };
+	// pi ≥1.5 assistant slots re-setText the same text: render cache cleared,
+	// every block reused from the memo, renderToken never fires.
+	const carried = __testing.mergeReusedCalls(prior, [], new Set(["para one\n", "code block\n"]), prior.lines.length);
+	assert.equal(carried, prior.topCalls, "prior tree carried verbatim");
+	// document shrank (a block disappeared): line count mismatch → start over
+	const restarted = __testing.mergeReusedCalls(prior, [], new Set(["para one\n"]), prior.lines.length - 1);
+	assert.equal(restarted.length, 0, "no poisoned carry on shrink");
+	// no block memo (pre-1.5 pi): nothing to carry
+	assert.equal(__testing.mergeReusedCalls(prior, [], undefined, prior.lines.length).length, 0);
+});
+
+test("mergeReusedCalls: streaming re-fire replaces the grown block and carries reused siblings", () => {
+	const p1 = rawCall("para one\n");
+	const p2 = rawCall("para two\n");
+	const prior: MarkdownRecord = { ...makeParagraphRecord("para one", 40), topCalls: [p1, p2] };
+	const grown = rawCall("para two grew\n");
+	const merged = __testing.mergeReusedCalls(prior, [grown], new Set(["para one\n", "para two grew\n"]), 4);
+	assert.equal(merged.length, 2);
+	assert.equal(merged[0], p1, "reused sibling carried in document order");
+	assert.equal(merged[1], grown, "re-fired block replaced by the fresh recording");
+	// a raw absent from the memo is a deleted block — never carried
+	const dropped = __testing.mergeReusedCalls(prior, [grown], new Set(["para two grew\n"]), 4);
+	assert.equal(dropped.length, 1);
+	assert.equal(dropped[0], grown, "only the fresh call survives");
+	// pre-1.5 pi (no memo): the fresh recording stands alone
+	assert.equal(__testing.mergeReusedCalls(prior, [grown], undefined, 4).length, 1);
+});
