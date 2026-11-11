@@ -23,7 +23,13 @@
  *    instance's renderToken (and wrapCellText) methods are intercepted,
  *    recording the pre-wrap token output lines — the logical lines — as a
  *    call tree. Recordings live in a WeakMap keyed per component and are
- *    reused on render cache hits.
+ *    reused on render cache hits. pi-tui ≥1.5 memoizes blocks by token.raw
+ *    and skips renderToken for reused ones (streaming deltas; assistant
+ *    slots re-setText the same text), so recordings whose fresh render only
+ *    covers part of the document merge the prior call tree back in, keyed
+ *    by the block memo's raw set. Leading/trailing paddingY blank rows the
+ *    component itself renders (pi ≥1.5 user messages) are modeled as
+ *    structural opaque rows.
  * 2. Text.prototype.render is wrapped the same way (logical lines come from
  *    splitting the source text).
  * 3. TuiAltScreen.prototype.getActiveSelectionText is replaced: selected
@@ -42,6 +48,7 @@ import { childSegmentAt, lineIndexInAttachedContainer } from "./turn-collapse.ts
 import type { SelectionCopyMode } from "./config.ts";
 
 const DEBUG_LOG = process.env.ASTERISK_TUI_DEBUG;
+const ASTERISK_DUMP_ORIGINS = process.env.ASTERISK_TUI_DUMP_ORIGINS === "1";
 function debug(message: string): void {
 	if (!DEBUG_LOG) return;
 	try {
@@ -115,9 +122,12 @@ export interface CellCallRecord {
 export interface MarkdownComponentLike {
 	text: unknown;
 	paddingX?: number;
+	paddingY?: number;
 	renderToken?: unknown;
 	wrapCellText?: unknown;
 	cachedLines?: string[];
+	/** pi-tui ≥1.5 block memo: raw → rendered block. */
+	blocks?: { deref?: () => Map<unknown, unknown> | undefined } | undefined;
 }
 
 export interface MarkdownRecord {
@@ -126,6 +136,9 @@ export interface MarkdownRecord {
 	text: unknown;
 	contentWidth: number;
 	paddingX: number;
+	/** Vertical padding rows the component itself renders (pi ≥1.5 user
+	 * messages render bg-padded blank rows inside Markdown, not the Box). */
+	paddingY?: number;
 	topCalls: TokenCallRecord[];
 	lines: string[];
 	origins?: MdOriginInfo | undefined;
@@ -445,6 +458,14 @@ export function buildMarkdownOrigins(deps: SelectionDeps, record: MarkdownRecord
 		}
 		void call;
 	};
+	// Leading paddingY rows (pi ≥1.5 renders bg-padded blank rows inside the
+	// component itself). They are structural: mark them opaque and advance
+	// past them so content-row verification stays aligned.
+	const paddingY = record.paddingY ?? 0;
+	for (let i = 0; i < paddingY && cursor < record.lines.length; i++) {
+		origins.push(-1);
+		cursor += 1;
+	}
 	for (const call of record.topCalls) {
 		const start = cursor;
 		const ownerByGroup = new Map<number, { child: number; output: number }>();
@@ -473,6 +494,9 @@ export function buildMarkdownOrigins(deps: SelectionDeps, record: MarkdownRecord
 	}
 	if (cursor !== record.lines.length || (verified === 0 && record.lines.length > 0)) {
 		debug(`markdown origins: model desync (cursor=${cursor} lines=${record.lines.length})`);
+		if (ASTERISK_DUMP_ORIGINS) {
+			debug(`  desync detail: topCalls=${record.topCalls.length} textLen=${typeof record.text === "string" ? record.text.length : -1} padX=${record.paddingX} width=${record.width} groups=${groups.length} callTypes=${record.topCalls.map((c) => String((c.token as { type?: unknown }).type)).join("|")} outputs=${record.topCalls.map((c) => c.outputs.length).join("|")}`);
+		}
 		for (let i = 0; i < origins.length; i++) origins[i] = -1;
 	}
 	record.origins = { groups, origins, callRows };
@@ -1982,6 +2006,74 @@ const INSTALLED_MD = Symbol.for("asterisk-tui.selectionCopy.markdown");
 const INSTALLED_TEXT = Symbol.for("asterisk-tui.selectionCopy.text");
 const INSTALLED_ALT = Symbol.for("asterisk-tui.selectionCopy.altScreen");
 
+/** Identity of a recorded call: top-level blocks are keyed by their raw source. */
+function tokenRawKey(call: TokenCallRecord): string | undefined {
+	const raw = call.token?.raw;
+	return typeof raw === "string" ? raw : undefined;
+}
+
+/** Raw keys of the blocks pi-tui ≥1.5's block memo holds after a render —
+ * exactly the blocks present in the current document (undefined pre-1.5,
+ * where nothing is reused and no merging is needed). */
+function reusedBlockKeys(component: MarkdownComponentLike): ReadonlySet<string> | undefined {
+	const blocks = component.blocks?.deref?.();
+	if (!(blocks instanceof Map) || blocks.size === 0) return undefined;
+	const keys = new Set<string>();
+	for (const key of blocks.keys()) if (typeof key === "string") keys.add(key);
+	return keys.size > 0 ? keys : undefined;
+}
+
+/** Merges a fresh render's call tree into the prior recording. pi-tui ≥1.5
+ * reuses memoized blocks without re-invoking renderToken, so `current` may
+ * cover only part of the document — or none of it (same-text re-set). A
+ * prior call is carried over only when its raw is in the block memo (the
+ * block is still in the document) and did not re-fire; its recording still
+ * describes the reused block's lines verbatim. Mis-merges cannot corrupt
+ * copies: buildMarkdownOrigins verifies every modeled row against the
+ * recorded lines and degrades mismatches to stock. */
+function mergeReusedCalls(
+	prior: MarkdownRecord | undefined,
+	current: TokenCallRecord[],
+	reusedKeys: ReadonlySet<string> | undefined,
+	outLength: number,
+): TokenCallRecord[] {
+	if (!prior) return current;
+	if (current.length === 0) {
+		// Every block reused (same-text re-set): the prior tree still describes
+		// the whole output — but only while the line count still matches; a
+		// mismatch means the document changed shape, so start over instead of
+		// poisoning the record.
+		return reusedKeys && prior.lines.length === outLength ? prior.topCalls : current;
+	}
+	if (!reusedKeys) return current;
+	const priorCalls = prior.topCalls;
+	if (priorCalls.length === 0) return current;
+	const currentKeys = new Set<string | undefined>(current.map(tokenRawKey));
+	const carry = (call: TokenCallRecord): boolean => {
+		const key = tokenRawKey(call);
+		return key !== undefined && reusedKeys.has(key) && !currentKeys.has(key);
+	};
+	const merged: TokenCallRecord[] = [];
+	let consumed = 0;
+	for (const call of current) {
+		const key = tokenRawKey(call);
+		while (consumed < priorCalls.length) {
+			const candidate = priorCalls[consumed];
+			const candidateKey = tokenRawKey(candidate);
+			consumed += 1;
+			if (key !== undefined && candidateKey === key) break; // superseded by the fresh call
+			if (carry(candidate)) merged.push(candidate);
+		}
+		merged.push(call);
+	}
+	while (consumed < priorCalls.length) {
+		const candidate = priorCalls[consumed];
+		consumed += 1;
+		if (carry(candidate)) merged.push(candidate);
+	}
+	return merged;
+}
+
 function wrapMarkdown(proto: object | null | undefined): () => void {
 	const target = proto as GuardedProto | null | undefined;
 	if (!target || typeof target.render !== "function" || target[INSTALLED_MD]) return () => {};
@@ -2034,13 +2126,21 @@ function wrapMarkdown(proto: object | null | undefined): () => void {
 			if (savedCell) self.wrapCellText = savedCell;
 		}
 		const paddingX = typeof self.paddingX === "number" ? self.paddingX : 0;
+		const paddingY = typeof self.paddingY === "number" ? self.paddingY : 0;
+		// pi-tui ≥1.5 memoizes rendered blocks by token.raw and skips
+		// renderToken for reused ones (streaming deltas, same-text re-sets from
+		// assistant slot reuse), so a render may record only part of the call
+		// tree. Merge the fresh calls into the prior recording, carrying over
+		// calls whose blocks the memo proves are still in the document.
+		const mergedCalls = mergeReusedCalls(prior, topCalls, reusedBlockKeys(self), out.length);
 		markdownRecords.set(self as object, {
 			component: self,
 			width,
 			text: self.text,
 			contentWidth: Math.max(1, width - paddingX * 2),
 			paddingX,
-			topCalls,
+			paddingY,
+			topCalls: mergedCalls,
 			lines: Array.isArray(self.cachedLines) && self.cachedLines.length === out.length ? self.cachedLines : out,
 		});
 		return out;
@@ -2136,6 +2236,8 @@ function wrapAltScreen(proto: object | null | undefined): () => void {
 export const __testing = {
 	markdownRecords,
 	textRecords,
+	mergeReusedCalls,
+	reusedBlockKeys,
 };
 
 /**
