@@ -581,10 +581,25 @@ function isTransparentChild(candidate: unknown, width: number): boolean {
 	return lines.length === 0 || lines.every((line) => isBlankLine(line));
 }
 
+/** pi tool components render a truncated preview until expanded; run lines
+ *  promise the full content, so force-expand members when a run renders
+ *  natively (click-to-expand and expand-all both land here). Duck-typed:
+ *  components without setExpanded (older pi, non-tool members) are skipped.
+ *  Safe to call on every render: setExpanded only sets state and rebuilds
+ *  the display tree synchronously — it does NOT requestRender (verified
+ *  against pi 1.5 tool-execution.js), so no render loop. */
+function forceFullOutput(member: unknown): void {
+	const expandable = member as { setExpanded?: unknown };
+	if (typeof expandable?.setExpanded === "function") {
+		(expandable.setExpanded as (expanded: boolean) => void)(true);
+	}
+}
+
 /** One tool, one line (`▸ bash · $ …`); clicking toggles its native box. */
 function emitSingleToolLine(child: object, walk: ExpandedWalk): void {
 	if (runExpanded(child)) {
 		runMembership.set(child, child);
+		forceFullOutput(child);
 		walk.renderChild(child);
 		return;
 	}
@@ -649,6 +664,7 @@ function makeToolTypeRun(walk: ExpandedWalk, expanded: () => boolean) {
 			if (expanded() || runExpanded(head)) {
 				for (const tool of members) {
 					runMembership.set(tool as object, head);
+					forceFullOutput(tool);
 					walk.renderChild(tool);
 				}
 			} else {
@@ -707,6 +723,7 @@ function makeErrorRun(walk: ExpandedWalk) {
 			if (runExpanded(head)) {
 				for (const member of members) {
 					runMembership.set(member as object, head);
+					forceFullOutput(member);
 					walk.renderChild(member);
 				}
 			} else {
@@ -934,6 +951,8 @@ function renderRunTurn(turnChildren: unknown[], walk: ExpandedWalk, width: numbe
 						if ((member.child as AssistantLike).hideThinkingBlock !== false) {
 							(member.child as AssistantLike).setHideThinkingBlock(false);
 						}
+					} else if (member.kind === "tool") {
+						forceFullOutput(member.child);
 					}
 					walk.renderChild(member.child);
 				}

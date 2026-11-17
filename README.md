@@ -51,7 +51,8 @@ compresses is the **compression mode** (`/*tui` → Collapse):
   adjacent compressed lines separated by a single blank; ✻ label lines count as
   compressed lines, keeping them apart from their text tails).
 - **One-click expand/collapse**: click a compressed line to open the full reasoning and
-  every tool's bordered output at once — including the thinking of text-bearing messages,
+  every tool's bordered output at once — tool members render their complete output,
+  skipping pi's truncated preview state — including the thinking of text-bearing messages,
   no second tap on labels. Click any member line to fold it all back. A click is an
   unmodified press that releases on the same cell — drag-selecting text never toggles
   a run (pi's fullscreen selection keeps working untouched).

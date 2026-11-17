@@ -1254,3 +1254,83 @@ test("main-screen requestRender wrap discovers the chat container and flags regu
 	}
 	assert.equal(proto.requestRender, originalRequestRender, "prototype restored");
 });
+
+// ---------------------------------------------------------------------------
+// Run expansion forces full tool output (pi ≥1.5 preview is skipped)
+// ---------------------------------------------------------------------------
+
+type SpyTool = ReturnType<typeof makeTool> & {
+	setExpanded(expanded: boolean): void;
+	expandCalls: boolean[];
+};
+
+function makeSpyTool(toolName: string): SpyTool {
+	const base = makeTool(toolName);
+	const calls: boolean[] = [];
+	return {
+		...base,
+		setExpanded(expanded: boolean) {
+			calls.push(expanded);
+		},
+		get expandCalls(): boolean[] {
+			return calls;
+		},
+	};
+}
+
+test("clicking a collapsed run line expands members with full output", () => {
+	setTurnCollapseEnabled(true);
+	setThinkingDurations([5_000]);
+	const tool = makeSpyTool("ls");
+	const container = makeContainer([makeUserMessage("go"), makeLabelMessage(), tool]);
+	const lines = container.render(60);
+	assert.deepEqual(tool.expandCalls, [], "no setExpanded while collapsed");
+	const runIndex = lines.findIndex((l) => l.includes("Thought for 5s"));
+	assert.ok(runIndex >= 0, "run line exists");
+	assert.equal(handleToolLineClick(runIndex, lines[runIndex]!), true);
+	container.render(60);
+	assert.deepEqual(tool.expandCalls, [true], "expanded render forces full output");
+	setThinkingDurations(undefined);
+});
+
+test("clicking a single-tool line expands with full output", () => {
+	setTurnCollapseEnabled(true);
+	const tool = makeSpyTool("ls");
+	const container = makeContainer([makeUserMessage("go"), tool]);
+	const lines = container.render(60);
+	const idx = lines.findIndex((l) => l.includes("✻"));
+	assert.ok(idx >= 0, `single tool line\n${lines.join("\n")}`);
+	assert.equal(handleToolLineClick(idx, lines[idx]!), true);
+	container.render(60);
+	assert.deepEqual(tool.expandCalls, [true], "single-line expansion forces full output");
+});
+
+test("group-same run expansion forces full output on every member", () => {
+	setTurnCollapseEnabled(true);
+	const first = makeSpyTool("playwright");
+	const second = makeSpyTool("playwright");
+	const container = makeContainer([makeUserMessage("go"), first, second]);
+	const lines = container.render(60);
+	const runIndex = lines.findIndex((l) => l.includes("✻"));
+	assert.ok(runIndex >= 0, `group line\n${lines.join("\n")}`);
+	assert.equal(handleToolLineClick(runIndex, lines[runIndex]!), true);
+	container.render(60);
+	assert.deepEqual(first.expandCalls, [true], "first member forced");
+	assert.deepEqual(second.expandCalls, [true], "second member forced");
+});
+
+test("expand-all shortcut forces full output (regular mode)", () => {
+	setTurnCollapseEnabled(true);
+	setRendererModeForTest("regular");
+	try {
+		const tool = makeSpyTool("ls");
+		const container = makeContainer([makeUserMessage("go"), makeLabelMessage(), tool]);
+		container.render(60);
+		assert.deepEqual(tool.expandCalls, [], "collapsed render does not touch setExpanded");
+		assert.equal(toggleExpandAll(), "expanded");
+		container.render(60);
+		assert.deepEqual(tool.expandCalls, [true], "expand-all forces full output");
+	} finally {
+		setRendererModeForTest(undefined);
+	}
+});
